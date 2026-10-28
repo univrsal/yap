@@ -22,7 +22,10 @@ import "common:proto"
 // loads older results.
 //
 // Words match whole words regardless of case and accents. "a phrase" matches
-// the words in a row, and from:username matches one person's messages.
+// the words in a row, from:username matches one person's messages, and
+// has:file only messages with files. The file button beside the pins searches
+// for has:file alone: every message with files in the conversation
+// (files_button).
 
 UI_Search :: struct {
 	open:     bool,
@@ -59,6 +62,23 @@ search_button :: proc(ui: ^UI) {
 		s.open = !s.open
 		s.placed = false
 	}
+}
+
+// files_button is the header's sheets of paper, which search the conversation
+// for every message with files.
+files_button :: proc(ui: ^UI) {
+	if .SUBMIT in icon_button(ui, "files", .File, "Messages with files") {
+		search_for(ui, "has:file")
+	}
+}
+
+// search_for opens the search (the box's dropdown or the window) and searches
+// this conversation for `query`.
+search_for :: proc(ui: ^UI, query: string) {
+	s := &ui.search
+	field_set(&s.query, query)
+	s.all = false
+	s.open, s.placed, s.submit = true, false, true
 }
 
 // search_box is the box above the members pinned down the side, in a row of
@@ -148,6 +168,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
 	find := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
+	find |= submit
 	find |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
 	search_results(ui, find)
 }
@@ -169,7 +190,10 @@ search_dropdown :: proc(ui: ^UI, box: mu.Rect, window_h: i32, submit: bool) {
 		mu.set_focus(ctx, 0) // which would open it again
 		return
 	}
+	// Not the press that opened it from elsewhere (search_for), before the
+	// box has the focus.
 	if ctx.mouse_pressed_bits != {} &&
+	   s.placed &&
 	   !inside(box, ctx.mouse_pos) &&
 	   !(cnt.open && inside(cnt.rect, ctx.mouse_pos)) {
 		s.open = false
@@ -229,7 +253,7 @@ search_results :: proc(ui: ^UI, submit: bool) {
 		error_label(ctx, found.error)
 		return
 	case found.query == "":
-		dim_label(ctx, `Whole words, "a phrase", from:username.`)
+		dim_label(ctx, `Whole words, "a phrase", from:username, has:file.`)
 		return
 	case found.loading && len(found.found) == 0:
 		dim_label(ctx, "Searching...")

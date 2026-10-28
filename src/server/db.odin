@@ -191,6 +191,7 @@ Stmt :: enum {
 	Files_Index_Add,
 	Files_Index_Remove,
 	File_Search,
+	Files_All,
 	Account_Erase,
 	Device_Erase,
 	Buddy_Erase,
@@ -347,6 +348,9 @@ STMT_SQL := [Stmt]string {
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
 	// Like Msg_Search, but searches the names of the files attached to messages.
 	.File_Search            = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	// Every message that has files (has:file without words), newest first.
+	// It is bound like the two above, and has no use for ?1.
+	.Files_All              = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE f.rowid < ?2 ORDER BY f.rowid DESC",
 	// What is left of a deleted account (see account_erase): a name nobody can
 	// log in with, and nothing else.
 	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', verify_code = '', verify_expires = 0, pw_hash = zeroblob(32) WHERE id = ?1",

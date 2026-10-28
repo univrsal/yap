@@ -640,6 +640,16 @@ test_attachments_search :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, slice.equal(search(t, &ts, alice, "holiday"), []proto.Msg_Id{other}))
 	testing.expect(t, slice.equal(search(t, &ts, alice, "final"), []proto.Msg_Id{both}))
+	// has:file alone finds every message with files, and with words only
+	// those of the matches that have files.
+	testing.expect(
+		t,
+		slice.equal(search(t, &ts, alice, "has:file"), []proto.Msg_Id{other, both, report}),
+	)
+	testing.expect(
+		t,
+		slice.equal(search(t, &ts, alice, "quarterly has:file"), []proto.Msg_Id{report}),
+	)
 
 	id_buf: [proto.MSG_ID_SIZE]u8
 	status, _ := ts_ask(t, &ts, alice, .Msg_Delete, proto.encode_msg_id(&id_buf, report))

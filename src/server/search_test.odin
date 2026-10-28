@@ -51,18 +51,19 @@ search :: proc(
 test_fts_query :: proc(t: ^testing.T) {
 	Case :: struct {
 		typed, query, from: string,
-		ok:                 bool,
+		ok, has_file:       bool,
 	}
-	for c in ([]Case{{"hello world", `"hello" "world"`, "", true}, {`say "good morning" now`, `"say" "good morning" "now"`, "", true}, {"walk* from:Alice", `"walk"`, "Alice", true}, {`AND OR NOT ( ) "`, `"AND" "OR" "NOT"`, "", true}, {`quo"te`, `"quote"`, "", true}, {"  ... !!! ", "", "", false}, {"from:alice", "", "alice", false}}) {
-		query, from, ok := fts_query(c.typed)
+	for c in ([]Case{{"hello world", `"hello" "world"`, "", true, false}, {`say "good morning" now`, `"say" "good morning" "now"`, "", true, false}, {"walk* from:Alice", `"walk"`, "Alice", true, false}, {`AND OR NOT ( ) "`, `"AND" "OR" "NOT"`, "", true, false}, {`quo"te`, `"quote"`, "", true, false}, {"  ... !!! ", "", "", false, false}, {"from:alice", "", "alice", false, false}, {"has:file", "", "", false, true}, {"report Has:Files", `"report"`, "", true, true}}) {
+		query, from, ok, has_file := fts_query(c.typed)
 		testing.expectf(
 			t,
-			ok == c.ok && query == c.query && from == c.from,
-			"%q: got %q %q %v",
+			ok == c.ok && query == c.query && from == c.from && has_file == c.has_file,
+			"%q: got %q %q %v %v",
 			c.typed,
 			query,
 			from,
 			ok,
+			has_file,
 		)
 	}
 }

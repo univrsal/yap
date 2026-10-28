@@ -203,11 +203,12 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	// The members' button is not there while they are pinned down the side,
 	// and neither is the search's, which is a box above them then
 	// (search_box). The voice room's button is only there where we may talk,
-	// left of the others so they stay put.
+	// left of the others so they stay put. Beside the pins, the messages with
+	// files (files_button).
 	pinned := ui.profiles.members_pinned && !narrow
 	in_it := ch != nil && v.my_room == ch.id
 	voice := ch != nil && (.Voice in ch.rights || in_it)
-	buttons: i32 = 1 + (0 if pinned else 2) + (1 if voice else 0)
+	buttons: i32 = 2 + (0 if pinned else 2) + (1 if voice else 0)
 	right := buttons * icon_button_w(ctx) + buttons * ctx.style.spacing + 1
 	widths := make([dynamic]i32, context.temp_allocator)
 	if narrow {
@@ -249,6 +250,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		voice_button(ui, ch^, in_it)
 	}
 	pins_button(ui)
+	files_button(ui)
 	if !pinned {
 		search_button(ui)
 	}
