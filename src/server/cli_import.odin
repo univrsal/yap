@@ -28,12 +28,12 @@ import "mattermost"
 // been used with (a server that was started once, to make config.json, is fine:
 // its first admin is replaced by the import's own accounts).
 //
-// The importer is built in steps (7a to 7g in the design note). So far it reads
-// the export (--dry-run) and makes the accounts; --unfinished says that a
-// database with only that is what is wanted, for trying it on one that is
-// thrown away.
+// It makes everything in one transaction, so that if anything fails, the
+// database is as it was. It writes the generated passwords to a new file, and
+// what it found and did to import-report.txt next to the config. What isn't
+// imported yet is said at the end (IMPORT_NOT_YET).
 
-IMPORT_USAGE :: `usage: yap-server import mattermost <export folder> --team <name> [--owner <username>] [--passwords <file.csv>] [--dry-run] [--yes] [--unfinished] [config.json]`
+IMPORT_USAGE :: `usage: yap-server import mattermost <export folder> --team <name> [--owner <username>] [--passwords <file.csv>] [--dry-run] [--yes] [config.json]`
 
 Import_Args :: struct {
 	folder:    string,
@@ -43,8 +43,6 @@ Import_Args :: struct {
 	config:    string,
 	dry_run:   bool,
 	yes:       bool,
-	// Import what is built so far (see above). Goes when the importer is done.
-	unfinished: bool,
 }
 
 // parse_import_args reads what follows `import`. `ok` is false after a message
@@ -65,8 +63,6 @@ parse_import_args :: proc(args: []string) -> (a: Import_Args, ok: bool) {
 			a.dry_run = true
 		case "--yes", "-y":
 			a.yes = true
-		case "--unfinished":
-			a.unfinished = true
 		case "--team", "--owner", "--passwords":
 			if !inline {
 				if i + 1 >= len(rest) {
@@ -152,12 +148,6 @@ run_import_command :: proc(args: []string) -> int {
 	if a.dry_run {
 		return 0
 	}
-	if !a.unfinished {
-		fmt.eprintln(
-			"\nThe importer is not finished: it can only make the accounts so far. Nothing was changed. (--unfinished imports what there is, into a database that is thrown away.)",
-		)
-		return 2
-	}
 	return import_run(a, scan)
 }
 
@@ -227,27 +217,33 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	importer_init(&im)
 	defer importer_destroy(&im)
 
-	if !import_accounts(&im) {
-		import_undo(&im)
-		fmt.eprintln("the import failed, and nothing was changed")
+	fail :: proc(im: ^Importer, what: string) -> int {
+		import_undo(im)
+		fmt.eprintfln("%s, and nothing was changed", what)
 		return 1
 	}
-	if !import_channels(&im) {
-		import_undo(&im)
-		fmt.eprintln("the import failed, and nothing was changed")
-		return 1
+	if !import_accounts(&im) || !import_channels(&im) || !import_messages(&im) {
+		return fail(&im, "the import failed")
 	}
-	if !import_messages(&im) {
-		import_undo(&im)
-		fmt.eprintln("the import failed, and nothing was changed")
-		return 1
+	if !import_read_state(&im) || !import_record(&im) {
+		return fail(&im, "the import failed")
+	}
+	progress := progress_start("checking the result")
+	problems := import_verify(&im)
+	progress_finish(&progress)
+	if len(problems) > 0 {
+		fmt.eprintln("the result is not right:")
+		for p in problems {
+			fmt.eprintfln("  %s", p)
+		}
+		return fail(&im, "so the import was undone")
 	}
 	if err := import_write_passwords(&im, csv); err != "" {
-		import_undo(&im)
-		fmt.eprintfln("%s\nnothing was changed", err)
-		return 1
+		return fail(&im, err)
 	}
 	db_commit(&db)
+	report, _ := filepath.join({filepath.dir(a.config), "import-report.txt"}, context.temp_allocator)
+	report_err := import_write_report(&im, report)
 	made := len(scan.plan.accounts) + len(scan.authors_gone)
 	fmt.printfln(
 		"\nmade %d accounts, %d channels, %d direct conversations and %d messages, with %d reactions, %d pins and %d saved posts. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
@@ -260,5 +256,11 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		im.bookmarks,
 		csv,
 	)
+	if report_err != "" {
+		fmt.eprintln(report_err)
+	} else {
+		fmt.printfln("What was found and done is in %s.", report)
+	}
+	fmt.println(IMPORT_NOT_YET)
 	return 0
 }

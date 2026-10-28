@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7f built, 7g to go, see The importer |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | built (2026-10-28), see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -977,6 +977,53 @@ a group), and on a made-up export: 1005 pinned and saved posts (the newest
 emoji, and a save by someone who isn't imported. 2 new tests (180). Looked at
 in the client as an imported user: "pinned" and "bookmarked" on the post and
 its reactions 👍 2, ❤ 1, :partyparrot: 1.
+
+### 7g: read state and the finish (built 2026-10-28)
+
+`import_finish.odin`. The importer is complete as far as steps 7a to 7g go,
+and `--unfinished` is gone: the command makes everything, in one transaction,
+and says at the end what isn't imported yet (`IMPORT_NOT_YET`, until steps 8
+to 10 are done).
+
+- **What people have read.** Mattermost says when a member last opened a
+  channel, not what they had read. A member has read the messages up to
+  that time, at it included (a post made at that very time was read), and what
+  they wrote themselves if that is later: yap counts a poster as having read
+  up to their message. A member who never opened a conversation nor wrote in
+  it has read nothing, so all of it is unread, as in Mattermost. System
+  messages never count as unread, so a channel with only those shows none.
+  Done one conversation at a time (its messages' times in memory, a binary
+  search for each member), and `conv_set_read`, which only moves forward.
+- **A record.** `meta` has `imported_from` (Mattermost's version and the team)
+  and `imported_at`, so that a database can be told to be one that was
+  imported. A second import is refused anyway, as the accounts are there.
+- **The check.** Before the transaction commits, `import_verify` looks at the
+  result as the server will meet it, and undoes the import and says what is
+  wrong if anything is: messages in a conversation or from an account that
+  isn't there, a reply to something that isn't in its conversation, a thread
+  whose count is wrong, ids out of the order of their times, members that
+  point at nothing or have read past the end, a conversation's last message,
+  reactions, pins or saved posts of a missing message, pins and the pinned flag
+  disagreeing, text messages that the search index doesn't know, SQLite's
+  foreign key check, and that the accounts and conversations load with the
+  numbers that were made. The search index check counts the index's
+  documents, since `integrity-check` would compare it with every message, and
+  only text messages are indexed by design.
+- **`import-report.txt`** next to the config, after the commit: the report of
+  the scan and plan (with what the writing steps found added to its
+  warnings), what was made, and what isn't imported yet.
+- **User documentation** is in `docs/Server.md`, "Moving from Mattermost".
+
+Tested on the sample, with expected read positions from SQL written without
+the importer's algorithm (and the sample's own edge cases: a channel opened at
+the very time of its last post; one never opened but written in; one never
+opened and never written in; a member who opened it in the middle), a record,
+the check passing and failing for four kinds of damage, and the report
+file; 3 new tests (183). By hand: logged in as an imported user, the unread
+counts are the ones the rule gives (a channel she opened at its last post
+shows none; one she never opened shows the one text message after her last
+own message). 602,000 messages (made up, with pins, saved posts and
+reactions): read state 0.4 s, check 0.7 s, the whole import 45 s, 160 MB at most.
 
 ## Group DMs (step 1)
 

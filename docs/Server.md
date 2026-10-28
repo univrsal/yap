@@ -72,3 +72,55 @@ docker compose --profile proxy up -d
 
 `YAP_RELAY_HOST_IP=127.0.0.1` then keeps the plain-HTTP relay port off the
 network. For the bot API behind it, set `api.behind_proxy` in `config.json`.
+
+## Moving from Mattermost
+
+`yap-server import mattermost` makes a new yap server from a Mattermost one: its
+people, channels, direct messages and group messages, history, threads,
+reactions, pinned and saved posts. Files, custom emoji, the links and
+mentions in messages and the cards of bots and webhooks aren't imported yet;
+the command says so at the end. How it works is in
+[design/mattermost-import.md](design/mattermost-import.md).
+
+1. On the Mattermost server, as an admin, export the whole instance (not one
+   team: that leaves out the direct messages) and download it:
+
+   ```sh
+   mmctl export create --include-archived-channels --include-profile-pictures
+   mmctl export download <the export's name>.zip
+   unzip <the export's name>.zip -d export
+   ```
+
+   Mattermost leaves custom emoji and some reactions out of its exports by
+   mistake. `tools/mattermost/extras.py` fetches them through the REST API
+   into `export/extras.jsonl`, which the import reads if it is there.
+2. Start `yap-server` once so that it makes `config.json`, then stop it. The
+   database may be one that was only started, not used (the account that the
+   first start made is replaced), and the server has to be stopped during
+   the import.
+3. See what the import would do, without changing anything:
+
+   ```sh
+   yap-server import mattermost export --team <team name> --dry-run
+   ```
+
+   A yap server is one community, so one team is chosen. The report lists
+   what will be made and, as warnings, everything that has to be changed or
+   left out: names yap doesn't accept, people who left the team, groups of
+   more than eight, emoji it doesn't know.
+4. Import:
+
+   ```sh
+   yap-server import mattermost export --team <team name> [--owner <username>]
+   ```
+
+   `--owner` is who becomes the server's owner (by default the first system
+   admin of the export). The import is one step: if anything goes wrong the
+   database is as it was. It prints what it is doing every few seconds, and
+   makes `import-report.txt` and `passwords.csv` next to `config.json`.
+5. Everyone gets a generated password, and has to choose their own at their
+   first login. `passwords.csv` (username, email, password) is what to hand
+   them out from. Only you can read it. Delete it when you are done.
+
+Deactivated accounts and guests are made disabled, bots are made as bots (give
+them new tokens), and everyone starts where they had read to in Mattermost.

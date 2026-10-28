@@ -53,7 +53,12 @@ progress_finish :: proc(p: ^Progress) {
 		fmt.eprint("\r\x1b[K")
 	}
 	took := time.duration_seconds(time.tick_diff(p.start, time.tick_now()))
-	fmt.eprintfln("%s: %s, %.1f s", p.label, amount(p, p.done), took)
+	if p.done == 0 {
+		// A phase that isn't counted in anything.
+		fmt.eprintfln("%s: %.1f s", p.label, took)
+	} else {
+		fmt.eprintfln("%s: %s, %.1f s", p.label, amount(p, p.done), took)
+	}
 	p^ = {}
 }
 
