@@ -2,27 +2,35 @@
 
 The goal: yap replaces a Mattermost server, keeping its people, channels,
 history and files. An admin runs one command against a Mattermost export
-and gets a yap database that people log in to with their old names (and,
-if we can manage it, their old passwords), and where the old conversations
-read the way they did.
+and gets a yap database that people log in to with their old names, and
+where the old conversations read the way they did.
 
-Not a plan yet: this note lists what Mattermost has that yap can't hold
-today, what maps onto something yap already has, and the decisions to make
-before building. Nothing here has been tried against a real export.
+Not a plan yet. Before the importer, two things: decide what yap gains so
+that Mattermost's data fits (decided, see Decisions), and
+look at a real export from a test instance (step 6), because the export's
+documentation and its code don't say everything we need. What this note
+says about the export comes from reading Mattermost's source (master,
+2026-10), not from an export we made.
 
 | # | Change | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Group DMs | L | protocol, schema, server, client | - | open |
-| 2 | Raising the size limits (message text above all) | M | protocol, schema, client | - | open |
-| 3 | bcrypt passwords, re-hashed on first login | S | server | - | open |
+| 2 | DMs with oneself | S | protocol, server, client | - | open |
+| 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | open |
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | open |
-| 5 | The importer: accounts, channels, members, messages, threads, reactions, pins | XL | server (CLI) | 1–3 | open |
-| 6 | Files and custom emoji | M | server (CLI) | 5 | open |
-| 7 | Mentions and channel links rewritten | S | server (CLI) | 5 | open |
-| 8 | Bot and webhook posts | S | server (CLI) | 5 | open |
-| 9 | Saved messages | M | protocol, schema, client | - | open, optional |
+| 5 | `@here` | S | protocol, server, client | - | open |
+| 6 | A test Mattermost instance and a sample export | S | tooling | - | webhooks seen (2026-10-28), the rest open |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | open |
+| 8 | Files and custom emoji | M | server (CLI) | 7 | open |
+| 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
+| 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
+| 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | open |
+| 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | open |
+| 13 | Channel admins | M | protocol, schema, server, client | - | open |
 
-Sizes as in `docs/design/next.md`.
+Sizes as in `docs/design/next.md`. 1–5 and 11–13 are yap features that stand on
+their own; 6 can happen alongside them and may change what 7–10 do.
+The importer works only on a new, empty database (D5).
 
 ## Where things are today
 
@@ -32,7 +40,8 @@ Sizes as in `docs/design/next.md`.
 - One server is one community: channels have no team or workspace above
   them, and channel names are unique on the server.
 - Passwords are Argon2id (hash_worker.odin); `accounts.pw_params` says
-  which parameter set a row was hashed with.
+  which parameter set a row was hashed with. `Must_Change` makes someone
+  pick a new password at their next login.
 - Limits (proto/*): message text `MAX_CHAT_SIZE` 2000 bytes, channel name
   `MAX_CHANNEL_NAME_SIZE` 32, topic `MAX_TOPIC_SIZE` 128, username 2–32 of
   `a-z 0-9 _ . -`, status 80, avatar 256 px and 64 KB, custom emoji names
@@ -55,129 +64,230 @@ Sizes as in `docs/design/next.md`.
 - Bots are accounts with the `Bot` flag (bot-api.md). Incoming and
   outgoing webhooks and slash commands are listed there as later work.
 
-## What Mattermost has
+## The export
+
+`mmctl export create` runs an export job on the Mattermost server;
+`mmctl export download` fetches the result, a zip with `import.jsonl` and
+a `data/` folder of files. It is the same format Mattermost imports
+(`mmctl import`), and the format is versioned (the first line), so it is
+the stable thing to read. Flags of `export create`:
+
+| Flag | Default | Note |
+| --- | --- | --- |
+| `--no-attachments` | off | files are included unless this is given |
+| `--include-archived-channels` | off | **needed**: archived channels and their posts are left out otherwise |
+| `--include-profile-pictures` | off | **needed** for avatars |
+| `--no-roles-and-schemes` | off | schemes and custom roles are included unless this is given |
+| `--team-name`, `--team-id` | all | **don't use**: a team-scoped export has no DMs or group messages at all |
+| `--channel-name`, `--channel-id` | all | |
+| `--include-custom-emoji` | off | only matters for a scoped export |
+
+So the export to ask an admin for is the whole instance with
+`--include-archived-channels --include-profile-pictures`, and the importer
+picks the team (D1).
+
+### Lines
+
+One JSON object per line, `{"type": "<kind>", "<kind>": {...}}`, in this
+order: `version`, `role`/`scheme`, `team`, `channel`, `user`, `bot`,
+`post`, `emoji`, `direct_channel`, `direct_post`. Then the files. Names,
+not ids, join them: a post names its team, channel and user; a direct
+post names the usernames of its channel's members.
+
+What each line carries that we care about (from
+`server/channels/app/imports/import_types.go` and `export_converters.go`):
+
+- **user**: `username`, `email`, `auth_service` and `auth_data` (SSO),
+  `nickname`, `first_name`, `last_name`, `roles` (`system_user`,
+  `system_admin`, `system_guest`), `delete_at` (deactivated),
+  `profile_image` (a path under `data/`), `notify_props`, display
+  preferences. **No password**: the export never writes one. Deactivated
+  users are exported. `custom_status` is in the format but the export
+  doesn't fill it.
+  - `teams[]`: team `name`, `roles` (`team_user`, `team_admin`), and
+    `channels[]`: channel `name`, `roles` (`channel_user`,
+    `channel_admin`), `notify_props` (`desktop`, `mobile`, `mark_unread`),
+    `favorite`, `last_viewed_at`, `msg_count`, `mention_count`.
+- **bot**: `username`, `owner`, `display_name`, `description`,
+  `delete_at`, `profile_image`.
+- **team**: `name`, `display_name`, `type`, `description`, `scheme`.
+- **channel**: `team`, `name`, `display_name`, `type` (`O`, `P`),
+  `header`, `purpose`, `scheme`, `deleted_at` (archived).
+- **post**: `team`, `channel`, `user`, `type` (empty for a normal post,
+  `system_*` for others), `message`, `props`, `create_at`, `edit_at`,
+  `is_pinned`, `flagged_by` (who saved it), `reactions[]` (`user`,
+  `emoji_name`, `create_at`), `attachments[]` (`path` under `data/`),
+  `thread_followers[]` (`user`, `last_viewed`, `unread_mentions`) and
+  `replies[]`, which have the same fields but no thread followers.
+- **direct_channel**: `participants[]` (`username`, `notify_props`,
+  `last_viewed_at`, counts), `favorited_by`, `shown_by`, `header`. Two
+  participants are a DM, three to eight a group message. A DM with
+  oneself has the same username twice.
+- **direct_post**: `channel_members` (usernames), then like a post.
+- **emoji**: `name`, `image` (`data/emoji/<id>/image`).
+- **scheme** and **role**: permission names per role; for channel
+  moderation (D6).
+
+### What the export leaves out
+
+- Passwords (see D2, which doesn't need them).
+- Deleted posts: a root post or direct post with `delete_at` set is
+  skipped; whether its replies are too is to be seen. So D10 ("kept as
+  deleted") can only keep what the export has.
+- Edit history: only `edit_at` and the current text.
+- Custom user groups (`@groupname`), sidebar categories, webhooks, slash
+  commands, link preview metadata, the custom status.
+- Group messages whose name doesn't match their members, and "direct
+  channels with only one active member"; which ones those are is to be
+  seen, it may include DMs with a deactivated user.
+
+### To see on the test instance (step 6)
+
+A Mattermost in Docker (`mattermost/mattermost-team-edition` and
+Postgres), filled by hand and by a script against its REST API, with two
+teams, open, private and archived channels, DMs, group messages, a DM
+with oneself, threads, edits, deletions, pins, saved posts, reactions
+with standard and custom emoji, files and pictures, a guest, an admin, a
+deactivated user, a bot, an incoming webhook posting a message
+attachment, and joins, leaves and header changes. Then:
+
+- Are system posts (`system_join_channel`, ...) in the export, with what
+  in `props`?
+- Are replies of a deleted root post exported? Deleted replies?
+- Is a DM with a deactivated user exported? A DM with oneself?
+- ~~What does a webhook post look like?~~ Seen, see Webhooks.
+- What `message` looks like for mentions, channel links and custom emoji.
+- Do the `data/` paths match the `path` and `image` fields as written?
+- Is `last_viewed_at` usable for `read_id` in channels with threads?
+- How large an export of a real server is, and how long it takes.
+
+The sample export, with nothing private in it, can then be the
+importer's test data.
+
+### Seen on the test instance so far
+
+A first run (2026-10-28, Mattermost Team Edition 12.0.1 with Postgres 16
+in Docker, one team, webhooks only; the rest of the list above is still
+to do):
+
+- **Posts are not in time order** in `import.jsonl`, not even within a
+  channel. The importer has to sort them by `create_at` before inserting
+  (see Messages).
+- **System posts are exported**, with their `type` and `props`:
+  `system_join_channel` and `system_join_team` (`props.username`),
+  `system_add_to_channel` (`addedUsername`, `addedUserId`, `username`,
+  `userId`), and bot greetings such as `add_bot_teams_channels` in DMs.
+- **Bots are exported**, including Mattermost's own (`calls`,
+  `system-bot`), whose `owner` is a plugin id or `admin`.
+- **Profile pictures**: only uploaded ones are in `data/`; accounts with
+  the generated default picture have no `profile_image`.
+- **Channel admins**: any number of members can be one
+  (`roles: "channel_user channel_admin"` on the membership).
+
+## Mapping
 
 The parts of Mattermost's data an import touches, and where each goes.
-"Gap" means yap can't hold it today.
 
-### Teams (gap, decision D1)
+### Teams
 
-A Mattermost server has one or more teams, each with its own channels;
-channel names are unique per team. Most servers we'd replace have one
-team. Options: one team per yap server (the importer takes `--team`), or
-all teams merged with a prefix on names that clash.
+One team per yap server (D1). The importer takes `--team` and imports
+its channels, the users who are members of it, and the DMs and group
+messages whose members are all imported users. Other users and other
+teams' channels are left out.
 
 ### Accounts
 
-| Mattermost | yap |
+| Mattermost (`user`) | yap |
 | --- | --- |
-| `Username` (3–22 of `a-z 0-9 . - _`) | `username`, as is |
-| `Nickname`, else `FirstName LastName`, else username | `display` |
-| `Email`, `EmailVerified` | `email`, `Unverified` if not verified |
-| `Password` (bcrypt) | see D2 |
-| `AuthService` (SAML, LDAP, GitLab, ...) | no password: D2 |
-| `DeleteAt` (deactivated) | `Disabled` |
-| `Roles` containing `system_admin` | the admin role |
-| `system_guest` | a role with few rights (D6) |
-| bots (`Bots` table) | `Bot` flag, the owner kept as `created_by` if wanted |
-| profile picture | avatar blob, scaled to 256 px and re-encoded under 64 KB |
-| `Props.customStatus` (emoji, text, expiry) | `status`, `status_until`; the emoji goes into the text |
-| `CreateAt` | `created` |
-| `Timezone`, `Locale`, `Position` | dropped |
+| `username` (3–22 of `a-z 0-9 . - _`) | `username`, as is |
+| `nickname`, else `first_name last_name`, else username | `display` |
+| `email` | `email` |
+| password, `auth_service` | a generated password and `Must_Change` (D2) |
+| `delete_at` (deactivated) | `Disabled` |
+| `roles` containing `system_admin`, or `team_admin` in the team | the Admin role (D6) |
+| `roles` containing `system_guest` | the guest role (D6) |
+| `bot` lines | `Bot` flag |
+| `profile_image` | avatar blob, scaled to 256 px and re-encoded under 64 KB |
+| `locale`, `position`, preferences | dropped |
 
-An account that was deleted for good but still has posts becomes a
+An author that isn't in the export (a deleted account) becomes a
 `Deleted` tombstone, so its messages keep a sender.
 
-### Passwords (gap, decision D2)
+### Passwords
 
-Mattermost stores bcrypt. A new `pw_params` value could mean "bcrypt":
-login checks with bcrypt and, if it matches, re-hashes with Argon2id and
-stores that. Core Odin has no bcrypt (check `core:crypto` first); it is
-small enough to write or vendor.
-
-Without it, every imported account gets `Must_Change` and a password the
-admin hands out, or a reset by email (verify.odin already sends mail).
-Accounts that logged in through SSO/LDAP need that path anyway.
-
-I believe Mattermost's bulk export (`mmctl export create`) leaves password
-hashes out, which decides D3 if we want to keep passwords.
+Every imported account gets a generated password and `Must_Change`, so
+it picks its own at first login (D2). The export has no passwords anyway,
+and SSO accounts never had one. The importer writes the generated
+passwords to a CSV file, `username,password` with one line per account
+(bots excepted), for the admin to hand out. The file holds every
+account's password until they change it, so the importer creates it
+readable only by its owner and says so.
 
 ### Channels
 
-| Mattermost | yap |
+| Mattermost (`channel`) | yap |
 | --- | --- |
-| `Type` `O` (open) / `P` (private) | `Private` or not |
-| `Type` `D` (DM) | DM |
-| `Type` `G` (group message) | **gap**: group DMs (step 1) |
-| `Name` (64), `DisplayName` (64) | `name`; DisplayName is what people know, so it wins; 32 bytes today (D4) |
-| `Header` (1024), `Purpose` (250) | `topic`, 128 bytes today (D4) |
-| `DeleteAt` | `Archived` |
+| `type` `O` / `P` | `Private` or not |
+| `direct_channel`, two members | DM |
+| `direct_channel`, the same member twice | a DM with oneself (step 2) |
+| `direct_channel`, 3–8 members | group DM (step 1) |
+| `name` (64), `display_name` (64) | `name`; display_name is what people know, so it wins |
+| `header` (1024), `purpose` (250) | `topic` (step 3); header, or purpose if there is no header |
+| `deleted_at` | `Archived` |
 | `town-square` | `Home` |
-| `off-topic` and the team's default channels | `Default` |
-| channel moderation (who may post, react, ...) | `conv_rights` on the `everyone` role |
-| read-only channels | `everyone` without Write |
+| `off-topic` | `Default` |
+| channel scheme (who may post, react, ...) | `conv_rights` on the `everyone` role |
+| `header` of a direct channel | dropped |
 
-Every imported channel is probably `Text_Only` (D7): Mattermost channels
-have no voice room, and turning one on is a click.
-
-Mattermost allows a DM with oneself (a notes channel). yap refuses one;
-the importer can skip them or turn them into a private channel with one
-member (D8).
+Every imported channel is `Text_Only` (D7).
 
 ### Members
 
-| Mattermost (`ChannelMembers`) | yap (`members`) |
+| Mattermost (`teams[].channels[]`, `participants[]`) | yap (`members`) |
 | --- | --- |
 | membership | a row |
-| `LastViewedAt` | `read_id`: the last message in the channel at or before that time |
-| `NotifyProps.desktop` / `mark_unread` | `notify`: `all`, `mention` → Mentions, `none` or muted → None |
-| `SchemeAdmin` | nothing per channel; dropped, or a role (D6) |
-| `CreateAt` (when they joined) | `joined` |
+| `last_viewed_at` | `read_id`: the last message in the channel at or before that time |
+| `notify_props.desktop` / `mark_unread` | `notify`: `all`, `mention` → Mentions, `none` → None; `default` → All |
+| `roles` with `channel_admin` | channel admin (step 13, D6) |
+| `favorite`, `favorited_by`, `shown_by` | dropped (D9) |
 
-Sidebar categories and favourites (`SidebarCategories`) are per person;
-yap has one `position` per channel for everyone. Dropped (D9).
+There is no join time in the export; `joined` is the first post's time in
+the channel or the import's.
 
 ### Messages
 
-| Mattermost (`Posts`) | yap (`messages`) |
+| Mattermost (`post`, `direct_post`, `replies[]`) | yap (`messages`) |
 | --- | --- |
-| `Message` | `text`, after the rewrites below; up to 16383 characters (D4) |
-| `CreateAt` | `time`; rows inserted in `CreateAt` order across all channels so ids follow time |
-| `RootId` | `thread_root`; `reply_count` and `last_reply` computed afterwards |
-| `EditAt` | `edited` |
-| `OriginalId` (an old version of an edited post) | skipped |
-| `DeleteAt` | skipped, or `Deleted` (D10) |
-| `IsPinned` | `pins` and `Pinned`; more than 50 per channel doesn't fit (D4) |
-| `FileIds` | attachments (step 6) |
-| `Type` `system_*` | see system messages |
-| `Props.attachments` (message attachments, cards) | see bot posts |
-| `Props.override_username`, `override_icon_url`, `from_webhook` | see bot posts |
-| `Reactions` | `reactions`; emoji names mapped to yap's (proto/emoji_table.odin), custom ones to `:name:` |
-| `Hashtags`, `Metadata` (link previews) | dropped |
-| `Props.priority`, acknowledgements, reminders | dropped |
+| `message` | `text`, after the rewrites below (limits from step 3) |
+| `create_at` | `time`; rows inserted in `create_at` order across all channels so ids follow time |
+| reply | `thread_root`; `reply_count` and `last_reply` computed afterwards |
+| `edit_at` | `edited` |
+| deleted posts | `Deleted` where the export has them (D10) |
+| `is_pinned` | `pins` and `Pinned` |
+| `attachments` | attachments (step 8) |
+| `type` `system_*` | a system message (step 4, D11) |
+| `props.attachments`, `props.from_webhook`, `override_username` | step 10 |
+| `reactions` | `reactions`; emoji names mapped to yap's (proto/emoji_table.odin), custom ones to `:name:` |
+| `flagged_by` | bookmarks of those accounts (step 11) |
+| `thread_followers` | dropped |
 
-Collapsed reply threads: Mattermost remembers which threads each person
-follows and how far they read (`ThreadMemberships`). yap has nothing like
-it; dropped.
-
-### System messages (gap, step 4)
+### System messages (step 4)
 
 Mattermost posts `system_join_channel`, `system_leave_channel`,
 `system_add_to_channel`, `system_remove_from_channel`,
 `system_header_change`, `system_purpose_change`,
-`system_displayname_change`, `system_channel_deleted` and more. yap's
-system messages are for calls only. Either new `System` kinds (the
-`system` byte and `system_arg` have room: an account, or the new text in
-`text`), or the importer drops them (D11). Joins and leaves are most of
-them and the least missed.
+`system_displayname_change`, `system_channel_deleted` and more. They
+become new `System` kinds (D11): the `system` byte says which, and
+`system_arg` holds the account it is about. Which ones, and what they
+carry in `props`, after step 6. yap could post the same kinds itself when
+people join and leave, so they aren't only for imported history.
 
-### Text: mentions, channel links, Markdown (step 7)
+### Text: mentions, channel links, Markdown (step 9)
 
 - `@username` → `<@id>` for accounts that exist. Not inside code.
-- `@channel` and `@all` → `<@everyone>`. `@here` has no equivalent;
-  `<@everyone>` or plain text (D12).
-- `@groupname` (custom user groups, `UserGroups`) → `<@&role>` if groups
-  become roles (D6), else plain text.
+- `@channel` and `@all` → `<@everyone>`. `@here` → yap's own (step 5,
+  D12): everyone in the conversation who is online.
+- `@groupname`: user groups aren't in the export, so plain text.
 - `~channel-name` → a channel link, if yap has one; else the channel's
   name as text.
 - Markdown: Mattermost's is CommonMark with tables, headings, task lists,
@@ -188,45 +298,110 @@ them and the least missed.
 The `mentions` rows for imported messages are written by the importer,
 the same as posting would.
 
-### Bot and webhook posts (step 8)
+### Bot and webhook posts (step 10)
 
-Integrations often post with empty `Message` and the content in
-`Props.attachments` (title, text, fields, colour), and webhooks post under
+Integrations often post with empty `message` and the content in
+`props.attachments` (title, text, fields, colour), and webhooks post under
 a name and picture of their choosing (`override_username`). Turned into
 Markdown text by the importer: the card's title in bold, its text, its
-fields as a list. The name the webhook used goes at the start of the text,
-or each webhook becomes a bot account of its own (D13).
+fields as a list. Who it shows as is D13.
 
-The webhooks and slash commands themselves are not imported; their URLs
-point at the Mattermost server. bot-api.md has them as later work.
+The webhooks and slash commands themselves are not in the export.
 
-### Files and emoji (step 6)
+### Webhooks
 
-- `FileInfo` points into Mattermost's file store (a folder or S3). The
-  importer reads each file and stores it as a File blob, with an
-  `attachments` row; width and height from the picture's header as posting
-  does. Thumbnails and previews are not copied. A file over
+How Mattermost does it, as seen on the test instance:
+
+- An **incoming webhook** is a secret URL made by a user (or for a bot,
+  by an admin) for one channel. It has its own default `username` and
+  `icon_url`, and may be locked to its channel; unlocked, a post can name
+  another channel or `@someone`.
+- An **outgoing webhook** or **slash command** calls a URL; what the URL
+  answers is posted the same way as an incoming webhook's post.
+- **The author is the webhook's creator**: a real person's account (alice
+  in the tests), or the bot's when a bot owns it. A webhook post to
+  `@bob` lands in the DM between its creator and bob.
+- **The name shown is per post.** With `EnablePostUsernameOverride` and
+  `EnablePostIconOverride` on (both are server settings, off by default),
+  the post's `username` and `icon_url`, else the hook's defaults, are
+  stored as `props.override_username` and `props.override_icon_url`. The
+  name is free text (`Build Server #123`), and nothing stops it from
+  being a real person's username (`bob`): Mattermost's client marks such
+  posts with a BOT tag, and that is all. With no name anywhere it is the
+  literal `webhook`. The icon is a URL that every client fetches.
+- With the overrides off, nothing is stored and the post shows as its
+  creator.
+- Every webhook post has `props.from_webhook = "true"` and
+  **`props.webhook_display_name`**, the hook's name ("Jenkins hook").
+  There is no webhook id.
+- Props sent by the caller are kept (`props.card` and others).
+- **Overriding is for webhooks only.** A post through the REST API, by a
+  person or a bot, with `override_username`, `override_icon_url` or
+  `from_webhook` in its props has them removed. (Server plugins can set
+  them; not tried.)
+- Posts with only a card have `type: "slack_attachment"` and an empty
+  `message`.
+- Everything above is in the export as stored. The webhooks themselves
+  are not.
+
+So for the import, `webhook_display_name` names the webhook, and
+`override_username` names who it posed as in that one post. D13 below.
+
+### Overridden names in yap's bot API (D14)
+
+Mattermost's overrides, like Discord's webhooks (`username` and
+`avatar_url` per call), let one integration post under many names. It is
+what CI (one hook, many projects), alerting (Grafana, Alertmanager) and
+bridges (a relay showing the remote person's name) want. In yap a bot has
+one name and one avatar, so today each needs a bot account per name.
+
+What it would take, if a bot may post as a **persona**:
+
+- A message gets an optional persona: a display name, and an avatar as a
+  blob id (uploaded through the bot API, not a URL that every client
+  fetches, which would tell a stranger's server who is reading). A new
+  `Msg_Flag` (three of eight are free), two columns, and a field in the
+  bot API's `POST /convs/{id}/messages` and its `author`.
+- The client shows the persona's name and picture, always with the bot
+  badge and the bot's own name next to it ("GitLab · via CI Bot"), so
+  that it can't pass for a person.
+- Only bot accounts may use it. The server refuses a persona whose name
+  is an account's username or display name, unlike Mattermost.
+- Mentions, DMs and replies go to the bot, not the persona.
+
+The importer would use it the same way: webhook posts become posts by one
+bot per webhook, each with the post's `override_username` as its persona.
+Avatars from `override_icon_url` are fetched once per URL by the importer
+if they still load, else none.
+
+Without personas, the import still works (D13), just with more bots or
+less faithful names, and yap's own webhooks later are one bot per
+webhook, which is what bot-api.md already suggests.
+
+### Files and emoji (step 8)
+
+- Attachments are in the zip under `data/`, named by each `path`. The
+  importer stores each as a File blob with an `attachments` row; width
+  and height from the picture's header as posting does. A file over
   `max_attachment` is skipped with a warning, or the limit is raised for
   the import.
-- Files not attached to any post (uploads that were never sent) are
-  skipped.
-- Custom emoji (`Emoji` table and their pictures) are written into
-  `emoji/`. Names longer than 32 or with characters yap doesn't allow
-  are renamed and the reactions and texts using them follow. More than
-  512 doesn't fit (D4).
+- Custom emoji are `data/emoji/<id>/image`, written into `emoji/` as
+  `<name>.<ext>`. Names longer than 32 or with characters yap doesn't
+  allow are renamed and the reactions and texts using them follow.
 
-### Saved messages (gap, step 9, optional)
+### Saved messages
 
-Mattermost's "saved" posts (`Preferences`, category `flagged_post`) are a
-personal list people rely on. yap has no such thing. Without it they are
-lost; with it, it is a table of `(account, message)` and a list in the
-client.
+Mattermost's saved posts are in the export (`flagged_by`) and are a
+personal list people rely on. They become bookmarks (step 11): each
+username in a post's `flagged_by` bookmarks that message, at the post's
+own time (the export doesn't say when it was saved).
 
 ### Not imported
 
 Plugins' data (Boards, Playbooks, Calls recordings), shared channels,
 data retention policies, OAuth apps, sessions and access tokens,
-preferences besides saved posts, and audit logs.
+preferences besides saved posts, thread following, and everything the
+export leaves out.
 
 ## Group DMs (step 1)
 
@@ -241,38 +416,122 @@ there is nowhere to put them. A sketch, to be settled in its own note:
   someone makes a new one), so yap doesn't have to either at first.
   Finding the existing group for the same set of people is what
   `dm_find` does for two.
-- Mattermost allows up to 8 people in a group message; yap's limit can
-  be the same.
+- Mattermost allows 3 to 8 people in a group message; yap's limit can be
+  the same.
+
+## DMs with oneself (step 2)
+
+A place for one's own notes, one per account on each server. A DM whose
+`a` and `b` are the same account; `dm_open` stops refusing it, and the
+client lists it with the other DMs under one's own name. Nobody else can
+see it, mentions in it notify nobody, and calls in it make no sense.
+
+## Channel admins (step 13)
+
+Today everything about a channel beyond posting in it is
+`Manage_Channels`, a permission for the whole server
+(conv_requests.odin): renaming it, changing its topic and position,
+archiving it, removing members from a private channel and changing its
+rights map. Adding someone takes `Invite` and being a member.
+
+A channel admin is a member who manages that one channel. Like in
+Mattermost, a channel can have any number of them. A channel admin may:
+
+- add members (which matters mostly for private channels; public ones
+  can be joined anyway) and remove them,
+- make other members channel admins, and stop being one,
+- change the channel's name and topic.
+
+Not: archiving it, its position in the lists or its rights map; those
+stay with `Manage_Channels`, as does everything a channel admin may do.
+Whoever creates a channel becomes its first admin.
+
+A flag on the membership (`members` has no flags column yet, so a schema
+step), sent with the member list so that clients can show who the admins
+are and offer the menu entries. In DMs and group DMs it doesn't exist.
+Mattermost's `channel_admin` role has more (bookmarks, banners,
+auto-translation), none of which yap has.
+
+## Bookmarks (step 11)
+
+Mattermost's saved messages, in yap's terms: a person marks messages to
+come back to, and finds them again in one list.
+
+- **Bookmarking**: the message menu (ui_message_menu.odin) gets
+  "Bookmark", or "Remove bookmark" on one that is bookmarked. It works on
+  any message one can read, in channels, DMs, group DMs and threads. A
+  bookmarked message shows a small marker, only to its bookmarker.
+- **The list**: one per account on each server, which nobody else sees.
+  It is shown like a conversation: an entry at the top of the channel
+  list (ui_channels.odin), "Bookmarks", which opens a view in the place
+  of the messages. It lists the bookmarked messages, newest bookmark
+  first, each with where it is (channel, DM or thread), its author, time
+  and content, and a button that jumps to it in its conversation (as a
+  search result does). Each also has "Remove bookmark". It is not a
+  conversation in the protocol: nobody posts in it.
+- **What it holds** is a reference, not a copy: an edited message shows
+  its new text, a deleted one shows as deleted until its bookmark is
+  removed. A message in a conversation one can no longer read (left a
+  private channel, removed from it) is hidden from the list but its
+  bookmark is kept, so it comes back if one is added again. A message
+  that is purged takes its bookmarks with it.
+- **Server**: a table `bookmarks (account, message, time)`, primary key
+  `(account, message)`; requests to add and remove a bookmark and to
+  list them (paged by bookmark time, like history); an event to one's
+  other connections when one is added or removed, so every device
+  agrees. Whether a message is bookmarked travels with the message only
+  to its bookmarker, or the client knows it from the list it has loaded
+  (to be settled when building).
+- **Bot API**: not needed at first.
+- A limit per account (say 1000) keeps the list cheap to load; Mattermost
+  has none, so the importer may have to drop the oldest past it.
 
 ## Decisions
 
-- **D1** Teams: one team per yap server (`--team`), or all merged with
-  prefixes on clashing names?
-- **D2** Passwords: bcrypt kept and re-hashed on login, or everyone resets?
-  SSO/LDAP accounts reset either way.
-- **D3** Source: Mattermost's bulk export (JSONL and a zip of files), or
-  its Postgres/MySQL database directly? The export is a stable format
-  that includes group messages, replies, reactions and emoji, and is
-  what Mattermost itself imports. It probably lacks password hashes and
-  per-person read state, and the file store may need to be read
-  separately. Reading the database gets everything but ties us to
-  Mattermost's schema, which changes between versions.
-- **D4** Limits: which to raise rather than truncate. Message text
-  matters most (2000 bytes against 16383 characters, which can be four
-  times as many bytes); cutting messages loses history. Channel names and
-  topics next. Pins and reactions per message can probably be raised
-  without much thought; check what they cost in the wire format first.
-- **D5** Running it: a `yap-server import mattermost <export>` command
-  against a new, empty database only, or into an existing server too?
-  Empty only is much simpler (ids, names and the home channel don't
-  clash).
-- **D6** Roles: what Mattermost's guest, team admin, channel admin and
-  custom user groups become.
-- **D7** Imported channels `Text_Only`?
-- **D8** DMs with oneself: skipped, or a private channel?
-- **D9** Sidebar categories and favourites: dropped?
-- **D10** Deleted posts: skipped, or kept as `Deleted`?
-- **D11** Mattermost's system messages: new kinds, or dropped?
-- **D12** `@here`: `<@everyone>` or text?
-- **D13** Webhook posts: one bot account per webhook name, or the name in
-  the text?
+- **D1** Teams: only one team is imported, chosen with `--team`. The
+  export must still be of the whole instance, because a team-scoped
+  export has no DMs.
+- **D2** Passwords: every imported account gets a generated password and
+  is asked to set a new one at first login. The importer writes the
+  generated passwords to a CSV file (`username,password`) for the admin
+  to hand out.
+- **D3** Source: Mattermost's bulk export, not its database. It has more
+  than its documentation says (read state, pins, edits, saved posts,
+  group messages, webhook props), and what it lacks (passwords, deleted
+  posts) D2 and D10 don't need.
+- **D4** Limits: all of yap's limits are raised to fit Mattermost's.
+- **D5** The importer only imports into a new, empty database. It
+  refuses one that has anything in it beyond what a new database starts
+  with (the home channel and the `everyone` role), so ids, names and the
+  home channel never clash with what's there.
+- **D6** Roles: the importer creates a guest role that can't see any
+  channel and has no other rights, and a role named Admin with all
+  rights, for system and team admins. Channel admins become yap's own
+  channel admins (step 13): any number per channel, who may add and
+  remove members, make others channel admins, and change the channel's
+  name and topic.
+- **D7** Imported channels are `Text_Only`.
+- **D8** DMs with oneself are supported (step 2), one per account on each
+  server.
+- **D9** Sidebar categories and favourites are dropped.
+- **D10** Deleted posts are kept as `Deleted`, as far as the export has
+  them.
+- **D11** Mattermost's system messages become new system message kinds.
+- **D12** yap gets `@here`.
+- **D13** Webhook posts: **one bot per webhook**, with each post's
+  override as its persona (D14). The importer makes a bot for each
+  distinct `webhook_display_name` and posts as it; `override_username`
+  and `override_icon_url` become the post's persona. Posts without
+  `webhook_display_name` (older Mattermost versions may not have set it;
+  not checked) get a bot named after the override name, else they stay
+  with their creator.
+- **D14** Personas: a bot may post under another name and picture (step
+  12, see Overridden names in yap's bot API). Bots only; always shown
+  with the bot badge and the bot's own name; a persona can't use an
+  account's username or display name; the picture is an uploaded blob,
+  not a URL. Step 12 comes before step 10.
+- **D15** Saved messages become **bookmarks** (step 11): one's own list
+  on each server, shown like a conversation at the top of the channel
+  list, each entry with a button that jumps to the message; bookmarking
+  is in the message menu.
+
