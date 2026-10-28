@@ -892,14 +892,16 @@ switch_now :: proc(ui: ^UI) {
 	join_close(ui)
 	settings_after := ui.rail.settings
 	ui.rail.settings = false
-	dm := ui.inbox_open
-	ui.inbox_open = 0
+	dm, group := ui.inbox_open, ui.inbox_open_group
+	ui.inbox_open, ui.inbox_open_group = 0, 0
 	for ns in ui.sessions {
 		if ns == ui.switch_to {
 			show_session(ui, ns)
 			// Leave the inbox or the settings, even for the server that is
 			// already shown.
-			if dm != 0 {
+			if group != 0 {
+				open_group(ui, group)
+			} else if dm != 0 {
 				open_conversation(ui, dm)
 			} else {
 				ui.page = .Main

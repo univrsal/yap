@@ -232,16 +232,27 @@ View :: struct {
 	call:                View_Call,
 }
 
-// A DM: who it is with, and what is unread there (see View_Channel).
+// A DM or a group: who it is with, and what is unread there (see
+// View_Channel).
 View_DM :: struct {
 	id:        proto.Conv_Id,
+	// A DM's other account, or 0 for a group.
 	with:      proto.Account_Id,
+	// A group's other members, in ascending order (see group_members).
+	members:   [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id,
+	count:     int,
 	last:      proto.Msg_Id,
 	read:      proto.Msg_Id,
 	unread:    int,
+	mentions:  int,
 	notify:    proto.Notify_Level,
 	// When its newest message was posted, 0 for none.
 	last_time: proto.Unix_Ms,
+}
+
+// group_members returns a group's other members, which is nothing for a DM.
+group_members :: proc(dm: ^View_DM) -> []proto.Account_Id {
+	return dm.members[:clamp(dm.count, 0, len(dm.members))]
 }
 
 View_File :: struct {
@@ -269,8 +280,10 @@ View_Mention :: struct {
 	conv:  proto.Conv_Id,
 	msg:   proto.Msg_Id,
 	// Not a mention but a DM (`place` is who it is with), which is not
-	// announced while it is being read.
+	// announced while it is being read. So is a message in a group, which
+	// is a DM too.
 	dm:    bool,
+	group: bool,
 }
 
 SPEAKING_HOLD :: 250 * time.Millisecond
@@ -447,6 +460,7 @@ publish_mentioned :: proc(
 	conv: proto.Conv_Id,
 	msg: proto.Msg_Id,
 	dm := false,
+	group := false,
 ) {
 	v := c.view
 	if v == nil {
@@ -462,6 +476,7 @@ publish_mentioned :: proc(
 			conv = conv,
 			msg = msg,
 			dm = dm,
+			group = group,
 		},
 	)
 }
@@ -647,20 +662,21 @@ publish_channels :: proc(c: ^Server_Conn) {
 	order := convs_ordered(c)
 	dms := make([dynamic]View_DM, context.temp_allocator)
 	for id, info in c.convs.convs {
-		if info.kind == .DM {
-			append(
-				&dms,
-				View_DM {
-					id = id,
-					with = dm_other(c, info),
-					last = info.last,
-					read = info.read,
-					unread = info.unread,
-					notify = info.notify,
-					last_time = info.last_time,
-				},
-			)
+		if info.kind == .Channel {
+			continue
 		}
+		dm := View_DM {
+			id        = id,
+			with      = dm_other(c, info),
+			last      = info.last,
+			read      = info.read,
+			unread    = info.unread,
+			mentions  = info.mentions,
+			notify    = info.notify,
+			last_time = info.last_time,
+		}
+		dm.count = copy(dm.members[:], group_others(c, info))
+		append(&dms, dm)
 	}
 	view_write(v)
 	view_clear_channels(v)

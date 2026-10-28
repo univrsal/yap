@@ -712,9 +712,10 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 	}
 	// A DM from someone else gets a desktop notification whatever it says
 	// (unless the DM is muted); the UI skips it while the DM is being read.
+	// So does a message in a group.
 	info := c.convs.convs[m.conv] or_else Conv_Info{}
 	dm :=
-		info.kind == .DM &&
+		info.kind != .Channel &&
 		info.notify != .None &&
 		m.sender != c.auth.me &&
 		m.kind != .System &&
@@ -728,6 +729,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 			m.conv,
 			m.id,
 			dm = true,
+			group = info.kind == .Group,
 		)
 	}
 	switch {

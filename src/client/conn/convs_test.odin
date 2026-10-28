@@ -152,8 +152,8 @@ test_mark_read_paced :: proc(t: ^testing.T) {
 	dm := proto.Conv_Id(5)
 	c.convs.convs[dm] = {
 		kind = .DM,
-		a    = 1,
-		b    = 2,
+		accounts = {0 = 1, 1 = 2},
+		account_count = 2,
 		last = 10,
 		read = 10,
 	}

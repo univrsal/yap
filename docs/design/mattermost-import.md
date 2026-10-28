@@ -14,7 +14,7 @@ says about the export comes from reading Mattermost's source (master,
 
 | # | Change | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Group DMs | L | protocol, schema, server, client | - | open |
+| 1 | Group DMs | L | protocol, schema, server, client | - | built (2026-10-28), see group-dms.md |
 | 2 | DMs with oneself | S | protocol, server, client | - | open |
 | 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | open |
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | open |

@@ -34,6 +34,7 @@ ROUTES := [?]Route {
 	{method = "PATCH", pattern = "me", kind = .Call, run = profile_run},
 	{method = "PUT", pattern = "me/activity", kind = .Call, run = activity_run},
 	{method = "POST", pattern = "dms", kind = .Call, run = dm_run},
+	{method = "POST", pattern = "groups", kind = .Call, run = group_run},
 	{method = "PUT", pattern = "convs/{}/subscription", kind = .Call, run = subscribe_run},
 	{method = "DELETE", pattern = "convs/{}/subscription", kind = .Call, run = unsubscribe_run},
 	{method = "POST", pattern = "convs/{}/messages", kind = .Call, run = post_run},

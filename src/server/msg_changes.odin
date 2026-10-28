@@ -185,7 +185,7 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // may_pin returns whether an account may pin and unpin messages in a
 // conversation it is a member of.
 may_pin :: proc(acc: ^Account, conv: ^Conv) -> bool {
-	return conv.kind == .DM || can(acc, .Pin_Messages)
+	return conv.kind != .Channel || can(acc, .Pin_Messages)
 }
 
 msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {

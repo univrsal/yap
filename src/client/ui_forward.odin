@@ -116,16 +116,12 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			return
 		}
 	}
-	for dm in v.dms {
-		name := "someone"
-		if acc, ok := v.accounts[dm.with]; ok {
-			// Not to be written to (see ui_buddies.odin).
-			if .Deleted in acc.flags {
-				continue
-			}
-			name = acc.display
+	for &dm in v.dms {
+		// Not to be written to (see ui_buddies.odin).
+		if dm_closed(v, &dm) {
+			continue
 		}
-		if row(ui, dm.id, name, filter) {
+		if row(ui, dm.id, dm_name(v, &dm), filter) {
 			return
 		}
 	}
@@ -150,7 +146,11 @@ go_to_message :: proc(ui: ^UI, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	}
 	for dm in v.dms {
 		if dm.id == conv {
-			open_conversation(ui, dm.with)
+			if dm.count > 0 {
+				open_group(ui, conv)
+			} else {
+				open_conversation(ui, dm.with)
+			}
 			return
 		}
 	}

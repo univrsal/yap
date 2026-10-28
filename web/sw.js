@@ -73,7 +73,7 @@ self.addEventListener("push", (event) => {
 				icon: new URL("icon-192.png", appUrl()).href,
 				data: { id: serverId(), conv: p.conv || 0, msg: p.msg || 0, count },
 			});
-			if (p.kind === "dm" || p.kind === "mention") await badgeAdd();
+			if (p.kind === "dm" || p.kind === "group" || p.kind === "mention") await badgeAdd();
 		})(),
 	);
 });

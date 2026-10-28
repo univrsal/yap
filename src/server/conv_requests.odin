@@ -22,7 +22,8 @@ import "common:proto"
 // A DM is opened with DM_Open, which creates it the first time. The account that
 // opened it is told about it immediately, while the other account is told when
 // the first message is posted (see messages.odin). This way a DM that was opened
-// but left empty doesn't show up on the other side.
+// but left empty doesn't show up on the other side. A group is opened the same
+// way with Group_Open.
 
 // conv_request handles a request about conversations or rooms. It returns false
 // if `op` isn't one.
@@ -50,6 +51,8 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		conv_notify(s, u, id, body)
 	case .DM_Open:
 		dm_open(s, u, id, body)
+	case .Group_Open:
+		group_open(s, u, id, body)
 	case .Conv_Rights_Get:
 		conv_rights_get(s, u, id, body)
 	case .Conv_Rights_Set:
@@ -129,6 +132,53 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	send_conv_to_account(s, me, conv)
 	buf: [4]u8
 	respond(u, id, .Ok, proto.encode_conv_id(&buf, conv.id))
+}
+
+// group_open answers with the group of the connection's account and the
+// accounts it names, creating it if it doesn't exist yet, like dm_open does for
+// a DM. Bots can't be in a group, neither as the one who opens it nor as one of
+// the others.
+@(private = "file")
+group_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	buf: [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id
+	others, ok := proto.decode_group_open(body, &buf)
+	me := u.account.id
+	if !ok || slice.contains(others, me) {
+		respond(u, id, .Invalid)
+		return
+	}
+	if .Bot in u.account.flags {
+		respond(u, id, .Denied)
+		return
+	}
+	for other in others {
+		acc := account_live(&s.accounts, other)
+		if acc == nil {
+			respond(u, id, .Not_Found)
+			return
+		}
+		if .Bot in acc.flags {
+			respond(u, id, .Denied)
+			return
+		}
+	}
+	accounts := make([]proto.Account_Id, len(others) + 1, context.temp_allocator)
+	copy(accounts, others)
+	accounts[len(others)] = me
+	conv := group_find(&s.convs, accounts)
+	if conv == nil {
+		conv = group_add(&s.convs, accounts, me)
+		if conv == nil {
+			respond(u, id, .Internal)
+			return
+		}
+		log.debugf("%s opened a group with %v", conn_label(u), others)
+	}
+	// As with a DM, a group that someone else opened and that has no messages
+	// yet is new to this account.
+	send_conv_to_account(s, me, conv)
+	out: [4]u8
+	respond(u, id, .Ok, proto.encode_conv_id(&out, conv.id))
 }
 
 @(private = "file")

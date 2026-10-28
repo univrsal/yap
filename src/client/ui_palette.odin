@@ -164,8 +164,8 @@ Palette_Entry :: struct {
 	name:    string, // a COMMANDS name, or in the temp allocator
 	detail:  string, // dimmed at the right end of its row; in the temp allocator
 	command: int, // .Command: which, in COMMANDS
-	conv:    proto.Conv_Id, // .Channel, .Voice: the channel, on the shown server
-	account: proto.Account_Id, // .Message: whom, on the shown server
+	conv:    proto.Conv_Id, // .Channel, .Voice: the channel; .Message: a group; on the shown server
+	account: proto.Account_Id, // .Message: whom, on the shown server (0 for a group)
 	ns:      ^Net_Session, // .Server
 }
 
@@ -174,7 +174,7 @@ Palette_Kind :: enum {
 	Channel, // show the channel
 	Voice, // join its voice room
 	Server, // show the server
-	Message, // open the DM
+	Message, // open the DM or the group
 }
 
 // palette_window opens and closes the palette with its key, and draws it
@@ -350,6 +350,7 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 					name = fmt.tprintf("Message %s", b.name),
 					detail = detail,
 					account = b.account,
+					conv = b.conv if b.group else 0,
 				},
 			)
 		}
@@ -395,7 +396,11 @@ palette_run :: proc(ui: ^UI, v: ^conn.View, e: Palette_Entry) {
 			return
 		}
 	case .Message:
-		open_conversation(ui, e.account)
+		if e.account == 0 && e.conv != 0 {
+			open_group(ui, e.conv)
+		} else {
+			open_conversation(ui, e.account)
+		}
 	case .Server:
 		if on_rail(ui, e.ns) {
 			ui.switch_to, ui.switching = e.ns, true

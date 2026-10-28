@@ -124,7 +124,11 @@ import "core:time"
 //	                        display name) and write to them first if there is text;
 //	                        /say, /older and /newer then apply to that DM
 //	                        until you use /view
-//	/buddies                list your buddies and your DMs
+//	/group <name>,<name>,...   look at the group of you and those people (2
+//	                        to 7 of them, by username or display name),
+//	                        starting it if there is none; /say, /older and
+//	                        /newer then apply to it until you use /view
+//	/buddies                list your buddies, your DMs and your groups
 //	/buddy <name>, /unbuddy <name>   add or remove a buddy
 //	/file <name> <file>     offer a file in a DM (archives, pictures and
 //	                        videos; the other person has to be online)
@@ -727,6 +731,9 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				q,
 				conn.DM_Command{name = strings.clone(to), text = typed_lines(text)},
 			)
+		case strings.has_prefix(line, "/group "):
+			names := strings.trim_space(line[len("/group "):])
+			conn.push_command(q, conn.Group_Command{names = strings.clone(names)})
 		case strings.has_prefix(line, "/say "):
 			text := line[len("/say "):]
 			if len(attached) == 0 {
@@ -869,7 +876,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

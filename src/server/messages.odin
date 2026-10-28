@@ -197,8 +197,15 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	// The message content is only logged when debugging.
-	place :=
-		conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
+	place: string
+	switch conv.kind {
+	case .Channel:
+		place = conv.name
+	case .DM:
+		place = fmt.tprintf("a DM with account %d", dm_other(conv, sender))
+	case .Group:
+		place = fmt.tprintf("a group of accounts %v", conv.members[:])
+	}
 	#partial switch m.kind {
 	case .Text:
 		log.debugf("%s in %q: %s (%d files)", conn_label(u), place, m.text, m.attachment_count)
@@ -268,15 +275,18 @@ msg_published :: proc(
 ) {
 	posted: [proto.MSG_POSTED_SIZE]u8
 	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
-	if first && conv.kind == .DM {
-		// The conversation is new to the other account, so it is told about
-		// the conversation before the message arrives. It is told about the
-		// conversation as it was before the message, so that the message
-		// then counts as unread like any other.
-		other := dm_other(conv, u.account.id)
+	if first && conv.kind != .Channel {
+		// The conversation is new to the other members of a DM or a group, so
+		// they are told about the conversation before the message arrives.
+		// They are told about the conversation as it was before the message,
+		// so that the message then counts as unread like any other.
 		last := conv.last_msg
 		conv.last_msg = 0
-		send_conv_to_account(s, other, conv)
+		for other in conv.members {
+			if other != u.account.id {
+				send_conv_to_account(s, other, conv)
+			}
+		}
 		conv.last_msg = last
 	}
 	msg_deliver(s, conv, m)
@@ -290,8 +300,8 @@ msg_published :: proc(
 	}
 }
 
-// links_restrict keeps links to the messages of a DM (see proto/forward.odin)
-// inside that DM. Only the two members of the DM could follow such a link
+// links_restrict keeps links to the messages of a DM or a group (see
+// proto/forward.odin) inside it. Only its members could follow such a link
 // anywhere else, so there it is replaced with plain text. The result is
 // allocated with the temp allocator, or is `text` itself if nothing had to
 // be changed.
@@ -305,10 +315,10 @@ links_restrict :: proc(s: ^Server, conv: ^Conv, text: string) -> string {
 		}
 		at = l.end
 		linked := conv_by_id(&s.convs, l.conv)
-		if l.conv == conv.id || linked == nil || linked.kind != .DM {
+		if l.conv == conv.id || linked == nil || linked.kind == .Channel {
 			continue
 		}
-		plain := "(a message in a DM)"
+		plain := "(a message in a DM)" if linked.kind == .DM else "(a message in a group)"
 		out = strings.concatenate({out[:l.start], plain, out[l.end:]}, context.temp_allocator)
 		at = l.start + len(plain)
 	}

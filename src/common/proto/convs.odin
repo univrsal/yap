@@ -1,7 +1,9 @@
 package proto
 
-// Conversations: the things that messages are posted to. These are channels
-// and direct messages between two accounts.
+import "core:slice"
+
+// Conversations: the things that messages are posted to. These are channels,
+// direct messages between two accounts, and groups of a few accounts.
 //
 // An account is a member of the conversations it takes part in. For a channel,
 // membership is a subscription: the account's channel list consists of the
@@ -50,6 +52,7 @@ package proto
 // 	Mark_Read       [conv u32][id u64]   everything up to and including message `id` is read
 // 	Conv_Notify     [conv u32][notify u8]
 // 	DM_Open         [account u32]  ->  [conv u32]
+// 	Group_Open      [count u8][account u32]...  ->  [conv u32]   the others
 //
 // 	Conv_Changed    a conversation we're a member of that is new or has changed
 // 	Conv_Removed    [conv u32]: we are no longer a member of it
@@ -63,7 +66,7 @@ package proto
 // 	                our account has read there, and therefore what it hasn't
 //
 // 	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
-// 	              [a u32][b u32][last message u64][member u8]
+// 	              [count u8][account u32]...[last message u64][member u8]
 // 	              [read u64][unread u16][mentions u16][notify u8]
 // 	              [position u32][last time u64][rights u16]
 // 	rights map    [count u8]([role u32][rights u16])...
@@ -100,14 +103,24 @@ package proto
 // was posted, in Unix milliseconds (0 for none). It is used to order a list of
 // DMs from many servers, because ids from different servers can't be compared.
 //
-// A direct message (DM) is a conversation between two accounts, `a` and `b`
-// (a < b), who both remain members permanently. For a channel they are 0.
-// There is one DM for each pair of accounts: DM_Open finds it or creates it and
+// The accounts in a conversation record are the people a DM or a group is
+// between, in ascending order, and none for a channel.
+//
+// A direct message (DM) is a conversation between two accounts, who both
+// remain members permanently. There is one DM for each pair of accounts: DM_Open finds it or creates it and
 // answers with its id. Anyone may message anyone. The account that opens the DM
 // is told about it (Conv_Changed) immediately. The other account is only told
 // once a message is posted there, so a conversation that was opened and left
 // empty doesn't show up on its side. Messages, reading and typing work in a DM
 // like in a channel. A DM has no voice room and cannot be subscribed to.
+//
+// A group is like a DM between 3 to MAX_GROUP_MEMBERS accounts, which never
+// change: nobody joins or leaves a group, and a different set of accounts is a
+// different group. Group_Open names the others (the asker is one of the
+// members) and finds or creates the group of exactly those accounts. As with a
+// DM, the opener is told about it at once and the others once a message is
+// posted. A group has no name of its own, no voice room and no file offers,
+// and bots can't be in one.
 //
 // What an account has read is tracked per conversation and is the same on all
 // its devices. It consists of the newest message it has read (`read`), the
@@ -130,7 +143,11 @@ Room :: distinct u32
 Conv_Kind :: enum u8 {
 	Channel = 0,
 	DM      = 1,
+	Group   = 2,
 }
+
+// The most accounts in a group, its opener included.
+MAX_GROUP_MEMBERS :: 8
 
 Conv_Flag :: enum u8 {
 	Home, // the channel that everyone is in
@@ -194,7 +211,7 @@ conv_rights_settle :: proc(given: Conv_Rights, flags: Conv_Flags) -> Conv_Rights
 // every right there can be.
 conv_rights_default :: proc(kind: Conv_Kind, flags: Conv_Flags) -> Conv_Rights {
 	rights := CONV_RIGHTS_ALL
-	if kind == .DM {
+	if kind != .Channel {
 		rights -= {.Voice, .Speak, .Video}
 	}
 	return conv_rights_settle(rights, flags)
@@ -218,26 +235,28 @@ Notify_Level :: enum u8 {
 }
 
 Conv :: struct {
-	id:        Conv_Id,
-	kind:      Conv_Kind,
-	flags:     Conv_Flags,
-	name:      string, // sanitized and never empty for a channel
-	topic:     string,
-	member:    bool, // whether the receiver of this is a member
-	last:      Msg_Id, // the newest message, or 0 for none
+	id:            Conv_Id,
+	kind:          Conv_Kind,
+	flags:         Conv_Flags,
+	name:          string, // sanitized and never empty for a channel
+	topic:         string,
+	member:        bool, // whether the receiver of this is a member
+	last:          Msg_Id, // the newest message, or 0 for none
 	// The following belong to the receiver of this, as a member:
-	read:      Msg_Id, // the newest message that it has read
-	unread:    int, // messages since then that aren't its own, at most UNREAD_CAP
-	mentions:  int, // ... that mention it
-	notify:    Notify_Level,
-	// A DM's two accounts with the lower id first, or 0 for a channel.
-	a, b:      Account_Id,
+	read:          Msg_Id, // the newest message that it has read
+	unread:        int, // messages since then that aren't its own, at most UNREAD_CAP
+	mentions:      int, // ... that mention it
+	notify:        Notify_Level,
+	// Whom a DM or a group is between, in ascending order (none for a
+	// channel); see conv_accounts.
+	accounts:      [MAX_GROUP_MEMBERS]Account_Id,
+	account_count: int,
 	// A channel's place in a list: ordered by position, then by id.
-	position:  int,
+	position:      int,
 	// The time at which the newest message was posted, or 0 for none.
-	last_time: Unix_Ms,
+	last_time:     Unix_Ms,
 	// What the receiver may do there (only sent in Conv_Changed).
-	rights:    Conv_Rights,
+	rights:        Conv_Rights,
 }
 
 CONV_MAX_SIZE ::
@@ -246,8 +265,7 @@ CONV_MAX_SIZE ::
 	1 +
 	(1 + MAX_CHANNEL_NAME_SIZE) +
 	(1 + MAX_TOPIC_SIZE) +
-	4 +
-	4 +
+	(1 + 4 * MAX_GROUP_MEMBERS) +
 	8 +
 	1 +
 	8 +
@@ -265,8 +283,11 @@ put_conv :: proc(w: ^Writer, c: Conv) {
 	put_u8(w, transmute(u8)c.flags)
 	put_str8(w, c.name)
 	put_str8(w, c.topic)
-	put_u32(w, u32(c.a))
-	put_u32(w, u32(c.b))
+	count := clamp(c.account_count, 0, MAX_GROUP_MEMBERS)
+	put_u8(w, u8(count))
+	for i in 0 ..< count {
+		put_u32(w, u32(c.accounts[i]))
+	}
 	put_u64(w, u64(c.last))
 	put_u8(w, u8(c.member))
 	put_u64(w, u64(c.read))
@@ -284,8 +305,14 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	c.flags = transmute(Conv_Flags)get_u8(r)
 	c.name = get_str8(r)
 	c.topic = get_str8(r)
-	c.a = Account_Id(get_u32(r))
-	c.b = Account_Id(get_u32(r))
+	c.account_count = int(get_u8(r))
+	if c.account_count > MAX_GROUP_MEMBERS {
+		r.overflow = true
+		return
+	}
+	for &a in c.accounts[:c.account_count] {
+		a = Account_Id(get_u32(r))
+	}
 	c.last = Msg_Id(get_u64(r))
 	c.member = get_u8(r) != 0
 	c.read = Msg_Id(get_u64(r))
@@ -298,6 +325,20 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	c.position = int(get_u32(r))
 	c.last_time = Unix_Ms(get_u64(r))
 	return
+}
+
+// conv_accounts returns whom a DM or a group is between, which is nobody for a
+// channel.
+conv_accounts :: proc(c: ^Conv) -> []Account_Id {
+	return c.accounts[:clamp(c.account_count, 0, MAX_GROUP_MEMBERS)]
+}
+
+// conv_set_accounts sets whom a DM or a group is between, in ascending order. At
+// most MAX_GROUP_MEMBERS are kept.
+conv_set_accounts :: proc(c: ^Conv, accounts: []Account_Id) {
+	c.account_count = min(len(accounts), MAX_GROUP_MEMBERS)
+	copy(c.accounts[:], accounts[:c.account_count])
+	slice.sort(c.accounts[:c.account_count])
 }
 
 // encode_conv writes one conversation as it is sent in Conv_Changed, with the
@@ -533,6 +574,57 @@ decode_conv_subscribe :: proc(body: []u8) -> (conv: Conv_Id, on: bool, ok: bool)
 	conv = Conv_Id(get_u32(&r))
 	on = get_u8(&r) != 0
 	return conv, on, !r.overflow
+}
+
+GROUP_OPEN_MAX_SIZE :: 1 + 4 * (MAX_GROUP_MEMBERS - 1)
+
+// encode_group_open writes a Group_Open request for the group of the asker and
+// `others`. It returns nil for fewer than 2 or more than MAX_GROUP_MEMBERS - 1
+// others.
+encode_group_open :: proc(out: ^[GROUP_OPEN_MAX_SIZE]u8, others: []Account_Id) -> []u8 {
+	if len(others) < 2 || len(others) > MAX_GROUP_MEMBERS - 1 {
+		return nil
+	}
+	w := Writer {
+		buf = out[:],
+	}
+	put_u8(&w, u8(len(others)))
+	for a in others {
+		put_u32(&w, u32(a))
+	}
+	return written(&w)
+}
+
+// decode_group_open reads a Group_Open request into `buf`. It accepts 2 to
+// MAX_GROUP_MEMBERS - 1 accounts, none of them 0 and none twice; whether the
+// asker is among them is for the server to see.
+decode_group_open :: proc(
+	body: []u8,
+	buf: ^[MAX_GROUP_MEMBERS - 1]Account_Id,
+) -> (
+	others: []Account_Id,
+	ok: bool,
+) {
+	r := Reader {
+		buf = body,
+	}
+	count := int(get_u8(&r))
+	if r.overflow || count < 2 || count > len(buf) {
+		return
+	}
+	for &a in buf[:count] {
+		a = Account_Id(get_u32(&r))
+	}
+	if r.overflow || r.pos != len(body) {
+		return
+	}
+	others = buf[:count]
+	for a, i in others {
+		if a == 0 || slice.contains(others[:i], a) {
+			return nil, false
+		}
+	}
+	return others, true
 }
 
 // encode_conv_members writes a Conv_Members response with as many of

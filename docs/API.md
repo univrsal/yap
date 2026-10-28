@@ -242,17 +242,18 @@ The bot needn't be in voice itself.
 
 ### Conversations
 
-A conversation is a channel or a DM.
+A conversation is a channel, a DM, or a group (a DM of 3 to 8 people).
 
 | | |
 | --- | --- |
-| `GET /convs` | The ones you're in: channels by position, then DMs, the most recent first. → [conversation](#conversation)s |
+| `GET /convs` | The ones you're in: channels by position, then DMs and groups, the most recent first. → [conversation](#conversation)s |
 | `GET /convs/{id}` | One of them. → [conversation](#conversation) |
 | `GET /convs/browse?q=&offset=&limit=` | Channels there are to join, whose name or topic has `q` in it. → `{convs, more}` |
 | `PUT /convs/{id}/subscription` | Join a channel. → [conversation](#conversation) |
 | `DELETE /convs/{id}/subscription` | Leave it. → 204 |
 | `GET /convs/{id}/members` | Who's in it. → [account](#account)s |
 | `POST /dms` `{account}` | The DM with that account, made if need be. → [conversation](#conversation) |
+| `POST /groups` `{accounts}` | The group of you and those 2 to 7 accounts, made if need be. Bots can't be in groups, so a bot gets 403. → [conversation](#conversation) |
 | `POST /convs/{id}/read` `{message}` | Mark it read up to and including `message`, or all of it without one. → 204 |
 | `POST /convs/{id}/typing` `{thread}` | Show that you're typing for a few seconds. Send it again every few seconds while it lasts. → 204 |
 
@@ -267,7 +268,7 @@ A conversation is a channel or a DM.
 | `POST /convs/{id}/messages` `{content, thread, nonce, attachments}` | Post. → 201 [message](#message) |
 | `PATCH /messages/{id}` `{content}` | Edit one of yours. → 204 |
 | `DELETE /messages/{id}` | Delete one of yours, or anyone's with Manage_Messages. → 204 |
-| `PUT /messages/{id}/pin` | Pin it: either member of a DM, or Pin_Messages in a channel. → 204 |
+| `PUT /messages/{id}/pin` | Pin it: anyone in a DM or a group, or Pin_Messages in a channel. → 204 |
 | `DELETE /messages/{id}/pin` | Unpin it. → 204 |
 | `PUT /messages/{id}/reactions/{emoji}` | React. → 204 |
 | `DELETE /messages/{id}/reactions/{emoji}` | Take your reaction back. → 204 |
@@ -393,13 +394,14 @@ An [account](#account) without `deleted` and `online`, plus `owner` and
 {"id": "1", "kind": "channel", "name": "Lobby", "topic": "", "home": true, "private": false,
  "default": false, "text_only": false,
  "rights": ["see", "write", "react", "edit", "delete", "voice", "attach", "speak", "video"],
- "position": 0, "recipient": null, "member": true,
+ "position": 0, "recipient": null, "members": null, "member": true,
  "last_message_id": "272", "last_message_timestamp": "2026-10-12T08:49:49.273Z",
  "last_read_id": "268", "unread": 3, "mentions": 0, "notify": "all"}
 ```
 
-`kind` is `channel` or `dm`. A DM has `recipient` (the other account)
-and no name. `home` is the channel everyone is in. New accounts are put
+`kind` is `channel`, `dm` or `group`. A DM has `recipient` (the other
+account) and no name. A group has `members` (the other accounts, which
+never change) and no name. `home` is the channel everyone is in. New accounts are put
 in a `default` channel, and a `text_only` one has no voice room.
 `rights` are what your account may do there: `see`, `write` (post,
 reply, forward to it), `react`, `edit` and `delete` (its own messages),

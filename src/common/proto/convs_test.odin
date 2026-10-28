@@ -1,6 +1,7 @@
 #+build !wasi
 package proto
 
+import "core:slice"
 import "core:testing"
 
 @(test)
@@ -26,6 +27,9 @@ test_conv_record :: proc(t: ^testing.T) {
 		last_time = 1_700_000_000_000,
 		rights    = {.See, .React},
 	}
+	// No real conversation has a name and accounts both, but the largest
+	// record has room for both.
+	conv_set_accounts(&c, {1, 2, 3, 4, 5, 6, 7, 8})
 	body := encode_conv(buf[:], c)
 	testing.expect(t, body != nil)
 	// The largest possible conversation is exactly CONV_MAX_SIZE bytes.
@@ -270,17 +274,76 @@ test_read_bodies :: proc(t: ^testing.T) {
 @(test)
 test_dm_record :: proc(t: ^testing.T) {
 	buf: [CONV_MAX_SIZE]u8
-	body := encode_conv(buf[:], {id = 12, kind = .DM, member = true, a = 3, b = 9, last = 40})
+	dm := Conv {
+		id     = 12,
+		kind   = .DM,
+		member = true,
+		last   = 40,
+	}
+	conv_set_accounts(&dm, {9, 3})
+	body := encode_conv(buf[:], dm)
 	got, ok := decode_conv(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, got.kind, Conv_Kind.DM)
-	testing.expect_value(t, got.a, Account_Id(3))
-	testing.expect_value(t, got.b, Account_Id(9))
+	testing.expect(t, slice.equal(conv_accounts(&got), []Account_Id{3, 9}))
 	testing.expect_value(t, got.name, "")
+	testing.expect_value(t, got.last, Msg_Id(40))
 
 	open_buf: [4]u8
 	account, open_ok := decode_account_id(encode_account_id(&open_buf, 9))
 	testing.expect(t, open_ok && account == 9)
+}
+
+@(test)
+test_group_record :: proc(t: ^testing.T) {
+	buf: [CONV_MAX_SIZE]u8
+	group := Conv {
+		id   = 7,
+		kind = .Group,
+		last = 5,
+	}
+	conv_set_accounts(&group, {8, 2, 5, 1, 4, 3, 7, 6})
+	got, ok := decode_conv(encode_conv(buf[:], group))
+	testing.expect(t, ok)
+	testing.expect_value(t, got.kind, Conv_Kind.Group)
+	testing.expect(t, slice.equal(conv_accounts(&got), []Account_Id{1, 2, 3, 4, 5, 6, 7, 8}))
+	testing.expect_value(t, got.last, Msg_Id(5))
+
+	// A channel lists nobody.
+	channel, channel_ok := decode_conv(encode_conv(buf[:], {id = 1, name = "lobby"}))
+	testing.expect(t, channel_ok && len(conv_accounts(&channel)) == 0 && channel.name == "lobby")
+
+	// More accounts than a group can have don't decode.
+	body := encode_conv(buf[:], group)
+	bad := slice.clone(body, context.temp_allocator)
+	bad[4 + 1 + 1 + 1 + 1] = MAX_GROUP_MEMBERS + 1
+	_, bad_ok := decode_conv(bad)
+	testing.expect(t, !bad_ok)
+}
+
+@(test)
+test_group_open :: proc(t: ^testing.T) {
+	out: [GROUP_OPEN_MAX_SIZE]u8
+	buf: [MAX_GROUP_MEMBERS - 1]Account_Id
+	others, ok := decode_group_open(encode_group_open(&out, {4, 2}), &buf)
+	testing.expect(t, ok && slice.equal(others, []Account_Id{4, 2}))
+	others, ok = decode_group_open(encode_group_open(&out, {1, 2, 3, 4, 5, 6, 7}), &buf)
+	testing.expect(t, ok && len(others) == 7)
+
+	// One other is a DM, eight others are too many.
+	testing.expect(t, encode_group_open(&out, {4}) == nil)
+	testing.expect(t, encode_group_open(&out, {1, 2, 3, 4, 5, 6, 7, 8}) == nil)
+	_, ok = decode_group_open({1, 4, 0, 0, 0}, &buf)
+	testing.expect(t, !ok)
+	_, ok = decode_group_open({8, 1, 0, 0, 0, 2, 0, 0, 0}, &buf)
+	testing.expect(t, !ok)
+	// Nobody twice, nobody 0, nothing after.
+	_, ok = decode_group_open({2, 4, 0, 0, 0, 4, 0, 0, 0}, &buf)
+	testing.expect(t, !ok)
+	_, ok = decode_group_open({2, 4, 0, 0, 0, 0, 0, 0, 0}, &buf)
+	testing.expect(t, !ok)
+	_, ok = decode_group_open({2, 4, 0, 0, 0, 5, 0, 0, 0, 1}, &buf)
+	testing.expect(t, !ok)
 }
 
 @(test)
@@ -395,6 +458,11 @@ test_conv_rights :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		conv_rights_default(.DM, {}),
+		CONV_RIGHTS_ALL - {.Voice, .Speak, .Video},
+	)
+	testing.expect_value(
+		t,
+		conv_rights_default(.Group, {}),
 		CONV_RIGHTS_ALL - {.Voice, .Speak, .Video},
 	)
 	testing.expect_value(t, conv_rights_settle({.See, .Voice}, {.Text_Only}), Conv_Rights{.See})

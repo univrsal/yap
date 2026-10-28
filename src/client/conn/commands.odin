@@ -105,8 +105,9 @@ Command :: union {
 	Attach_Preview_Command,
 	File_Action_Command,
 	Transfer_Limits_Command,
-	// Buddies and DMs, see buddies.odin.
+	// Buddies, DMs and groups, see buddies.odin.
 	DM_Command,
+	Group_Command,
 	Buddy_Command,
 	Buddies_Command,
 	Last_Seen_Command,
@@ -324,6 +325,8 @@ command_destroy :: proc(cmd: Command) {
 	case DM_Command:
 		delete(v.name)
 		delete(v.text)
+	case Group_Command:
+		delete(v.names)
 	case Buddy_Command:
 		delete(v.name)
 	case Last_Seen_Command:
@@ -548,6 +551,8 @@ process_commands :: proc(c: ^Server_Conn) {
 			video_watch_camera_names(c, v.names)
 		case DM_Command:
 			dm_command(c, v)
+		case Group_Command:
+			group_command(c, v)
 		case Buddy_Command:
 			buddy_command(c, v)
 		case Buddies_Command:

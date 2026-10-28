@@ -1,6 +1,7 @@
 package server
 
 import "core:os"
+import "core:slice"
 import "core:testing"
 
 import "common:proto"
@@ -82,8 +83,10 @@ test_dm_open :: proc(t: ^testing.T) {
 	record, told, _ := told_of(t, &ts, alice, conv)
 	testing.expect(t, told, "the one that opened it isn't told of it")
 	testing.expect_value(t, record.kind, proto.Conv_Kind.DM)
-	testing.expect_value(t, record.a, alice_acc.id)
-	testing.expect_value(t, record.b, bob_acc.id)
+	testing.expect(
+		t,
+		slice.equal(proto.conv_accounts(&record), []proto.Account_Id{alice_acc.id, bob_acc.id}),
+	)
 	testing.expect(t, record.member)
 	_, told, _ = told_of(t, &ts, alice_phone, conv)
 	testing.expect(t, told, "the opener's other device isn't told of it")

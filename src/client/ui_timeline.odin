@@ -779,7 +779,7 @@ viewed_unread :: proc(v: ^conn.View) -> (unread: int, read: proto.Msg_Id, mentio
 	}
 	for dm in v.dms {
 		if dm.id == v.viewing {
-			return dm.unread, dm.read, 0
+			return dm.unread, dm.read, dm.mentions
 		}
 	}
 	return

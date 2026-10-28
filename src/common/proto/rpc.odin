@@ -102,6 +102,7 @@ Request_Op :: enum u16 {
 	Voice_Join           = 0x0039,
 	// 0x003A was Conv_View, while chat was still streamed per channel.
 	Conv_Rights_Get      = 0x003B,
+	Group_Open           = 0x003F,
 	Conv_Rights_Set      = 0x003C,
 	// Moving and muting people in voice, see moderation.odin.
 	Voice_Move           = 0x003D,

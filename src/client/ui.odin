@@ -185,6 +185,7 @@ UI :: struct {
 	// that person's server (see switch_now).
 	inbox:               []Buddy_Entry,
 	inbox_open:          proto.Account_Id,
+	inbox_open_group:    proto.Conv_Id,
 	// Voice, or a ringing call, in a server that isn't shown, as of this
 	// frame (see ui_voice_panel.odin).
 	voice_other:         Voice_Elsewhere,
@@ -486,6 +487,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	picker_window(ui, w, h)
 	channels_window(ui, w, h)
 	forward_window(ui, w, h)
+	group_picker_window(ui, w, h)
 	search_window(ui, w, h)
 	palette_window(ui, w, h)
 	// After every timeline, the thread windows' timelines too.

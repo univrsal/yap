@@ -472,6 +472,67 @@ dm_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .DM_Open, proto.encode_account_id(&buf, proto.Account_Id(account)))
 }
 
+// POST /groups {accounts} -> the group of the account and those accounts (2
+// to proto.MAX_GROUP_MEMBERS - 1 of them), which is created if it doesn't exist
+// yet. Bots can't be in groups, so for a bot's token this is always 403.
+@(private)
+group_run :: proc(c: ^Conn, j: ^Job) {
+	obj, body_ok := body_object(j)
+	if !body_ok {
+		return
+	}
+	invalid :: proc(j: ^Job) {
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf(
+					"accounts is required and is a list of 2 to %d ids of the others in the group.",
+					proto.MAX_GROUP_MEMBERS - 1,
+				),
+			),
+		)
+	}
+	list, is_array := obj["accounts"].(json.Array)
+	if !is_array || len(list) < 2 || len(list) > proto.MAX_GROUP_MEMBERS - 1 {
+		invalid(j)
+		return
+	}
+	others: [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id
+	for v, i in list {
+		id, id_ok := value_id(j, v, "an account")
+		if !id_ok {
+			return
+		}
+		if id == 0 || id > u64(max(u32)) {
+			invalid(j)
+			return
+		}
+		others[i] = proto.Account_Id(id)
+	}
+	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
+		if a.status != .Ok {
+			reply(j, status_reply(a.status))
+			return
+		}
+		conv, ok := proto.decode_conv_id(a.body)
+		if !ok {
+			reply(j, status_reply(.Internal))
+			return
+		}
+		j.scratch[0] = u64(conv)
+		after_events(c, j, reply_conv)
+	}
+	buf: [proto.GROUP_OPEN_MAX_SIZE]u8
+	body := proto.encode_group_open(&buf, others[:len(list)])
+	if body == nil {
+		invalid(j)
+		return
+	}
+	ask(c, j, .Group_Open, body)
+}
+
 // reply_conv replies with the conversation j.scratch[0] as the model has
 // it.
 @(private)

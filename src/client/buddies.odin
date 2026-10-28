@@ -10,17 +10,21 @@ import "client:settings"
 import "common:proto"
 
 // The buddy screen's list: the buddies kept by our account's server, plus
-// everyone else we have a DM with (see conn/buddies.odin), across all
-// servers at once (see inbox_list).
+// everyone else we have a DM with and our groups (see conn/buddies.odin),
+// across all servers at once (see inbox_list).
 
-// Buddy_Entry is someone in the buddy screen's list.
+// Buddy_Entry is someone in the buddy screen's list, or one of our groups.
 Buddy_Entry :: struct {
-	account:   proto.Account_Id,
+	account:   proto.Account_Id, // 0 for a group
+	// A group: its other members, in ascending order. `name` is theirs and
+	// `conv` is the group.
+	group:     bool,
+	members:   Group_Members,
 	name:      string, // points into the View, or the temp allocator
 	status:    string, // their status text as shown in lists (see status_line)
 	talking:   string, // whether they are in a voice chat or a call (see talking_of)
 	online:    bool,
-	buddy:     bool, // false if just someone we have a DM with
+	buddy:     bool, // false if just someone we have a DM with, or a group
 	conv:      proto.Conv_Id, // our DM with them, 0 if there is none yet
 	unread:    int, // unread messages in that DM
 	last_time: proto.Unix_Ms, // when the newest message in it was posted
@@ -30,8 +34,8 @@ Buddy_Entry :: struct {
 	server:    string, // its name, in the temp allocator
 }
 
-// buddy_list returns every buddy and everyone else we have a DM with, in the
-// order given by buddy_before. A DM that was hidden in the settings stays
+// buddy_list returns every buddy, everyone else we have a DM with and our
+// groups, in the order given by buddy_before. A DM that was hidden in the settings stays
 // off the list until something new is said in it. The slice is allocated in
 // the temp allocator. Call with the View locked.
 buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
@@ -41,12 +45,15 @@ buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 			append(&list, buddy_entry(v, b, true))
 		}
 	}
-	for dm in v.dms {
-		if slice.contains(v.buddies[:], dm.with) ||
-		   settings.dm_hidden(s, v.server_key, dm.id, dm.last) {
+	for &dm in v.dms {
+		if settings.dm_hidden(s, v.server_key, dm.id, dm.last) {
 			continue
 		}
-		append(&list, buddy_entry(v, dm.with, false))
+		if dm.count > 0 {
+			append(&list, group_entry(v, &dm))
+		} else if !slice.contains(v.buddies[:], dm.with) {
+			append(&list, buddy_entry(v, dm.with, false))
+		}
 	}
 	slice.sort_by(list[:], buddy_before)
 	return list[:]
@@ -92,7 +99,10 @@ buddy_before :: proc(a, b: Buddy_Entry) -> bool {
 	if a.ns != b.ns {
 		return uintptr(rawptr(a.ns)) < uintptr(rawptr(b.ns))
 	}
-	return a.account < b.account
+	if a.account != b.account {
+		return a.account < b.account
+	}
+	return a.conv < b.conv
 }
 
 // inbox_list is buddy_list for every server we're logged in to, merged into
@@ -161,6 +171,62 @@ buddy_entry :: proc(v: ^conn.View, account: proto.Account_Id, buddy: bool) -> Bu
 		e.talking = talking_of(v, account)
 	}
 	return e
+}
+
+// group_entry returns what the list shows for a group: the others' names, and
+// how many are in it in place of a status. It counts as online while one of
+// the others is. Call with the View locked.
+group_entry :: proc(v: ^conn.View, dm: ^conn.View_DM) -> Buddy_Entry {
+	e := Buddy_Entry {
+		group     = true,
+		conv      = dm.id,
+		name      = dm_name(v, dm),
+		status    = fmt.tprintf("%d people", dm.count + 1),
+		unread    = dm.unread,
+		last_time = dm.last_time,
+	}
+	e.members.count = copy(e.members.accounts[:], conn.group_members(dm))
+	for num, u in v.users {
+		if num != v.my_num && slice.contains(e.members.accounts[:e.members.count], u.account) {
+			e.online = true
+			break
+		}
+	}
+	return e
+}
+
+// dm_name is how a DM or a group is named: the other person's name, or the
+// names of the others in a group, joined with commas. The name is in the temp
+// allocator. Call with the View locked.
+dm_name :: proc(v: ^conn.View, dm: ^conn.View_DM) -> string {
+	others := conn.group_members(dm)
+	if len(others) == 0 {
+		others = {dm.with}
+	}
+	names := make([]string, len(others), context.temp_allocator)
+	for id, i in others {
+		names[i] = "someone"
+		if acc, ok := v.accounts[id]; ok {
+			names[i] = acc.display
+		}
+	}
+	return strings.join(names, ", ", context.temp_allocator)
+}
+
+// dm_closed is whether a DM or a group can't be written to any more: a DM with
+// someone whose account was deleted, or a group in which nobody else's
+// account is left (the server refuses it too). Call with the View locked.
+dm_closed :: proc(v: ^conn.View, dm: ^conn.View_DM) -> bool {
+	others := conn.group_members(dm)
+	if len(others) == 0 {
+		others = {dm.with}
+	}
+	for id in others {
+		if acc, ok := v.accounts[id]; !ok || .Deleted not_in acc.flags {
+			return false
+		}
+	}
+	return true
 }
 
 // dm_unread is the total number of unread messages in DMs, excluding DMs

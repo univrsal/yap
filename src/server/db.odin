@@ -91,6 +91,7 @@ Stmt :: enum {
 	Device_Set_Seen,
 	Conv_Add,
 	Conv_Add_DM,
+	Conv_Add_Group,
 	Conv_All,
 	Member_Add,
 	Member_Remove,
@@ -244,6 +245,7 @@ STMT_SQL := [Stmt]string {
 	.Device_Set_Seen        = "UPDATE devices SET last_seen = ?2 WHERE key = ?1",
 	.Conv_Add               = "INSERT INTO convs (kind, flags, name, topic, position, created, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
 	.Conv_Add_DM            = "INSERT INTO convs (kind, a, b, created, created_by) VALUES (1, ?1, ?2, ?3, ?4)",
+	.Conv_Add_Group         = "INSERT INTO convs (kind, created, created_by) VALUES (2, ?1, ?2)",
 	.Conv_All               = "SELECT id, kind, flags, name, topic, position, created, created_by, last_msg, a, b, COALESCE((SELECT time FROM messages WHERE id = convs.last_msg), 0) FROM convs ORDER BY id",
 	.Member_Add             = "INSERT OR IGNORE INTO members (conv, account, joined, read_id) VALUES (?1, ?2, ?3, ?4)",
 	.Member_Remove          = "DELETE FROM members WHERE conv = ?1 AND account = ?2",
@@ -358,14 +360,14 @@ STMT_SQL := [Stmt]string {
 	.Buddy_Erase            = "DELETE FROM buddies WHERE account = ?1 OR buddy = ?1",
 	.Setting_Erase          = "DELETE FROM settings WHERE account = ?1",
 	.Mention_Erase          = "DELETE FROM mentions WHERE account = ?1",
-	.Member_Erase           = "DELETE FROM members WHERE account = ?1",
+	.Member_Erase           = "DELETE FROM members WHERE account = ?1 AND conv NOT IN (SELECT id FROM convs WHERE kind = 2)",
 	.Invite_Erase           = "UPDATE invites SET revoked = 1 WHERE creator = ?1",
 	// Emailing accounts what they missed (see digest.odin).
 	.Account_Set_Digest     = "UPDATE accounts SET digest_upto = ?2 WHERE id = ?1",
 	.Msg_Newest             = "SELECT coalesce(max(id), 0) FROM messages",
 	// The unread messages of account ?1 in the DMs it gets notifications from,
 	// after message ?2 and posted after ?3, at most ?4 of them.
-	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind = 1 AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind IN (1, 2) AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	// The same for every conversation where the account is notified of every
 	// message, except archived channels.
 	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",

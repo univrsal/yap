@@ -9,6 +9,7 @@ comments cite them by file name (for example "D12 in hq-share.md").
 | [animated.md](animated.md) | Animated WebP/GIF pictures and emoji |
 | [bot-api.md](bot-api.md) | Bot accounts and the HTTP/JSON gateway |
 | [channel-access.md](channel-access.md) | Default and text-only channels, per-role rights |
+| [group-dms.md](group-dms.md) | DMs of three to eight people |
 | [hq-share.md](hq-share.md) | Screen sharing with the yap_video library |
 | [keyboard.md](keyboard.md) | Tab navigation and a command palette |
 | [keyframe-test.md](keyframe-test.md) | Whether encoders answer keyframe requests (`tools/keytest.cpp`) |

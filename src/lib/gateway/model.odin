@@ -270,7 +270,7 @@ Role_JSON :: struct {
 
 Conv_JSON :: struct {
 	id:                     string,
-	kind:                   string, // channel, dm
+	kind:                   string, // channel, dm, group
 	name:                   string,
 	topic:                  string,
 	home:                   bool, // the channel that everyone is in
@@ -282,6 +282,8 @@ Conv_JSON :: struct {
 	position:               int,
 	// A DM's other account.
 	recipient:              Maybe(string),
+	// A group's other accounts.
+	members:                Maybe([]string),
 	member:                 bool,
 	last_message_id:        Maybe(string),
 	last_message_timestamp: Maybe(string),
@@ -485,8 +487,22 @@ conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 		mentions  = c.mentions,
 		notify    = enum_name(c.notify),
 	}
-	if c.kind == .DM {
-		j.recipient = id_string(c.b if c.a == m.self else c.a)
+	switch c.kind {
+	case .Channel:
+	case .DM:
+		for a in proto.conv_accounts(c) {
+			if a != m.self {
+				j.recipient = id_string(a)
+			}
+		}
+	case .Group:
+		others := make([dynamic]string, 0, proto.MAX_GROUP_MEMBERS, context.temp_allocator)
+		for a in proto.conv_accounts(c) {
+			if a != m.self {
+				append(&others, id_string(a))
+			}
+		}
+		j.members = others[:]
 	}
 	rights := make([dynamic]string, 0, len(proto.Conv_Right), context.temp_allocator)
 	for r in c.rights {
@@ -506,8 +522,8 @@ conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 }
 
 // convs_json returns the conversations the account is in, ordered like a
-// client lists them: the channels by position (then id), followed by the DMs,
-// with the most recently active first.
+// client lists them: the channels by position (then id), followed by the DMs
+// and groups, with the most recently active first.
 convs_json :: proc(m: ^Model) -> []Conv_JSON {
 	convs := make([]^proto.Conv, len(m.convs), context.temp_allocator)
 	n := 0
@@ -516,10 +532,10 @@ convs_json :: proc(m: ^Model) -> []Conv_JSON {
 		n += 1
 	}
 	slice.sort_by(convs, proc(a, b: ^proto.Conv) -> bool {
-		if a.kind != b.kind {
+		if (a.kind == .Channel) != (b.kind == .Channel) {
 			return a.kind == .Channel
 		}
-		if a.kind == .DM {
+		if a.kind != .Channel {
 			if a.last_time != b.last_time {
 				return a.last_time > b.last_time
 			}
