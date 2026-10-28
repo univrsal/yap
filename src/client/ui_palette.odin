@@ -340,6 +340,7 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 			switch {
 			case b.unread > 0:
 				detail = fmt.tprintf("%d unread", b.unread)
+			case b.self:
 			case b.online:
 				detail = "online"
 			}

@@ -11,7 +11,9 @@ import "common:proto"
 
 // The buddy screen's list: the buddies kept by our account's server, plus
 // everyone else we have a DM with and our groups (see conn/buddies.odin),
-// across all servers at once (see inbox_list).
+// across all servers at once (see inbox_list). Each server also has an entry
+// for ourselves, the DM with ourselves for our own notes, which is there
+// whether or not anything has been written in it yet.
 
 // Buddy_Entry is someone in the buddy screen's list, or one of our groups.
 Buddy_Entry :: struct {
@@ -25,6 +27,7 @@ Buddy_Entry :: struct {
 	talking:   string, // whether they are in a voice chat or a call (see talking_of)
 	online:    bool,
 	buddy:     bool, // false if just someone we have a DM with, or a group
+	self:      bool, // ourselves: the DM with ourselves
 	conv:      proto.Conv_Id, // our DM with them, 0 if there is none yet
 	unread:    int, // unread messages in that DM
 	last_time: proto.Unix_Ms, // when the newest message in it was posted
@@ -34,12 +37,12 @@ Buddy_Entry :: struct {
 	server:    string, // its name, in the temp allocator
 }
 
-// buddy_list returns every buddy, everyone else we have a DM with and our
-// groups, in the order given by buddy_before. A DM that was hidden in the settings stays
-// off the list until something new is said in it. The slice is allocated in
-// the temp allocator. Call with the View locked.
+// buddy_list returns every buddy, everyone else we have a DM with, our
+// groups and ourselves, in the order given by buddy_before. A DM that was
+// hidden in the settings stays off the list until something new is said in
+// it. The slice is allocated in the temp allocator. Call with the View locked.
 buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
-	list := make([dynamic]Buddy_Entry, 0, len(v.buddies) + len(v.dms), context.temp_allocator)
+	list := make([dynamic]Buddy_Entry, 0, len(v.buddies) + len(v.dms) + 1, context.temp_allocator)
 	for b in v.buddies {
 		if b != v.me {
 			append(&list, buddy_entry(v, b, true))
@@ -51,9 +54,12 @@ buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 		}
 		if dm.count > 0 {
 			append(&list, group_entry(v, &dm))
-		} else if !slice.contains(v.buddies[:], dm.with) {
+		} else if dm.with != v.me && !slice.contains(v.buddies[:], dm.with) {
 			append(&list, buddy_entry(v, dm.with, false))
 		}
+	}
+	if v.me != 0 {
+		append(&list, self_entry(v))
 	}
 	slice.sort_by(list[:], buddy_before)
 	return list[:]
@@ -170,6 +176,18 @@ buddy_entry :: proc(v: ^conn.View, account: proto.Account_Id, buddy: bool) -> Bu
 	if e.online {
 		e.talking = talking_of(v, account)
 	}
+	return e
+}
+
+// self_entry returns what the list shows for ourselves, whose DM is where our
+// own notes go. Call with the View locked.
+self_entry :: proc(v: ^conn.View) -> Buddy_Entry {
+	e := buddy_entry(v, v.me, false)
+	e.self = true
+	e.name = fmt.tprintf("%s (you)", e.name)
+	e.status = "notes to yourself"
+	e.online = true
+	e.talking = ""
 	return e
 }
 

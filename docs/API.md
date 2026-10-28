@@ -252,7 +252,7 @@ A conversation is a channel, a DM, or a group (a DM of 3 to 8 people).
 | `PUT /convs/{id}/subscription` | Join a channel. → [conversation](#conversation) |
 | `DELETE /convs/{id}/subscription` | Leave it. → 204 |
 | `GET /convs/{id}/members` | Who's in it. → [account](#account)s |
-| `POST /dms` `{account}` | The DM with that account, made if need be. → [conversation](#conversation) |
+| `POST /dms` `{account}` | The DM with that account, made if need be. Your own account gives the DM with yourself, for notes only you see. → [conversation](#conversation) |
 | `POST /groups` `{accounts}` | The group of you and those 2 to 7 accounts, made if need be. Bots can't be in groups, so a bot gets 403. → [conversation](#conversation) |
 | `POST /convs/{id}/read` `{message}` | Mark it read up to and including `message`, or all of it without one. → 204 |
 | `POST /convs/{id}/typing` `{thread}` | Show that you're typing for a few seconds. Send it again every few seconds while it lasts. → 204 |
@@ -400,7 +400,7 @@ An [account](#account) without `deleted` and `online`, plus `owner` and
 ```
 
 `kind` is `channel`, `dm` or `group`. A DM has `recipient` (the other
-account) and no name. A group has `members` (the other accounts, which
+account, or yours in the DM with yourself) and no name. A group has `members` (the other accounts, which
 never change) and no name. `home` is the channel everyone is in. New accounts are put
 in a `default` channel, and a `text_only` one has no voice room.
 `rights` are what your account may do there: `see`, `write` (post,

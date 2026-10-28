@@ -132,10 +132,12 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	mentioned: []proto.Account_Id
 	#partial switch p.kind {
 	case .File:
-		// Files can only be offered in a DM, and only allowed file types.
+		// Files can only be offered in a DM with someone else, and only
+		// allowed file types.
 		m.file_name = proto.sanitize_file_name(p.text, &name_buf)
 		m.file_size = p.file_size
 		if conv.kind != .DM ||
+		   conv.a == conv.b ||
 		   m.file_size == 0 ||
 		   m.file_size > proto.MAX_FILE_SIZE ||
 		   m.file_name == "" ||
@@ -203,6 +205,9 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		place = conv.name
 	case .DM:
 		place = fmt.tprintf("a DM with account %d", dm_other(conv, sender))
+		if conv.a == conv.b {
+			place = "a DM with oneself"
+		}
 	case .Group:
 		place = fmt.tprintf("a group of accounts %v", conv.members[:])
 	}

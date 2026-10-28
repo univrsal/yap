@@ -19,9 +19,10 @@ import "sqlite"
 // allowed to (see conv_requests.odin).
 //
 // A direct message is also a conversation, between two accounts `a` and `b`
-// with a < b, who both stay members permanently. There is at most one for each
+// with a <= b, who both stay members permanently. There is at most one for each
 // pair (see dm_find), and it is created the first time either of them opens it
-// (see dm_add).
+// (see dm_add). In a DM with oneself, a and b are the same account, which is
+// its only member.
 //
 // A group is like a DM between 3 to proto.MAX_GROUP_MEMBERS accounts, which are
 // its members and never change, not even when one of them is deleted (see
@@ -420,6 +421,7 @@ group_add :: proc(c: ^Convs, accounts: []proto.Account_Id, by: proto.Account_Id)
 }
 
 // dm_other returns the other account of a DM, given one of its two accounts.
+// In a DM with oneself that is the same account.
 dm_other :: proc(conv: ^Conv, account: proto.Account_Id) -> proto.Account_Id {
 	return conv.b if account == conv.a else conv.a
 }

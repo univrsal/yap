@@ -280,7 +280,7 @@ Conv_JSON :: struct {
 	// What the account may do there: see, write, react, edit, delete, voice.
 	rights:                 []string,
 	position:               int,
-	// A DM's other account.
+	// A DM's other account, or the account itself in a DM with oneself.
 	recipient:              Maybe(string),
 	// A group's other accounts.
 	members:                Maybe([]string),
@@ -490,6 +490,7 @@ conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 	switch c.kind {
 	case .Channel:
 	case .DM:
+		j.recipient = id_string(m.self) // until someone else is found: a DM with oneself
 		for a in proto.conv_accounts(c) {
 			if a != m.self {
 				j.recipient = id_string(a)

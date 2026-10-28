@@ -113,9 +113,6 @@ post_target :: proc(
 		conv = c.convs.viewing
 		return conv, first, conv != 0
 	}
-	if dm_to == c.auth.me {
-		return
-	}
 	conv = dm_with(c, dm_to)
 	return conv, first if conv != 0 else .Open, true
 }

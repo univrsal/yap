@@ -127,14 +127,19 @@ account_named :: proc(c: ^Server_Conn, name: string) -> proto.Account_Id {
 }
 
 // who returns the account a command refers to, which is `account` or else the
-// account called `name`. It returns 0 if that is ourselves.
+// account called `name`. It returns 0 if that is ourselves, unless `self_ok`.
 @(private = "file")
-who :: proc(c: ^Server_Conn, account: proto.Account_Id, name: string) -> proto.Account_Id {
+who :: proc(
+	c: ^Server_Conn,
+	account: proto.Account_Id,
+	name: string,
+	self_ok := false,
+) -> proto.Account_Id {
 	id := account if account != 0 else account_named(c, name)
 	switch {
 	case id == 0:
 		log.warnf("there's nobody called %q here", name)
-	case id == c.auth.me:
+	case id == c.auth.me && !self_ok:
 		log.warn("that's you")
 		return 0
 	}
@@ -184,18 +189,20 @@ dm_with :: proc(c: ^Server_Conn, account: proto.Account_Id) -> proto.Conv_Id {
 }
 
 // dm_other returns the other participant of a DM, which is the one of its two
-// accounts that isn't ours. It is 0 for anything else.
+// accounts that isn't ours, or ours in a DM with ourselves. It is 0 for
+// anything else.
 dm_other :: proc(c: ^Server_Conn, info: Conv_Info) -> proto.Account_Id {
 	if info.kind != .DM {
 		return 0
 	}
 	info := info
-	for a in info.accounts[:clamp(info.account_count, 0, proto.MAX_GROUP_MEMBERS)] {
+	accounts := info.accounts[:clamp(info.account_count, 0, proto.MAX_GROUP_MEMBERS)]
+	for a in accounts {
 		if a != c.auth.me {
 			return a
 		}
 	}
-	return 0
+	return c.auth.me if len(accounts) > 0 else 0
 }
 
 // group_others returns the members of a group other than us, in ascending order,
@@ -284,11 +291,11 @@ group_command :: proc(c: ^Server_Conn, cmd: Group_Command) {
 	)
 }
 
-// dm_command opens the DM with somebody, first posting `text` if there is any.
-// If no conversation exists yet there is nothing to open, and posting the text
-// is what creates it.
+// dm_command opens the DM with somebody, ourselves included, first posting
+// `text` if there is any. If no conversation exists yet there is nothing to
+// open, and posting the text is what creates it.
 dm_command :: proc(c: ^Server_Conn, cmd: DM_Command) {
-	account := who(c, cmd.account, cmd.name)
+	account := who(c, cmd.account, cmd.name, self_ok = true)
 	if account == 0 {
 		return
 	}

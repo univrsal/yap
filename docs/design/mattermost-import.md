@@ -15,7 +15,7 @@ says about the export comes from reading Mattermost's source (master,
 | # | Change | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Group DMs | L | protocol, schema, server, client | - | built (2026-10-28), see group-dms.md |
-| 2 | DMs with oneself | S | protocol, server, client | - | open |
+| 2 | DMs with oneself | S | protocol, server, client | - | built (2026-10-28) |
 | 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | open |
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | open |
 | 5 | `@here` | S | protocol, server, client | - | open |
@@ -37,6 +37,7 @@ The importer works only on a new, empty database (D5).
 - Conversations (`convs`, proto/convs.odin) are channels or DMs
   (`Conv_Kind`). A DM is two accounts in the `a` and `b` columns; there is
   nothing for three or more. `dm_open` refuses a DM with oneself.
+  (Both have since been added: steps 1 and 2.)
 - One server is one community: channels have no team or workspace above
   them, and channel names are unique on the server.
 - Passwords are Argon2id (hash_worker.odin); `accounts.pw_params` says
@@ -165,6 +166,30 @@ The sample export, with nothing private in it, can then be the
 importer's test data.
 
 ### Seen on the test instance so far
+
+**Our server's version, 10.12.4, exports without a license.** Both the
+Team Edition and the Enterprise Edition with no license (what "the free
+version" can mean) ran `mmctl --local export create
+--include-archived-channels --include-profile-pictures` (2026-10-28, in
+Docker), and the two exports were the same apart from the version line
+(`enterprise: false` / `true`). They have every field the 12.0.1 export
+has, and showed:
+
+- archived channels with `deleted_at`, deactivated users with
+  `delete_at`;
+- a deleted post is not in the export at all;
+- replies inside their post, `edit_at`, `is_pinned`, `flagged_by`,
+  reactions, `last_viewed_at` and counts per channel and per DM member;
+- a group message as a `direct_channel` and `direct_post`s with three
+  `channel_members`;
+- an attached file under `data/<date>/teams/.../<name>`, and uploaded
+  profile pictures under `data/users/<id>/profile.png`;
+- a webhook post with `from_webhook`, `override_username` and
+  `webhook_display_name`, as in 12.0.1.
+
+`mmctl --local` needs a shell on the Mattermost server (it talks to the
+local socket); from elsewhere, `mmctl auth login` as a system admin does
+the same. Not tried yet: custom emoji, threads followed, bots' posts.
 
 A first run (2026-10-28, Mattermost Team Edition 12.0.1 with Postgres 16
 in Docker, one team, webhooks only; the rest of the list above is still
@@ -425,6 +450,21 @@ A place for one's own notes, one per account on each server. A DM whose
 `a` and `b` are the same account; `dm_open` stops refusing it, and the
 client lists it with the other DMs under one's own name. Nobody else can
 see it, mentions in it notify nobody, and calls in it make no sense.
+
+Built (2026-10-28):
+
+- The server: `DM_Open` with one's own id opens it. Its record names the
+  account twice, and the account is its only member. Files can't be
+  offered there (an offer goes to someone else's device); attachments
+  work. Nothing else needed changing: one's own posts are never unread,
+  and pushes and mentions already skip the poster.
+- The client: the inbox always has an entry for oneself on each server,
+  "Name (you)", whether or not the DM exists yet; the first note creates
+  it, as a first message to anyone else does. It can't be hidden, and its
+  header has no calls, no starting a group and no file button.
+- The gateway: `POST /dms` with one's own account; the DM's `recipient`
+  is then oneself.
+- The protocol version stays 16, which nothing has been released with.
 
 ## Channel admins (step 13)
 

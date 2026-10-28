@@ -114,6 +114,11 @@ import "core:slice"
 // empty doesn't show up on its side. Messages, reading and typing work in a DM
 // like in a channel. A DM has no voice room and cannot be subscribed to.
 //
+// An account may also have a DM with itself, for its own notes: DM_Open with
+// its own id. Both of the record's accounts are then that account. Nobody else
+// is told about it, mentioning someone there notifies nobody, and files can't
+// be offered there (attachments can be).
+//
 // A group is like a DM between 3 to MAX_GROUP_MEMBERS accounts, which never
 // change: nobody joins or leaves a group, and a different set of accounts is a
 // different group. Group_Open names the others (the asker is one of the

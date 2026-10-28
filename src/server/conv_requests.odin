@@ -104,6 +104,7 @@ send_conv_to_account :: proc(s: ^Server, account: proto.Account_Id, conv: ^Conv)
 
 // dm_open answers with the DM between the connection's account and another
 // account, creating it if it doesn't exist yet, since anyone may message anyone.
+// The other account may be the connection's own, for a DM with oneself.
 // The account's connections are told about the DM before the answer is sent, so
 // they already know about it by the time the answer arrives.
 @(private = "file")
@@ -111,7 +112,7 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	other, ok := proto.decode_account_id(body)
 	me := u.account.id
 	switch {
-	case !ok || other == me:
+	case !ok:
 		respond(u, id, .Invalid)
 		return
 	case account_live(&s.accounts, other) == nil:
