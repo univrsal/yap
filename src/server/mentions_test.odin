@@ -122,6 +122,41 @@ test_mentions :: proc(t: ^testing.T) {
 	testing.expect(t, !conv_is_member(conv_by_id(&s.convs, dm), carol_acc.id))
 }
 
+// <@here> mentions the members who are online when it is posted, and only for
+// those who may use <@everyone>.
+@(test)
+test_here_mentions :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	home := s.convs.home
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	carol_acc := ts_account(t, &ts, "carol", "a password")
+	dave_acc := ts_account(t, &ts, "dave", "a password")
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	alice := logged_in(t, &ts, "alice")
+	logged_in(t, &ts, "bob")
+	carol := logged_in(t, &ts, "carol")
+	admin := logged_in(t, &ts, "admin")
+	// Carol is away, and dave isn't connected.
+	activity_buf: [proto.ACTIVITY_SET_SIZE]u8
+	status, _ := ts_ask(t, &ts, carol, .Activity_Set, proto.encode_activity(&activity_buf, .Away))
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	_, id := post(t, &ts, alice, home.id, "<@here> anyone?", 1)
+	m, _ := msg_by_id(s, id)
+	testing.expect_value(t, m.text, "@here anyone?")
+	testing.expect_value(t, mentions_of(&ts, home, bob_acc), 0)
+
+	post(t, &ts, admin, home.id, "<@here> standup", 2)
+	testing.expect_value(t, mentions_of(&ts, home, alice_acc), 1)
+	testing.expect_value(t, mentions_of(&ts, home, bob_acc), 1)
+	testing.expect_value(t, mentions_of(&ts, home, carol_acc), 0)
+	testing.expect_value(t, mentions_of(&ts, home, dave_acc), 0)
+}
+
 @(test)
 test_role_mentions :: proc(t: ^testing.T) {
 	ts: Test_Server

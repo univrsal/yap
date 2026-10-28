@@ -15,7 +15,9 @@ import "common:proto"
 // an account that isn't subscribed gets subscribed when it is mentioned
 // (D19) and is told about the channel. <@everyone> mentions every other
 // member if the poster has the Mention_Everyone permission. Otherwise it is
-// kept as the plain text "@everyone". A role's token mentions every other
+// kept as the plain text "@everyone". <@here> is the same, but only for the
+// members who are online (activity_of) when it is posted. A role's token
+// mentions every other
 // member who has the role, if the role is Mentionable. Otherwise it is kept
 // as the plain text "@name". A role mention never subscribes anybody, so
 // accounts that aren't members aren't notified. Any other token is kept as
@@ -48,7 +50,7 @@ mentions_resolve :: proc(
 		}
 	}
 	sender := u.account.id
-	everyone := false
+	everyone, here := false, false
 	at := 0
 	for {
 		m, ok := proto.next_mention(kept, at)
@@ -56,17 +58,19 @@ mentions_resolve :: proc(
 			break
 		}
 		at = m.end
-		if m.everyone {
+		if m.everyone || m.here {
+			name := proto.MENTION_EVERYONE if m.everyone else proto.MENTION_HERE
 			if !can(u.account, .Mention_Everyone) {
 				// The poster isn't allowed to use it, so keep it as plain text.
 				kept = strings.concatenate(
-					{kept[:m.start], "@", proto.MENTION_EVERYONE, kept[m.end:]},
+					{kept[:m.start], "@", name, kept[m.end:]},
 					context.temp_allocator,
 				)
-				at = m.start + 1 + len(proto.MENTION_EVERYONE)
+				at = m.start + 1 + len(name)
 				continue
 			}
-			everyone = true
+			everyone ||= m.everyone
+			here ||= m.here
 			continue
 		}
 		if m.role != 0 {
@@ -115,9 +119,12 @@ mentions_resolve :: proc(
 		}
 		add(&list, acc.id)
 	}
-	if everyone {
+	if everyone || here {
 		for member in conv.members {
-			if member != sender && conv_reader(conv, account_by_id(&s.accounts, member)) {
+			acc := account_by_id(&s.accounts, member)
+			if member != sender &&
+			   conv_reader(conv, acc) &&
+			   (everyone || activity_of(acc) == .Online) {
 				add(&list, member)
 			}
 		}

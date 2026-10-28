@@ -219,6 +219,17 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 			},
 		)
 	}
+	if !spaced &&
+	   .Mention_Everyone in v.permissions &&
+	   strings.has_prefix(proto.MENTION_HERE, prefix) {
+		append(
+			&cm.items,
+			Completion_Item {
+				insert = strings.clone("@" + proto.MENTION_HERE + " "),
+				label = strings.clone("@" + proto.MENTION_HERE + "   everyone here who is online"),
+			},
+		)
+	}
 	cm.active = len(cm.items) > 0
 	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
 }

@@ -348,6 +348,8 @@ digest_quote :: proc(s: ^Server, item: Digest_Item) -> string {
 		switch {
 		case m.everyone:
 			strings.write_string(&b, "@" + proto.MENTION_EVERYONE)
+		case m.here:
+			strings.write_string(&b, "@" + proto.MENTION_HERE)
 		case m.role != 0:
 			r := s.accounts.roles[m.role] or_else nil
 			fmt.sbprintf(&b, "@%s", r.name if r != nil else "role")

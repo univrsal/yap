@@ -18,7 +18,7 @@ says about the export comes from reading Mattermost's source (master,
 | 2 | DMs with oneself | S | protocol, server, client | - | built (2026-10-28) |
 | 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | built (2026-10-28) |
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
-| 5 | `@here` | S | protocol, server, client | - | open |
+| 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | webhooks seen (2026-10-28), the rest open |
 | 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | open |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
@@ -341,11 +341,24 @@ Built (2026-10-28), protocol version 18:
   ("You" for one's own), dimmed like a call's line; the gateway gives
   `system.text` too.
 
+### @here (step 5)
+
+Built (2026-10-28), protocol version 19: the token `<@here>` mentions the
+members whose activity is Online (connected, not idle, not set to away,
+busy or offline) when the message is posted. It needs Mention_Everyone,
+like `<@everyone>`, and without it is kept as the plain text `@here`.
+Typing `@here` writes the token, the composer offers it, and it shows
+highlighted like `@everyone`. A client counts a new `<@here>` as its
+mention if it is online itself; the server's count (the `mentions` rows)
+is what holds after that.
+
 ### Text: mentions, channel links, Markdown (step 9)
 
 - `@username` → `<@id>` for accounts that exist. Not inside code.
-- `@channel` and `@all` → `<@everyone>`. `@here` → yap's own (step 5,
-  D12): everyone in the conversation who is online.
+- `@channel` and `@all` → `<@everyone>`. `@here` → `<@here>` (step 5,
+  D12): everyone in the conversation who is online. Who was online when an
+  imported message was posted isn't known, so an imported `<@here>`
+  mentions nobody (no `mentions` rows), while it still reads as `@here`.
 - `@groupname`: user groups aren't in the export, so plain text.
 - `~channel-name` → a channel link, if yap has one; else the channel's
   name as text.

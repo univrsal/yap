@@ -880,7 +880,10 @@ mentions_me :: proc(c: ^Server_Conn, m: proto.Message) -> bool {
 	if m.kind != .Text || .Deleted in m.flags {
 		return false
 	}
-	return proto.mentions_account(m.text, c.auth.me, c.auth.accounts[c.auth.me].roles)
+	// <@here> mentions those who were online when it was posted, which as
+	// far as we know is us if we are online now.
+	me := c.auth.accounts[c.auth.me]
+	return proto.mentions_account(m.text, c.auth.me, me.roles, here = me.activity == .Online)
 }
 
 // conv_reading handles the UI saying which conversation is being read, if any.
