@@ -267,7 +267,9 @@ test_purge_messages :: proc(t: ^testing.T) {
 	age_messages(t, &ts, new_reply, new_reply, 30)
 	status, messages, _ = purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
 	testing.expect_value(t, status, proto.Status.Ok)
-	testing.expect_value(t, messages, 3) // root, new_reply, elsewhere
+	// root, new_reply, elsewhere, and the note that the mention in elsewhere
+	// added bob to the channel
+	testing.expect_value(t, messages, 4)
 	testing.expect(t, !exists(&ts, root) && !exists(&ts, elsewhere))
 	testing.expect(t, exists(&ts, pinned) && exists(&ts, recent))
 	// Once unpinned, the pinned message is purged too.

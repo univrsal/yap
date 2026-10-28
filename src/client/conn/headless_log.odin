@@ -289,7 +289,9 @@ describe :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 		text = system_text(
 			m.system,
 			m.system_arg,
+			m.text,
 			account_display(c, m.sender),
+			account_display(c, proto.Account_Id(m.system_arg)),
 			m.sender == c.auth.me,
 		)
 	case .Text:

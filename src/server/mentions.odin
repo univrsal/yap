@@ -106,6 +106,7 @@ mentions_resolve :: proc(
 			if conv.kind != .Channel || .Private in conv.flags {
 				continue
 			}
+			system_post(s, conv, sender, .Added, acc.id)
 			if !conv_member_add(&s.convs, conv, acc.id, read_upto) {
 				continue
 			}

@@ -1324,18 +1324,29 @@ draw_chip_emoji :: proc(ui: ^UI, c: Chip, pos: mu.Vec2) {
 	}
 }
 
-// system_line is what a system message says (so far, a call's line).
+// system_line is what a system message says: a call's line, with a phone in
+// front of it, or what happened in the channel or on the server.
 @(private = "file")
 system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
 	v := ui.view
-	name := "someone"
-	if acc, ok := v.accounts[m.sender]; ok {
-		name = acc.display
+	name_of :: proc(v: ^conn.View, id: proto.Account_Id) -> string {
+		if acc, ok := v.accounts[id]; ok {
+			return acc.display
+		}
+		return "someone"
 	}
-	return fmt.tprintf(
-		"\U0001F4DE %s",
-		conn.system_text(m.system, m.system_arg, name, m.sender == v.me),
+	text := conn.system_text(
+		m.system,
+		m.system_arg,
+		m.text,
+		name_of(v, m.sender),
+		name_of(v, proto.Account_Id(m.system_arg)),
+		m.sender == v.me,
 	)
+	if proto.system_counts_unread(m.system) {
+		return fmt.tprintf("\U0001F4DE %s", text)
+	}
+	return text
 }
 
 // What is left of a deleted message.

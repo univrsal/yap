@@ -1,6 +1,7 @@
 package proto
 
 import "core:encoding/endian"
+import "core:strings"
 
 // Messages: what is posted to a conversation (convs.odin). The server keeps
 // them permanently, and they are read a page at a time. Everything here travels
@@ -39,7 +40,7 @@ import "core:encoding/endian"
 // 	                   if Has_Attachments: [count u8] per file:
 // 	                   [blob u64][size u64][width u16][height u16][name str8]
 // 	          file:    [size u64][name str8]
-// 	          system:  [what u8][arg u32]
+// 	          system:  [what u8][arg u32][text str16]
 // 	          if Has_Thread: [reply_count u32][last_reply u64]
 // 	          if Forwarded: [sender u32][conv u32][time u64] (forward.odin)
 // 	          [reaction_count u8] per reaction: [emoji str8][count u16][me u8]
@@ -108,6 +109,15 @@ import "core:encoding/endian"
 // that asked for a history page or Pins_Get. In an event (Msg_New, Msg_Changed)
 // it is never set, and the readers of events keep track of their own reactions
 // from Reaction_Changed.
+//
+// System messages: the server posts a message of kind System when something
+// happens that the conversation's history should show. `system` says what:
+// a call (Call_System, in a DM, calls.odin) or something about a channel or
+// the server (Conv_System). `sender` is who did it, `system_arg` an account it
+// was done to (or a call's length), and `text` what changed: the old value and
+// the new one, on a line each. A Conv_System message counts as neither unread
+// nor a mention (system_counts_unread), and notifies nobody. A `system` that
+// this build doesn't know is shown as such.
 //
 // A thread root is only used in a later phase. The record has room for it from
 // the start, and it is zero until then.
@@ -212,6 +222,41 @@ MESSAGE_MAX_SIZE ::
 
 MAX_HISTORY_LIMIT :: 50
 
+// What a system message about a channel or the server says happened (see
+// above). Mattermost's system posts are imported as these, which is where
+// the kinds that yap itself never posts come from.
+Conv_System :: enum u8 {
+	Joined        = 16, // the sender joined the channel
+	Left          = 17, // the sender left the channel
+	Added         = 18, // the sender added `arg` to the channel
+	Removed       = 19, // the sender took `arg` out of the channel
+	Renamed       = 20, // text: the old name and the new one
+	Topic_Changed = 21, // text: the old topic and the new one
+	Made_Private  = 22, // imported only: yap channels don't change that
+	Made_Public   = 23, // imported only
+	Archived      = 24,
+	Unarchived    = 25, // imported only: yap doesn't unarchive
+	Joined_Server = 26, // in the home channel: the sender's account was made
+	Left_Server   = 27, // in the home channel: the sender's account was deleted
+}
+
+// The first value of Conv_System. System messages from here on count as
+// neither unread nor a mention.
+CONV_SYSTEM_FIRST :: 16
+
+// system_counts_unread says whether a system message of this kind counts as
+// unread like any other message: a call's does, one about a channel doesn't.
+system_counts_unread :: proc(what: u8) -> bool {
+	return what < CONV_SYSTEM_FIRST
+}
+
+// system_change splits a system message's text into the old value and the
+// new one (see Conv_System).
+system_change :: proc(text: string) -> (old, new: string) {
+	old, _, new = strings.partition(text, "\n")
+	return
+}
+
 // The maximum number of pinned messages in a conversation.
 MAX_PINS :: 1000
 
@@ -263,7 +308,7 @@ message_size :: proc(m: Message) -> int {
 	case .File:
 		n += 8 + 1 + len(m.file_name)
 	case .System:
-		n += 1 + 4
+		n += 1 + 4 + 2 + len(m.text)
 	}
 	if .Has_Thread in m.flags {
 		n += 4 + 8
@@ -311,6 +356,7 @@ put_message :: proc(w: ^Writer, m: Message) {
 	case .System:
 		put_u8(w, m.system)
 		put_u32(w, m.system_arg)
+		put_str16(w, m.text)
 	}
 	if .Has_Thread in m.flags {
 		put_u32(w, m.reply_count)
@@ -360,6 +406,7 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 	case .System:
 		m.system = get_u8(r)
 		m.system_arg = get_u32(r)
+		m.text = get_str16(r)
 	case:
 		return // a kind from a newer server, whose layout isn't known
 	}

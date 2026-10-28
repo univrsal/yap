@@ -332,6 +332,7 @@ File_JSON :: struct {
 System_JSON :: struct {
 	what: int,
 	arg:  int,
+	text: string, // what changed: the old value and the new one, a line each
 }
 
 Message_JSON :: struct {
@@ -614,7 +615,7 @@ message_json :: proc(m: ^Model, msg: ^proto.Message) -> Message_JSON {
 	case .File:
 		j.file = File_JSON{msg.file_name, msg.file_size}
 	case .System:
-		j.system = System_JSON{int(msg.system), int(msg.system_arg)}
+		j.system = System_JSON{int(msg.system), int(msg.system_arg), msg.text}
 	}
 	return j
 }

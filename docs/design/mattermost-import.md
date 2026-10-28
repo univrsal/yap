@@ -17,7 +17,7 @@ says about the export comes from reading Mattermost's source (master,
 | 1 | Group DMs | L | protocol, schema, server, client | - | built (2026-10-28), see group-dms.md |
 | 2 | DMs with oneself | S | protocol, server, client | - | built (2026-10-28) |
 | 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | built (2026-10-28) |
-| 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | open |
+| 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | open |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | webhooks seen (2026-10-28), the rest open |
 | 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | open |
@@ -299,14 +299,47 @@ the channel or the import's.
 
 ### System messages (step 4)
 
-Mattermost posts `system_join_channel`, `system_leave_channel`,
-`system_add_to_channel`, `system_remove_from_channel`,
-`system_header_change`, `system_purpose_change`,
-`system_displayname_change`, `system_channel_deleted` and more. They
-become new `System` kinds (D11): the `system` byte says which, and
-`system_arg` holds the account it is about. Which ones, and what they
-carry in `props`, after step 6. yap could post the same kinds itself when
-people join and leave, so they aren't only for imported history.
+Mattermost's system posts become `proto.Conv_System` kinds (D11, D19): the
+`system` byte says which, `sender` is who did it, `system_arg` an account
+it was done to, and the message's text the old and the new value, a line
+each. Seen in a 10.12.4 export (all are exported, with these `props`):
+
+| Mattermost `type` | `props` | yap |
+| --- | --- | --- |
+| `system_join_channel`, `system_guest_join_channel` | `username` | `Joined` |
+| `system_leave_channel` | `username` | `Left` |
+| `system_add_to_channel`, `system_add_guest_to_chan` | `addedUserId`, `addedUsername`, `userId` (who) | `Added` |
+| `system_remove_from_channel` | `removedUserId`, `removedUsername`; the post's user removed them | `Removed` |
+| `system_displayname_change` | `old_displayname`, `new_displayname` | `Renamed` |
+| `system_header_change` | `old_header`, `new_header` | `Topic_Changed` |
+| `system_purpose_change` | `old_purpose`, `new_purpose` | `Topic_Changed` if the channel has no header (its topic is the purpose then), else dropped |
+| `system_change_chan_privacy` | only the message text says which way | `Made_Private` / `Made_Public` |
+| `system_channel_deleted`, `system_channel_restored` | `username` | `Archived`, `Unarchived` |
+| `system_join_team`, `system_add_to_team` | `username` | `Joined_Server`, in the home channel (D20) |
+| `system_leave_team`, `system_remove_from_team` | `username` | `Left_Server`, in the home channel |
+| `system_join_leave`, `system_add_remove` | combined in the UI, not stored | - |
+| `system_generic`, `system_ephemeral`, `system_auto_responder`, `system_wrangler`, `system_move_channel`, `system_gm_to_channel`, `add_bot_teams_channels`, `reminder` | | dropped, or plain text: step 7 decides |
+| `me` (`/me`) | | text (step 9) |
+
+Built (2026-10-28), protocol version 18:
+
+- A system message's record has its text (`[what u8][arg u32][text
+  str16]`); the server stores the kind as the number the text column
+  starts with, followed by the text on the next line.
+- Kinds from 16 on (`CONV_SYSTEM_FIRST`) are never unread or mentions,
+  in `Msg_Unread`, the digest and the client, and notify nobody. Calls'
+  (1 to 3) count as before.
+- yap posts them live: joining and leaving a channel (not the home
+  channel), adding and removing members (also an account added by being
+  mentioned), renaming, changing the topic, archiving, and in the home
+  channel an account being made (once verified, if it has to be) or
+  deleted. Not for bots. The note about someone joining or being added
+  comes just before they are a member, so it counts as read for them.
+- Made private or public and unarchived only come from imports: yap
+  channels can't change those.
+- The client words them as "Alice renamed the channel from #a to #b"
+  ("You" for one's own), dimmed like a call's line; the gateway gives
+  `system.text` too.
 
 ### Text: mentions, channel links, Markdown (step 9)
 
@@ -625,4 +658,10 @@ come back to, and finds them again in one list.
 - **D17** Pins are read in pages, up to 1000 per conversation.
 - **D18** Custom emoji stay at 512 per server, with names up to 64
   characters; an import with more keeps the most used 512.
+- **D19** yap posts these system messages itself as things happen, so
+  imported and new history look the same. They are never unread and
+  never notify. Joins and leaves of the home channel aren't posted.
+- **D20** Mattermost's team events become "joined/left the server" in the
+  home channel; yap posts "joined" when an account is made and "left"
+  when it is deleted.
 

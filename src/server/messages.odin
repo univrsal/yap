@@ -418,9 +418,14 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	case .File:
 		db_bind_text(q, 5, m.file_name)
 	case .System:
-		// What happened, as a number. Its argument is stored in the column
-		// that holds the size of a file.
-		db_bind_text(q, 5, fmt.tprint(m.system))
+		// What happened, as a number, followed by its text on the next line
+		// if it has one. Its argument is stored in the column that holds
+		// the size of a file.
+		if m.text != "" {
+			db_bind_text(q, 5, fmt.tprintf("%d\n%s", m.system, m.text))
+		} else {
+			db_bind_text(q, 5, fmt.tprint(m.system))
+		}
 	case:
 		db_bind_null(q, 5)
 	}
@@ -737,9 +742,11 @@ msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 		m.file_name = db_col_text(q, 8)
 		m.file_size = u64(db_col_int(q, 11))
 	case .System:
-		what, _ := strconv.parse_uint(db_col_text(q, 8))
+		number, _, text := strings.partition(db_col_text(q, 8), "\n")
+		what, _ := strconv.parse_uint(number)
 		m.system = u8(what)
 		m.system_arg = u32(db_col_int(q, 11))
+		m.text = text
 	}
 	return m
 }

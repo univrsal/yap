@@ -214,6 +214,11 @@ Stmt :: enum {
 
 // The columns of a whole message, in the order msg_of_row (messages.odin)
 // reads them.
+// Whether a message counts as unread: any but a system message about a channel
+// (proto.CONV_SYSTEM_FIRST and up), whose kind is the number its text starts with.
+COUNTS_UNREAD :: "(kind != 3 OR CAST(text AS INTEGER) < 16)"
+COUNTS_UNREAD_M :: "(m.kind != 3 OR CAST(m.text AS INTEGER) < 16)"
+
 MSG_COLS :: "m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time"
 
 @(private = "file", rodata)
@@ -252,7 +257,7 @@ STMT_SQL := [Stmt]string {
 	.Member_All             = "SELECT conv, account, read_id, notify FROM members",
 	.Member_Set_Read        = "UPDATE members SET read_id = ?3 WHERE conv = ?1 AND account = ?2 AND read_id < ?3",
 	.Member_Set_Notify      = "UPDATE members SET notify = ?3 WHERE conv = ?1 AND account = ?2",
-	.Msg_Unread             = "SELECT count(*) FROM (SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 AND sender != ?3 AND flags & 1 = 0 LIMIT 100)",
+	.Msg_Unread             = "SELECT count(*) FROM (SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 AND sender != ?3 AND flags & 1 = 0 AND " + COUNTS_UNREAD + " LIMIT 100)",
 	.Conv_Set_Last          = "UPDATE convs SET last_msg = ?2 WHERE id = ?1",
 	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
 	.Msg_By_Nonce           = "SELECT id, time FROM messages WHERE sender = ?1 AND nonce = ?2",
@@ -370,7 +375,7 @@ STMT_SQL := [Stmt]string {
 	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind IN (1, 2) AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	// The same for every conversation where the account is notified of every
 	// message, except archived channels.
-	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 AND " + COUNTS_UNREAD_M + " ORDER BY m.id LIMIT ?4",
 	.Digest_Mentions        = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM mentions y JOIN members x ON x.conv = y.conv AND x.account = y.account JOIN messages m ON m.id = y.message WHERE y.account = ?1 AND y.message > max(x.read_id, ?2) AND x.notify != 2 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	// Web Push subscriptions (push_subs.odin).
 	.Push_Sub_Put           = "INSERT INTO push_subs (device, account, endpoint, p256dh, auth, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (endpoint) DO UPDATE SET device = ?1, account = ?2, p256dh = ?4, auth = ?5, created = ?6",

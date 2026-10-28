@@ -304,6 +304,11 @@ conv_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	if on {
 		if !conv_is_member(conv, acc.id) {
+			// Said before joining, so that it is among what the new member
+			// has read already, like everything else in the channel.
+			if .Home not_in conv.flags {
+				system_post(s, conv, acc.id, .Joined)
+			}
 			if !conv_member_add(&s.convs, conv, acc.id) {
 				respond(u, id, .Internal)
 				return
@@ -329,6 +334,7 @@ conv_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		log.infof("%s unsubscribed from %q", conn_label(u), conv.name)
 		member_gone(s, conv, acc.id)
+		system_post(s, conv, acc.id, .Left)
 	}
 	respond(u, id, .Ok)
 }
@@ -533,6 +539,9 @@ conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 	}
+	// The old name and topic, for the system messages about the change.
+	old_name := strings.clone(conv.name, context.temp_allocator)
+	old_topic := strings.clone(conv.topic, context.temp_allocator)
 	if !conv_update(&s.convs, conv, name, topic, position) ||
 	   (flags != conv.flags && !conv_set_flags(&s.convs, conv, flags)) {
 		respond(u, id, .Internal)
@@ -540,6 +549,19 @@ conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	log.infof("%s changed the channel %q", conn_label(u), conv.name)
 	respond(u, id, .Ok)
+	if conv.name != old_name {
+		system_post(s, conv, u.account.id, .Renamed, 0, system_change_text(old_name, conv.name))
+	}
+	if conv.topic != old_topic {
+		system_post(
+			s,
+			conv,
+			u.account.id,
+			.Topic_Changed,
+			0,
+			system_change_text(old_topic, conv.topic),
+		)
+	}
 	// This also empties the voice room of a channel that became text only.
 	channel_access_changed(s, conv)
 }
@@ -562,6 +584,8 @@ conv_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
+	// Said while the members still have the channel, before it is archived.
+	system_post(s, conv, u.account.id, .Archived)
 	if !conv_set_flags(&s.convs, conv, conv.flags + {.Archived}) {
 		respond(u, id, .Internal)
 		return
@@ -624,7 +648,8 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if on {
 		if !conv_is_member(conv, account) {
 			// Everything already in the channel counts as read for a newly added
-			// member.
+			// member, including that they were added.
+			system_post(s, conv, u.account.id, .Added, account)
 			if !conv_member_add(&s.convs, conv, account) {
 				respond(u, id, .Internal)
 				return
@@ -645,6 +670,7 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		log.infof("%s took %s out of %q", conn_label(u), target.username, conv.name)
 		member_gone(s, conv, account)
+		system_post(s, conv, u.account.id, .Removed, account)
 	}
 	respond(u, id, .Ok)
 }

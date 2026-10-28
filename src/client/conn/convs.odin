@@ -846,7 +846,9 @@ conv_new_message :: proc(c: ^Server_Conn, m: proto.Message) -> (interrupts: bool
 		if m.id > info.read {
 			info.read, info.unread, info.mentions = m.id, 0, 0
 		}
-	case m.id <= info.read:
+	case m.id <= info.read, m.kind == .System && !proto.system_counts_unread(m.system):
+		// Read already, or something that doesn't count as unread (someone
+		// joined, the channel was renamed, ...).
 		if newer {
 			publish_channels(c)
 		}

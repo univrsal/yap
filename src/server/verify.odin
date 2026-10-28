@@ -88,9 +88,15 @@ account_unverify :: proc(s: ^Server, acc: ^Account, by: i64) -> bool {
 // account_verified marks an account as verified after its address has been
 // shown to be its own. The account is let in and becomes visible to everyone.
 account_verified :: proc(s: ^Server, acc: ^Account) -> bool {
+	// Only a registration has a deadline to be verified by; an account that
+	// changed its address was there already.
+	registered := acc.verify_expires != 0
 	account_set_verify(&s.accounts, acc, acc.flags - {.Unverified}, "", 0) or_return
 	log.infof("%s's email address %s is verified", acc.username, acc.email)
 	account_changed(s, acc)
+	if registered {
+		account_joined(s, acc)
+	}
 	for u in acc.conns {
 		conn_seen(s, u)
 	}

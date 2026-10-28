@@ -74,8 +74,14 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 @(require_results)
 account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 	a := &s.accounts
+	// Everyone saw it join, except for a bot or an account that never got
+	// verified, so everyone sees it go.
+	said := acc.flags & {.Bot, .Unverified} == {}
 	if !account_erase_rows(&s.db, acc.id) {
 		return false
+	}
+	if said && s.convs.home != nil {
+		system_post(s, s.convs.home, acc.id, .Left_Server)
 	}
 	username := strings.clone(acc.username, context.temp_allocator)
 

@@ -421,7 +421,7 @@ counting at 100.
 | `id`, `conv_id` | |
 | `author` | `{id, username, display, bot}` |
 | `timestamp`, `edited_timestamp` | |
-| `kind` | `text`, `file` (a file offered in a DM, peer to peer, which the API can't take), `system` (a call that was missed or ended) |
+| `kind` | `text`, `file` (a file offered in a DM, peer to peer, which the API can't take), `system` (a call that was missed or ended, or something that happened in the channel or on the server) |
 | `content` | The text. |
 | `thread` | The thread's first message, if this is a reply in one. |
 | `attachments` | `[{id, name, size}]`; `id` is `null` once the server has let the file go. |
@@ -430,7 +430,7 @@ counting at 100.
 | `forwarded` | `{author_id, conv_id, timestamp}` of the original, for a copy. |
 | `replies` | `{count, last_id}` for a thread's first message. |
 | `file` | `{name, size}` for `kind` `file`. |
-| `system` | `{what, arg}` for `kind` `system`: what is 1 missed, 2 declined, 3 ended (`arg` is how many seconds the call lasted). |
+| `system` | `{what, arg, text}` for `kind` `system`. A call: `what` is 1 missed, 2 declined, 3 ended (`arg` is how many seconds the call lasted). In a channel, done by `sender`: 16 joined, 17 left, 18 added `arg` (an account), 19 removed `arg`, 20 renamed, 21 changed the topic (`text` is the old value and the new one, a line each), 22 made it private, 23 public, 24 archived, 25 unarchived; in the home channel, 26 joined the server, 27 left it. Those from 16 on are never unread. |
 
 ### server
 

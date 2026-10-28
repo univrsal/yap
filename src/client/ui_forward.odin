@@ -213,8 +213,10 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 			said = files_said(m.files)
 		case m.kind == .File:
 			said = fmt.tprintf("the file %s", m.text)
-		case m.kind == .System:
+		case m.kind == .System && proto.system_counts_unread(m.system):
 			said = "a call"
+		case m.kind == .System:
+			said = "a note about the channel"
 		case:
 			said, _, _ = richtext.text_display(
 				m.text,

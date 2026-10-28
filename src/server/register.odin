@@ -244,6 +244,7 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 	// everything when it logs in.
 	if .Unverified not_in acc.flags {
 		account_changed(s, acc)
+		account_joined(s, acc)
 	}
 	buf: [proto.AUTH_LOGIN_RESPONSE_SIZE]u8
 	respond(u, p.request, .Ok, proto.encode_auth_login_response(&buf, acc.id, acc.flags))
