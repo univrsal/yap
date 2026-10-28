@@ -12,6 +12,7 @@ comments cite them by file name (for example "D12 in hq-share.md").
 | [hq-share.md](hq-share.md) | Screen sharing with the yap_video library |
 | [keyboard.md](keyboard.md) | Tab navigation and a command palette |
 | [keyframe-test.md](keyframe-test.md) | Whether encoders answer keyframe requests (`tools/keytest.cpp`) |
+| [mattermost-import.md](mattermost-import.md) | What importing a Mattermost server needs |
 | [memory.md](memory.md) | Client memory: measurements and what to save |
 | [mobile.md](mobile.md) | Phones, and Web Push |
 | [moderation.md](moderation.md) | Moving, muting and disconnecting people in voice, and bans |
