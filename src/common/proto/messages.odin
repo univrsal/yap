@@ -36,7 +36,7 @@ import "core:encoding/endian"
 // 	          [thread_root u64][edited u64]
 // 	          text:    [text str16]
 // 	                   if Has_Attachments: [count u8] per file:
-// 	                   [blob u64][size u64][name str8]
+// 	                   [blob u64][size u64][width u16][height u16][name str8]
 // 	          file:    [size u64][name str8]
 // 	          system:  [what u8][arg u32]
 // 	          if Has_Thread: [reply_count u32][last_reply u64]
@@ -77,7 +77,9 @@ import "core:encoding/endian"
 // flag, and its text may be empty. A picture in a message is also an
 // attachment, including a pasted one. Posting names the poster's uploads, and
 // the server fills in each file's blob, name and size from them. The files are
-// removed when the message is deleted.
+// removed when the message is deleted. A picture's width and height are what
+// its header states, so that it can be given its room before it has arrived.
+// They are 0 for other files and for pictures whose header can't be read.
 //
 // Files: a message of kind File is an offer to send a file. It is only possible
 // in a DM. It states the file's name and size, and the file itself is
@@ -148,9 +150,10 @@ MAX_ATTACHMENTS :: 10
 // A file that a message carries. The name points into the data that it was read
 // from.
 Attachment :: struct {
-	blob: Blob_Id, // 0 once it has been removed (retention)
-	size: u64,
-	name: string,
+	blob:          Blob_Id, // 0 once it has been removed (retention)
+	size:          u64,
+	name:          string,
+	width, height: int, // a picture's, or 0 (see above)
 }
 
 // Message is one message. Its strings point into the data that it was read
@@ -181,7 +184,7 @@ Message :: struct {
 }
 
 // The maximum size of a message's files.
-ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 1 + MAX_FILE_NAME)
+ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 2 + 2 + 1 + MAX_FILE_NAME)
 
 // The maximum size of a message.
 MESSAGE_MAX_SIZE ::
@@ -246,7 +249,7 @@ message_size :: proc(m: Message) -> int {
 			n += 1
 			for i in 0 ..< m.attachment_count {
 				a := m.attachments[i]
-				n += 8 + 8 + 1 + len(a.name)
+				n += 8 + 8 + 2 + 2 + 1 + len(a.name)
 			}
 		}
 	case .File:
@@ -289,6 +292,8 @@ put_message :: proc(w: ^Writer, m: Message) {
 				a := m.attachments[i]
 				put_u64(w, u64(a.blob))
 				put_u64(w, a.size)
+				put_u16(w, u16(clamp(a.width, 0, 65535)))
+				put_u16(w, u16(clamp(a.height, 0, 65535)))
 				put_str8(w, a.name)
 			}
 		}
@@ -336,6 +341,8 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 			for &a in m.attachments[:m.attachment_count] {
 				a.blob = Blob_Id(get_u64(r))
 				a.size = get_u64(r)
+				a.width = int(get_u16(r))
+				a.height = int(get_u16(r))
 				a.name = get_str8(r)
 			}
 		}

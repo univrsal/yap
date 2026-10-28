@@ -601,19 +601,33 @@ saving :: proc(s: conn.View_Save) -> bool {
 	return s.state == .Asking || s.state == .Receiving
 }
 
-// How tall a picture's preview is drawn, under its row.
+// The most room a picture's preview takes, under its row.
+PREVIEW_WIDTH :: 480
 PREVIEW_HEIGHT :: 160
 
 // A picture that a message carries is shown under its row, as large as
-// PREVIEW_HEIGHT allows.
+// PREVIEW_WIDTH and PREVIEW_HEIGHT allow.
 @(private = "file")
 previewed :: proc(f: conn.Msg_File) -> bool {
 	return f.blob != 0 && conn.preview_wanted(f.name, f.size)
 }
 
+// preview_size is how large a picture's preview is in a message `width`
+// wide: the size the message states for the picture, made smaller to fit.
+// One whose size isn't known gets all the room.
+@(private = "file")
+preview_size :: proc(ctx: ^mu.Context, f: conn.Msg_File, width: i32) -> (w, h: i32) {
+	room := max(min(width - ICON_SIZE_CELL - ctx.style.spacing, PREVIEW_WIDTH), 1)
+	if f.width <= 0 || f.height <= 0 {
+		return room, PREVIEW_HEIGHT
+	}
+	fw, fh := conn.fit_box(f.width, f.height, int(room), PREVIEW_HEIGHT)
+	return i32(fw), i32(fh)
+}
+
 // message_files_height is how far a message's files push the layout
-// down. Call with the View locked.
-message_files_height :: proc(ui: ^UI, m: conn.View_Message) -> (h: i32) {
+// down, in a message `width` wide. Call with the View locked.
+message_files_height :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> (h: i32) {
 	if .Deleted in m.flags {
 		return
 	}
@@ -624,14 +638,16 @@ message_files_height :: proc(ui: ^UI, m: conn.View_Message) -> (h: i32) {
 			h += FILES_BAR + ctx.style.spacing
 		}
 		if previewed(f) {
-			h += PREVIEW_HEIGHT + ctx.style.spacing
+			_, ph := preview_size(ctx, f, width)
+			h += ph + ctx.style.spacing
 		}
 	}
 	return
 }
 
-// file_preview draws a picture's preview under its row. It requests the preview
-// the first time it is drawn (and again now and then until it arrives).
+// file_preview draws a picture's preview under its row, in a message `width`
+// wide. It requests the preview the first time it is drawn (and again now and
+// then until it arrives).
 @(private = "file")
 file_preview :: proc(
 	ui: ^UI,
@@ -639,12 +655,14 @@ file_preview :: proc(
 	m: conn.View_Message,
 	i: int,
 	f: conn.Msg_File,
+	width: i32,
 ) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-1}, PREVIEW_HEIGHT)
+	w, h := preview_size(ctx, f, width)
+	mu.layout_row(ctx, {-1}, h)
 	area := mu.layout_next(ctx)
 	area.x += ICON_SIZE_CELL + ctx.style.spacing
-	area.w = min(area.w - ICON_SIZE_CELL - ctx.style.spacing, 480)
+	area.w = w
 	img, here := ui.view.blobs[f.blob]
 	if !here || img.state != .Ready {
 		asked, was := ui.previews_asked[f.blob]
@@ -666,9 +684,9 @@ file_preview :: proc(
 	}
 }
 
-// message_files draws a message's files, in `conv`. Call with the View
-// locked.
-message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
+// message_files draws a message's files, in `conv`, in a message `width`
+// wide. Call with the View locked.
+message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width: i32) {
 	if .Deleted in m.flags || len(m.files) == 0 {
 		return
 	}
@@ -809,7 +827,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			)
 		}
 		if previewed(f) {
-			file_preview(ui, conv, m, i, f)
+			file_preview(ui, conv, m, i, f, width)
 		}
 	}
 }

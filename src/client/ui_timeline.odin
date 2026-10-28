@@ -854,7 +854,7 @@ message_height :: proc(
 	if m.kind == .File && .Deleted not_in m.flags {
 		h = file_block_height(ui, message_file(ui.view, m), width, merged, reply_line)
 	}
-	h += message_files_height(ui, m)
+	h += message_files_height(ui, m, width)
 	h += reactions_height(ui, m, width)
 	if reply_line {
 		h += reply_line_height(ctx)
@@ -1009,7 +1009,7 @@ timeline_message :: proc(
 	case .Text:
 		text := message_rich(ui, m.text)
 		chat_message(ui, header, header_color, &text, ctx.style.colors[.TEXT], merged, item, tight)
-		message_files(ui, st.key.conv, m)
+		message_files(ui, st.key.conv, m, width)
 	case .System:
 		text := rich_plain(system_line(ui, m))
 		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)

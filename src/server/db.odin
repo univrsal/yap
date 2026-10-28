@@ -341,7 +341,7 @@ STMT_SQL := [Stmt]string {
 	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
-	.Attach_Of_Msg          = "SELECT blob, name, size FROM attachments WHERE msg = ?1 ORDER BY idx",
+	.Attach_Of_Msg          = "SELECT a.blob, a.name, a.size, coalesce(b.width, 0), coalesce(b.height, 0) FROM attachments a LEFT JOIN blobs b ON b.id = a.blob WHERE a.msg = ?1 ORDER BY a.idx",
 	.Attach_Clear           = "DELETE FROM attachments WHERE msg = ?1",
 	.Attach_Blob_Convs      = "SELECT DISTINCT m.conv FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob = ?1",
 	.Files_Index_Add        = "INSERT INTO files_fts (rowid, names) VALUES (?1, ?2)",

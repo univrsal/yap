@@ -96,7 +96,7 @@ import "core:encoding/endian"
 // Like Refused, it is unreliable, so the server sends a few copies and sends
 // them again whenever the client repeats its Handshake_Finish. A client
 // accepts nothing else on a new session until the Welcome arrives.
-HELLO_VERSION :: 14
+HELLO_VERSION :: 15
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
 

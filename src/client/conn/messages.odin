@@ -81,11 +81,13 @@ Msg :: struct {
 }
 
 // Msg_File is a file a message carries. It has a blob (0 once the file has been
-// removed because of the retention policy), its size, and its name.
+// removed because of the retention policy), its size, and its name. A picture
+// also has the width and height its header states, or 0 if it couldn't be read.
 Msg_File :: struct {
-	blob: proto.Blob_Id,
-	size: u64,
-	name: string,
+	blob:          proto.Blob_Id,
+	size:          u64,
+	name:          string,
+	width, height: int,
 }
 
 msg_files_clone :: proc(files: []Msg_File) -> []Msg_File {
@@ -94,7 +96,8 @@ msg_files_clone :: proc(files: []Msg_File) -> []Msg_File {
 	}
 	out := make([]Msg_File, len(files))
 	for f, i in files {
-		out[i] = {f.blob, f.size, strings.clone(f.name)}
+		out[i] = f
+		out[i].name = strings.clone(f.name)
 	}
 	return out
 }
@@ -244,7 +247,13 @@ msg_of :: proc(m: proto.Message) -> Msg {
 			a := m.attachments[i]
 			name_buf: [proto.MAX_FILE_NAME]u8
 			name := proto.sanitize_file_name(a.name, &name_buf)
-			out.files[i] = {a.blob, a.size, strings.clone(name if name != "" else "file")}
+			out.files[i] = {
+				blob   = a.blob,
+				size   = a.size,
+				name   = strings.clone(name if name != "" else "file"),
+				width  = a.width,
+				height = a.height,
+			}
 		}
 	}
 	return out
