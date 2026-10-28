@@ -173,6 +173,7 @@ thread_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 			close_thread(ui, slot) // closed with the title bar's button
 			continue
 		}
+		keep_in_window(ui) // dragged: kept below the top bar, on screen
 		if cnt := mu.get_current_container(ctx); cnt != nil {
 			t.rect, t.zindex = cnt.rect, cnt.zindex
 		}

@@ -56,6 +56,9 @@ CHANNEL_MENU_WIDTH :: 200
 CHANNEL_ROW_PADDING :: 6
 @(private = "file")
 CHANNEL_ROW_GAP :: 2
+// How far the people in a voice room are indented under its channel.
+@(private = "file")
+MEMBER_INDENT :: 16
 
 @(private = "file")
 CHANNELS_WINDOW :: "Join a channel"
@@ -105,9 +108,8 @@ channel_list :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, -(panel_h + 1))
 	area := mu.layout_next(ctx)
 
-	// One frame around both: the rows scroll in a panel without its own,
-	// over the button, which stays put.
-	ctx.draw_frame(ctx, area, .PANEL_BG)
+	// The rows scroll in a panel, over the button, which stays put. Neither
+	// has a frame: the sidebar's color sets them apart (content_surface).
 	pad := ctx.style.padding
 	button_h := ctx.style.size.y + 2 * pad
 	mu.layout_set_next(ctx, {area.x, area.y, area.w, area.h - button_h - pad}, false)
@@ -178,9 +180,11 @@ channel_rows :: proc(ui: ^UI) {
 			view_channel(ui, v, ch)
 		}
 		block := ctx.last_rect
+		mu.get_layout(ctx).indent += MEMBER_INDENT
 		for m in ch.members {
 			member_row(ui, m)
 		}
+		mu.get_layout(ctx).indent -= MEMBER_INDENT
 		// The channel and the people under it, where someone being dragged
 		// can be dropped (ui_voice_drag.odin).
 		block.h = ctx.last_rect.y + ctx.last_rect.h - block.y
@@ -196,15 +200,25 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	v := ui.view
 	ch := viewed_channel(v)
 
-	// The members' button is not there while they are pinned down the side.
+	// The members' button is not there while they are pinned down the side,
+	// and neither is the search's, which is a box above them then
+	// (search_box). The voice room's button is only there where we may talk,
+	// left of the others so they stay put. Beside the pins, the messages with
+	// files (files_button).
 	pinned := ui.profiles.members_pinned && !narrow
-	buttons: i32 = 3 if pinned else 4
+	in_it := ch != nil && v.my_room == ch.id
+	voice := ch != nil && (.Voice in ch.rights || in_it)
+	buttons: i32 = 2 + (0 if pinned else 2) + (1 if voice else 0)
 	right := buttons * icon_button_w(ctx) + buttons * ctx.style.spacing + 1
 	widths := make([dynamic]i32, context.temp_allocator)
 	if narrow {
 		append(&widths, 40)
 	}
 	append(&widths, -right)
+	header_pad(ui)
+	layout := mu.get_layout(ctx)
+	layout.indent += CONV_HEADER_PAD
+	defer layout.indent -= CONV_HEADER_PAD
 	for _ in 0 ..< buttons {
 		append(&widths, icon_button_w(ctx))
 	}
@@ -218,6 +232,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		}
 		return
 	}
+	defer header_line_below(ui)
 
 	// The name and the topic (not in a narrow window, where the list is a
 	// button away), and what is going on.
@@ -231,15 +246,21 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	if !pinned {
 		members_button(ui)
 	}
-	pins_button(ui)
-	search_button(ui)
-
-	in_it := v.my_room == ch.id
-	// No voice room here for us: text only, or not ours to talk in.
-	if .Voice not_in ch.rights && !in_it {
-		mu.label(ctx, "")
-		return
+	if voice {
+		voice_button(ui, ch^, in_it)
 	}
+	pins_button(ui)
+	files_button(ui)
+	if !pinned {
+		search_button(ui)
+	}
+}
+
+// voice_button joins the channel's voice room, or leaves it while we are
+// `in_it`. Call with the View locked.
+@(private = "file")
+voice_button :: proc(ui: ^UI, ch: conn.View_Channel, in_it: bool) {
+	v := ui.view
 	hint: string
 	color := mu.Color{}
 	switch {
@@ -259,7 +280,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 			log.debugf("ui: leave voice of %q", ch.name)
 			command(ui, conn.Voice_Command{})
 		} else {
-			join_voice(ui, ch^)
+			join_voice(ui, ch)
 		}
 	}
 }
@@ -490,6 +511,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		c.open = false // closed with the title bar's button
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	if pager_search(ui, &c.find, "Search by name or topic") {

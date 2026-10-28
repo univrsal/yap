@@ -11,12 +11,7 @@ import "common:proto"
 // scrollbar when the text area doesn't (it used to show one for a single line).
 @(test)
 test_composer_preview_fits :: proc(t: ^testing.T) {
-	for text in ([]string {
-			"one line",
-			"one\ntwo",
-			"one\ntwo\nthree",
-			"a longer line that wraps round",
-		}) {
+	for text in ([]string{"one line", "one\ntwo", "one\ntwo\nthree", "a longer line that wraps round"}) {
 		ui := new(UI)
 		defer free(ui)
 		defer ui_select_destroy(ui)

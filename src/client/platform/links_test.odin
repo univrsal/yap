@@ -50,31 +50,11 @@ test_find_links :: proc(t: ^testing.T) {
 @(test)
 test_file_openable :: proc(t: ^testing.T) {
 	// Pictures, videos, audio, archives and documents, in any case.
-	for path in ([]string {
-			"/home/a/Downloads/cat.PNG",
-			`C:\Users\a\Downloads\clip.mp4`,
-			"song.flac",
-			"backup.tar.gz",
-			"report.pdf",
-		}) {
+	for path in ([]string{"/home/a/Downloads/cat.PNG", `C:\Users\a\Downloads\clip.mp4`, "song.flac", "backup.tar.gz", "report.pdf"}) {
 		testing.expectf(t, file_openable(path), "%q should be openable", path)
 	}
 	// Anything that could run, or that isn't on the list.
-	for path in ([]string {
-			"setup.exe",
-			"report.pdf.exe",
-			"evil.msc",
-			"x.appref-ms",
-			"link.webloc",
-			"profile.mobileconfig",
-			"package.deb",
-			"disk.iso",
-			"archive.cab",
-			"no extension",
-			"trailing.",
-			`folder.png\file`,
-			"",
-		}) {
+	for path in ([]string{"setup.exe", "report.pdf.exe", "evil.msc", "x.appref-ms", "link.webloc", "profile.mobileconfig", "package.deb", "disk.iso", "archive.cab", "no extension", "trailing.", `folder.png\file`, ""}) {
 		testing.expectf(t, !file_openable(path), "%q should not be openable", path)
 	}
 }

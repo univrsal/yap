@@ -89,12 +89,44 @@ test_connection_quality :: proc(t: ^testing.T) {
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Good)
 	}
 	{
-		// Several scattered losses make it fair.
+		// Scattered losses, even many of them, leave it good.
 		p: Ping_Tracker
 		rtts := good
-		rtts[5], rtts[15], rtts[25], rtts[35], rtts[45], rtts[55] = -1, -1, -1, -1, -1, -1
+		for i := 1; i < PING_WINDOW; i += 4 {
+			rtts[i] = -1
+		}
 		fill(&p, now, rtts[:])
+		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Good)
+	}
+	{
+		// A few in a row make it fair, until as many in a row are answered.
+		p: Ping_Tracker
+		rtts := good
+		at := PING_WINDOW - RECOVER_RUN
+		for i in 1 ..= FAIR_RUN {
+			rtts[at - i] = -1
+		}
+		rtts[at + 1] = -1 // an answer, a loss, an answer: not recovered yet
+		fill(&p, now, rtts[:])
+		s := connection_stats(&p, now)
+		testing.expect(t, s.shaky)
+		testing.expect_value(t, s.quality, Connection_Quality.Fair)
+
+		// Two answers in a row since the last loss.
+		fill(&p, now, {30 * MS})
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Fair)
+		fill(&p, now, {30 * MS})
+		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Good)
+	}
+	{
+		// One fewer in a row doesn't.
+		p: Ping_Tracker
+		rtts := good
+		for i in 1 ..< FAIR_RUN {
+			rtts[PING_WINDOW - i] = -1
+		}
+		fill(&p, now, rtts[:])
+		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Good)
 	}
 	{
 		// So does a slow round trip.

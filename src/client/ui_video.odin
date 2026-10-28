@@ -446,6 +446,7 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		conn.push_command(&ns.client.commands, conn.Watch_Command{user = 0})
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	// No fullscreen over the settings, and neither button for a server that

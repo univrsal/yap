@@ -7,8 +7,8 @@ import "core:hash"
 import "core:strconv"
 import "core:time"
 
-import "lib:lite"
 import "common:proto"
+import "lib:lite"
 
 // Writing (docs/bot-api, phase 5): posting, editing, deleting, reacting,
 // pinning, reading, typing, DMs, subscribing, the profile and activity.

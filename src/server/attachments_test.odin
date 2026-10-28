@@ -294,12 +294,12 @@ test_attachments :: proc(t: ^testing.T) {
 		testing.expect_value(
 			t,
 			m.attachments[0],
-			proto.Attachment{blob, u64(len(report)), "report 2026.pdf"},
+			proto.Attachment{blob = blob, size = u64(len(report)), name = "report 2026.pdf"},
 		)
 		testing.expect_value(
 			t,
 			m.attachments[1],
-			proto.Attachment{tool_blob, u64(len(tool)), "setup.exe"},
+			proto.Attachment{blob = tool_blob, size = u64(len(tool)), name = "setup.exe"},
 		)
 	}
 	// The message is read back exactly as it was posted.
@@ -307,6 +307,19 @@ test_attachments :: proc(t: ^testing.T) {
 	testing.expect(t, found)
 	testing.expect_value(t, m.attachment_count, 2)
 	testing.expect_value(t, m.attachments[1].name, "setup.exe")
+	testing.expect_value(t, m.attachments[1].width, 0)
+	// A picture's message states its size, from its header.
+	{
+		png := test_file(3000, 5)
+		copy(png, []u8{0x89, 'P', 'N', 'G', 13, 10, 0x1a, 10, 0, 0, 0, 13, 'I', 'H', 'D', 'R', 0, 0, 0x07, 0x80, 0, 0, 0x04, 0x38})
+		_, pic_upload := put(t, &ts, alice, len(png), "shot.png")
+		testing.expect(t, send_file(t, &ts, alice, pic_upload, png) != 0)
+		_, pic := post_files(t, &ts, alice, gaming.id, "", 50, pic_upload)
+		got, _ := msg_by_id(s, pic)
+		testing.expect_value(t, got.attachments[0].width, 1920)
+		testing.expect_value(t, got.attachments[0].height, 1080)
+		ts_events(t, &ts, alice)
+	}
 	// Posting again after a reconnect returns the same message.
 	again: proto.Msg_Id
 	_, again = post_files(t, &ts, alice, gaming.id, "the files", 1, upload, tool_upload)
@@ -537,7 +550,7 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	testing.expect_value(t, messages, 2)
 	m, found := msg_by_id(s, first)
 	testing.expect(t, found && .Has_Attachments in m.flags)
-	testing.expect_value(t, m.attachments[0], proto.Attachment{0, 2 * 1024 * 1024, "one.zip"})
+	testing.expect_value(t, m.attachments[0], proto.Attachment{size = 2 * 1024 * 1024, name = "one.zip"})
 	told := false
 	for e in ts_events(t, &ts, alice) {
 		if e.op == .Msgs_Purged {
@@ -640,6 +653,16 @@ test_attachments_search :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, slice.equal(search(t, &ts, alice, "holiday"), []proto.Msg_Id{other}))
 	testing.expect(t, slice.equal(search(t, &ts, alice, "final"), []proto.Msg_Id{both}))
+	// has:file alone finds every message with files, and with words only
+	// those of the matches that have files.
+	testing.expect(
+		t,
+		slice.equal(search(t, &ts, alice, "has:file"), []proto.Msg_Id{other, both, report}),
+	)
+	testing.expect(
+		t,
+		slice.equal(search(t, &ts, alice, "quarterly has:file"), []proto.Msg_Id{report}),
+	)
 
 	id_buf: [proto.MSG_ID_SIZE]u8
 	status, _ := ts_ask(t, &ts, alice, .Msg_Delete, proto.encode_msg_id(&id_buf, report))

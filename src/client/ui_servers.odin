@@ -412,7 +412,6 @@ RAIL_WIDTH :: 56
 RAIL_ICON :: 40
 @(private = "file")
 RAIL_SLOT :: RAIL_ICON + 6
-@(private = "file")
 RAIL_WINDOW :: "rail"
 @(private = "file")
 RAIL_MENU :: "server menu"
@@ -434,11 +433,13 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		cnt.rect = {0, 0, RAIL_WIDTH, h}
 		cnt.zindex = -1 // under what floats, like the main window
 	}
-	opts := mu.Options{.NO_TITLE, .NO_RESIZE, .NO_CLOSE, .NO_SCROLL}
+	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_CLOSE, .NO_SCROLL}
 	if !mu.begin_window(ctx, RAIL_WINDOW, {0, 0, RAIL_WIDTH, h}, opts) {
 		return
 	}
 	defer mu.end_window(ctx)
+	// The darkest of the surfaces (see theme.rail), without a border.
+	mu.draw_rect(ctx, {0, 0, RAIL_WIDTH, h}, theme.rail)
 	// With the title bar merged on macOS, the window's buttons sit over the
 	// rail's top left (see ui_titlebar_darwin.odin), so start below them.
 	if ui.titlebar_left > 0 && ui.titlebar_height > 0 {
@@ -490,7 +491,16 @@ server_rail :: proc(ui: ^UI, h: i32) {
 			color, text = dimmed(color), dimmed(text)
 		}
 		shown := ns == ui.session && !ui.join.open && ui.page != .Buddies
-		r, id, keyed := rail_icon(ui, uintptr(rawptr(ns)), initials, color, text, label, shown, picture)
+		r, id, keyed := rail_icon(
+			ui,
+			uintptr(rawptr(ns)),
+			initials,
+			color,
+			text,
+			label,
+			shown,
+			picture,
+		)
 		if keyed {
 			ui.switch_to, ui.switching = ns, true
 		}
@@ -511,7 +521,15 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	r, plus, keyed := rail_icon(ui, RAIL_PLUS, "", theme.plus_disc, white, "Join a server", ui.join.open)
+	r, plus, keyed := rail_icon(
+		ui,
+		RAIL_PLUS,
+		"",
+		theme.plus_disc,
+		white,
+		"Join a server",
+		ui.join.open,
+	)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	mu.draw_icon(ctx, render.icon_id(.Plus), icon, white)
 	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} || keyed {
@@ -565,6 +583,12 @@ inbox_icon :: proc(ui: ^UI) {
 // connection is doing (ui_connection.odin) and has the settings button, which
 // opens and closes the settings. Neither belongs to one conversation, and
 // neither scrolls away with the rail's servers.
+//
+// In a narrow window, where the voice panel leaves them out to give the
+// messages the height, our picture (which sets our status) and the mute and
+// deafen buttons are above those, from the top:
+//
+//	(pic)  [mic]  [speaker]  bars  [settings]
 @(private = "file")
 rail_bottom :: proc(ui: ^UI, h: i32) {
 	ctx := &ui.ctx
@@ -573,12 +597,22 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 	if ui.session != nil && !ui.session.joining {
 		v := ui.view
 		sync.guard(&v.mutex)
-		mu.layout_set_next(
-			ctx,
-			{x, settings_y - ICON_BUTTON - ctx.style.spacing, ICON_BUTTON, ICON_BUTTON},
-			false,
-		)
+		step := ICON_BUTTON + ctx.style.spacing
+		y := settings_y - step
+		mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
 		connection_indicator(ui)
+		if ui.narrow {
+			y -= step
+			mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+			deafen_button(ui)
+			y -= step
+			mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+			mute_button(ui)
+			if v.me != 0 {
+				y -= RAIL_ICON + ctx.style.spacing
+				rail_me(ui, {(RAIL_WIDTH - RAIL_ICON) / 2, y, RAIL_ICON, RAIL_ICON})
+			}
+		}
 	}
 	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
@@ -592,6 +626,29 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 		case:
 			open_settings(ui)
 		}
+	}
+}
+
+// rail_me is our picture in the rail in a narrow window (rail_bottom), ringed
+// while we are heard. Like who we are in the voice panel, clicking it sets our
+// status. Call with the View locked.
+@(private = "file")
+rail_me :: proc(ui: ^UI, r: mu.Rect) {
+	ctx := &ui.ctx
+	v := ui.view
+	state := panel_state(v)
+	talking := (state == .Voice || state == .Call) && conn.is_speaking(v, v.my_num)
+	avatar_ringed(ui, v.me, r, talking)
+	id := mu.get_id(ctx, "me in rail")
+	mu.update_control(ctx, id, r)
+	if nav_control(ctx, id, r) {
+		open_status_editor(ui)
+	}
+	if ctx.hover_id == id || nav_focused(ctx, id) {
+		ui.hint, ui.hint_of = "Set your status", r
+	}
+	if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
+		open_status_editor(ui)
 	}
 }
 
@@ -703,7 +760,7 @@ mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	icon_right := r.x + (r.w + RAIL_ICON) / 2
 	icon_bottom := r.y + 3 + RAIL_ICON
 	b := mu.Rect{icon_right + 2 - w, icon_bottom + 2 - h, w, h}
-	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, ctx.style.colors[.WINDOW_BG])
+	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, theme.rail)
 	pill(ui, b, theme.mentions)
 	mu.draw_text(ctx, font, text, {b.x + (w - tw) / 2, b.y}, {255, 255, 255, 255})
 }

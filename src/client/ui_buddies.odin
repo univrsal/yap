@@ -143,9 +143,7 @@ back_from_dms :: proc(ui: ^UI) {
 // the View locked.
 buddies_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	body := mu.get_current_container(ctx).body
-	narrow := body.w < NARROW_LAYOUT
-	ui.narrow = narrow
+	narrow := ui.narrow
 	ui.profiles.members_pinned = false
 
 	// Watching somebody's screen (from a call's row in the voice panel)
@@ -197,7 +195,9 @@ buddies_screen :: proc(ui: ^UI) {
 		voice_panel(ui)
 	case narrow:
 		mu.layout_row(ctx, {-1}, -(panel_h + 1))
+		surface := content_surface(ui)
 		conversation_or_screen(ui, entry, found, narrow)
+		conversation_lines(ui, surface, false)
 		voice_panel(ui)
 	case:
 		mu.layout_row(ctx, {280, -1}, -1)
@@ -206,7 +206,9 @@ buddies_screen :: proc(ui: ^UI) {
 		buddy_list_panel(ui, list)
 		voice_panel(ui)
 		mu.layout_end_column(ctx)
+		surface := content_surface(ui)
 		conversation_or_screen(ui, entry, found, narrow)
+		conversation_lines(ui, surface, false)
 	}
 	user_menu(ui)
 	message_menu(ui)
@@ -259,7 +261,7 @@ back_to_list :: proc(ui: ^UI) {
 buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	ctx := &ui.ctx
 
-	mu.begin_panel(ctx, "buddies")
+	mu.begin_panel(ctx, "buddies", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 
 	if len(list) == 0 {
@@ -416,6 +418,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	for &w in widths[1:] {
 		w = icon_button_w(ctx)
 	}
+	header_pad(ui)
+	layout := mu.get_layout(ctx)
+	layout.indent += CONV_HEADER_PAD
 	if back {
 		row := make([]i32, len(widths) + 1, context.temp_allocator)
 		row[0] = 40
@@ -497,6 +502,8 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		log.debug("ui: hid a conversation")
 		return
 	}
+	layout.indent -= CONV_HEADER_PAD
+	header_line_below(ui)
 	if deleted {
 		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server
@@ -564,7 +571,7 @@ dm_file_button :: proc(ui: ^UI, data: rawptr) {
 @(private = "file")
 no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	ctx := &ui.ctx
-	mu.begin_panel(ctx, "no conversation")
+	mu.begin_panel(ctx, "no conversation", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	pending := 0
 	for p, i in ui.view.outbox {

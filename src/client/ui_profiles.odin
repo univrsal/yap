@@ -171,6 +171,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.editing = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	// Online, away, busy or invisible: applied immediately, unlike the
@@ -383,6 +384,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.members_open = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 	members_list(ui)
 }
@@ -409,8 +411,10 @@ members_panel :: proc(ui: ^UI) {
 	members_ask(ui)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
+	// Level with the conversation's header, and as tall.
+	search_box(ui)
 	mu.layout_row(ctx, {-1}, -1)
-	mu.begin_panel(ctx, "members pinned")
+	mu.begin_panel(ctx, "members pinned", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	members_list(ui)
 }

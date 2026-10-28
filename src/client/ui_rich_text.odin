@@ -6,9 +6,9 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:richtext"
 import "client:platform"
 import "client:render"
+import "client:richtext"
 import "common:proto"
 
 // A message's text as the timeline draws it: its markdown is parsed
@@ -190,7 +190,6 @@ rich_font :: proc(ctx: ^mu.Context, styles: richtext.Md_Styles) -> mu.Font {
 }
 
 // rich_styles_at is the styles of the run that text[i] is in.
-@(private = "file")
 rich_styles_at :: proc(r: ^Rich, i: int) -> richtext.Md_Styles {
 	if len(r.runs) == 0 {
 		return {}

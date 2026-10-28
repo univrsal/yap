@@ -13,12 +13,14 @@ import "common:proto"
 // that arrives later than that is too late to be useful for voice anyway.
 // Pings younger than that are still outstanding and are not counted either way.
 //
-// The bars show the worse of latency and loss (see connection_quality). Loss is
-// judged over the whole window, so a short hiccup does not turn the bars
-// yellow. Several unanswered pings in a row (a few seconds of silence) do,
-// because that means the connection is going down rather than just noisy.
-// After that, client_step gives up on the connection and periodically tries to
-// establish a new one (CONNECTION_LOST).
+// The bars show the worse of latency and loss (see connection_quality). Loss
+// only counts where pings go unanswered in a row: a ping lost here and there
+// leaves the bars green. FAIR_RUN of them in a row turn the bars yellow, and
+// they stay yellow until RECOVER_RUN pings in a row have been answered again
+// (Connection_Stats.shaky). LOST_IN_A_ROW in a row (a few seconds of silence)
+// turn them red, because that means the connection is going down. After that,
+// client_step gives up on the connection and periodically tries to establish a
+// new one (CONNECTION_LOST).
 
 PING_INTERVAL :: 500 * time.Millisecond
 PING_WINDOW :: 60 // 30 seconds' worth
@@ -27,10 +29,11 @@ PING_TIMEOUT :: 3 * time.Second
 // The thresholds at which the bars change colour.
 GOOD_RTT :: 150 * time.Millisecond
 FAIR_RTT :: 400 * time.Millisecond
-GOOD_LOSS :: 5 // percent
-FAIR_LOSS :: 20
-// This many unanswered pings in a row mean a poor connection, regardless of
-// what the rest of the window says.
+// This many unanswered pings in a row make the connection fair, until this
+// many in a row have been answered again.
+FAIR_RUN :: 3
+RECOVER_RUN :: 3
+// This many unanswered pings in a row mean a poor connection.
 LOST_IN_A_ROW :: 6
 
 Ping_Record :: struct {
@@ -61,6 +64,9 @@ Connection_Stats :: struct {
 	sent:     int, // pings old enough to judge
 	lost:     int,
 	lost_run: int, // unanswered pings in a row, most recent first
+	// FAIR_RUN pings in a row went unanswered, and fewer than RECOVER_RUN
+	// in a row have been answered since.
+	shaky:    bool,
 	last_rtt: time.Duration,
 	avg_rtt:  time.Duration,
 	min_rtt:  time.Duration,
@@ -116,6 +122,10 @@ connection_stats :: proc(p: ^Ping_Tracker, now: time.Tick) -> (s: Connection_Sta
 	prev_rtt: time.Duration
 	have_prev := false
 	counting_run := true
+	// Going back from the latest ping, until a run of answers long enough to
+	// have recovered (or one of losses long enough to be shaky) is found.
+	answered_run, lost_here := 0, 0
+	settled := false
 
 	// Newest first: the run of losses is counted back from the latest ping,
 	// and the jitter compares each round trip with the one before it.
@@ -126,6 +136,17 @@ connection_stats :: proc(p: ^Ping_Tracker, now: time.Tick) -> (s: Connection_Sta
 			continue // still outstanding
 		}
 		s.sent += 1
+		if !settled {
+			if r.answered {
+				answered_run, lost_here = answered_run + 1, 0
+				settled = answered_run >= RECOVER_RUN
+			} else {
+				answered_run, lost_here = 0, lost_here + 1
+				if lost_here >= FAIR_RUN {
+					s.shaky, settled = true, true
+				}
+			}
+		}
 		if !r.answered {
 			s.lost += 1
 			if counting_run {
@@ -159,13 +180,12 @@ connection_stats :: proc(p: ^Ping_Tracker, now: time.Tick) -> (s: Connection_Sta
 }
 
 connection_quality :: proc(s: Connection_Stats) -> Connection_Quality {
-	loss := connection_loss(s)
 	switch {
 	case s.lost_run >= LOST_IN_A_ROW:
 		return .Poor
-	case s.avg_rtt < GOOD_RTT && loss <= GOOD_LOSS:
+	case s.avg_rtt < GOOD_RTT && !s.shaky:
 		return .Good
-	case s.avg_rtt < FAIR_RTT && loss <= FAIR_LOSS:
+	case s.avg_rtt < FAIR_RTT:
 		return .Fair
 	}
 	return .Poor

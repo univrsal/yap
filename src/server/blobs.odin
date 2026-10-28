@@ -196,7 +196,8 @@ blob_put :: proc(
 // a blob. The file is renamed into the store or, if the store already has
 // that content, deleted and the existing blob's id is returned. Either
 // way the blob counts as new for an hour, so the garbage collection
-// doesn't remove it before it is used.
+// doesn't remove it before it is used. `width` and `height` are a
+// picture's size, for a new blob.
 @(require_results)
 blob_adopt :: proc(
 	bs: ^Blob_Store,
@@ -205,6 +206,8 @@ blob_adopt :: proc(
 	sum: [BLOB_HASH_SIZE]u8,
 	size: int,
 	by: i64,
+	width := 0,
+	height := 0,
 ) -> (
 	id: Blob_Id,
 	ok: bool,
@@ -225,7 +228,17 @@ blob_adopt :: proc(
 		log.errorf("could not rename %s to %s: %v", part, path, err)
 		return
 	}
-	db_write(bs.db, .Blob_Add, sum[:], i64(size), i64(kind), 0, 0, unix_ms(), by) or_return
+	db_write(
+		bs.db,
+		.Blob_Add,
+		sum[:],
+		i64(size),
+		i64(kind),
+		i64(width),
+		i64(height),
+		unix_ms(),
+		by,
+	) or_return
 	return Blob_Id(db_last_id(bs.db)), true
 }
 

@@ -8,6 +8,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
+import "common:imagekind"
 import "common:proto"
 import "sqlite"
 
@@ -22,7 +23,9 @@ import "sqlite"
 // That way nothing big is done at once, which would delay voice. Once the
 // upload is complete it's stored as a blob of kind File (by renaming the
 // file, or by discarding it if the store already has that content) and
-// the ack reports it as complete. The upload remains known to its account
+// the ack reports it as complete. A picture's size is read from its header
+// then (the first ATTACH_HEADER bytes) and kept with the blob, for messages
+// to state. The upload remains known to its account
 // for ATTACH_KEEP so that a post can refer to it (Msg_Post, messages.odin).
 //
 // An account may upload the config's `daily_megabytes` in 24 hours. What
@@ -70,6 +73,9 @@ ATTACH_QUOTA_PERIOD :: 24 * time.Hour
 // Clients send faster than `rate_kb` until the first ack tells them the rate.
 ATTACH_UPLOAD_SLACK :: 1.25
 ATTACH_UPLOAD_BURST :: 1024 * 1024
+// How much of an upload is read for a picture's size. A JPEG's metadata
+// (EXIF, with its thumbnail) comes before the size and is at most 64 KB.
+ATTACH_HEADER :: 80 * 1024
 
 Attachments :: struct {
 	max_size:  u64, // bytes; 0 accepts no uploads
@@ -103,6 +109,8 @@ Attach_Upload :: struct {
 	last_data: time.Tick,
 	pace:      proto.Bucket, // bytes that may arrive now, see upload_paced
 	blob:      Blob_Id, // once it's stored
+	width:     int, // a picture's, once it's stored, or 0
+	height:    int,
 	kept_at:   time.Tick,
 }
 
@@ -360,9 +368,19 @@ upload_paced :: proc(s: ^Server, up: ^Attach_Upload, bytes: int) -> bool {
 upload_keep :: proc(s: ^Server, u: ^Conn, up: ^Attach_Upload) {
 	sum: [BLOB_HASH_SIZE]u8
 	hash.final(&up.hasher, sum[:])
+	up.width, up.height = picture_size(up)
 	os.close(up.file)
 	up.file = nil
-	blob, ok := blob_adopt(&s.blobs, .File, up.part, sum, int(up.size), i64(up.account))
+	blob, ok := blob_adopt(
+		&s.blobs,
+		.File,
+		up.part,
+		sum,
+		int(up.size),
+		i64(up.account),
+		up.width,
+		up.height,
+	)
 	if !ok {
 		os.remove(up.part)
 		send_cancel(s, u, up.id, .Failed)
@@ -374,6 +392,23 @@ upload_keep :: proc(s: ^Server, u: ^Conn, up: ^Attach_Upload) {
 	up.conn = nil
 	log.debugf("%s uploaded %q as blob %d", conn_label(u), up.name, blob)
 	send_upload_ack(s, u, up, up.kept_at)
+}
+
+// picture_size reads the size of a picture from the header of a complete
+// upload, as at most 65535 on each side so that a message can state it (the
+// shape is kept). It is 0 by 0 for anything else.
+@(private = "file")
+picture_size :: proc(up: ^Attach_Upload) -> (width, height: int) {
+	head := make([]u8, min(up.size, ATTACH_HEADER), context.temp_allocator)
+	n, _ := os.read_at(up.file, head, 0)
+	w, h, ok := imagekind.dimensions(head[:max(n, 0)])
+	if !ok {
+		return 0, 0
+	}
+	if side := max(w, h); side > 65535 {
+		w, h = max(w * 65535 / side, 1), max(h * 65535 / side, 1)
+	}
+	return w, h
 }
 
 @(private = "file")
@@ -670,8 +705,10 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 		}
 		m.attachments[m.attachment_count] = {
 			blob = proto.Blob_Id(db_col_int(q, 0)),
-			name = db_col_text(q, 1),
-			size = u64(db_col_int(q, 2)),
+			name   = db_col_text(q, 1),
+			size   = u64(db_col_int(q, 2)),
+			width  = int(db_col_int(q, 3)),
+			height = int(db_col_int(q, 4)),
 		}
 		m.attachment_count += 1
 	}

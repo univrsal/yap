@@ -3,9 +3,9 @@ package gateway
 import "core:fmt"
 import "core:strconv"
 
+import "common:proto"
 import "lib:http"
 import "lib:lite"
-import "common:proto"
 
 // Reading (docs/bot-api, phase 4): some requests are answered from the model,
 // while history, pins, search, members, browsing and reactors are requested

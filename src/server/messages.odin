@@ -160,9 +160,11 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 				}
 			}
 			m.attachments[i] = {
-				blob = up.blob,
-				size = up.size,
-				name = up.name,
+				blob   = up.blob,
+				size   = up.size,
+				name   = up.name,
+				width  = up.width,
+				height = up.height,
 			}
 		}
 		m.attachment_count = p.attachment_count

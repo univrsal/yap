@@ -12,14 +12,16 @@ package proto
 // from the newest) are searched, and at most `limit` are returned
 // (MAX_SEARCH_LIMIT). Words only match whole words, ignoring case and
 // accents (prefix searches are not supported, see server/search.odin).
-// A phrase in double quotes matches those words in that order, and
-// `from:username` keeps only messages from that account.
+// A phrase in double quotes matches those words in that order,
+// `from:username` keeps only messages from that account, and `has:file`
+// keeps only messages with files. `has:file` needs no words: on its own it
+// finds every message with files.
 // `more` (MORE_BEFORE) says there may be more messages older than
 // `searched_to`, which is the oldest message that was looked at. To
 // continue, ask again with it as `before`. A search that takes too long
 // stops where it got to and signals that in the same way, whether or not it
 // found anything, so that asking again continues from there. A query
-// without any word is `Invalid`.
+// without any word (or has:file) is `Invalid`.
 
 MAX_SEARCH_LIMIT :: 50
 MAX_SEARCH_QUERY :: 200

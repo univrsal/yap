@@ -1,0 +1,62 @@
+package imagekind
+
+import "core:testing"
+
+// The size of each kind of picture is read from its header, and a header
+// that is cut short or isn't a picture's has none.
+@(test)
+test_dimensions :: proc(t: ^testing.T) {
+	Case :: struct {
+		name:          string,
+		data:          []u8,
+		width, height: int,
+	}
+	cases := []Case {
+		{
+			"png",
+			{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 13, 'I', 'H', 'D', 'R', 0, 0, 0x07, 0x80, 0, 0, 0x04, 0x38},
+			1920,
+			1080,
+		},
+		{"gif", {'G', 'I', 'F', '8', '9', 'a', 0x40, 0x01, 0xf0, 0x00}, 320, 240},
+		{
+			"webp lossy",
+			{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ', 0, 0, 0, 0, 0, 0, 0, 0x9d, 0x01, 0x2a, 0x80, 0x02, 0xe0, 0x01},
+			640,
+			480,
+		},
+		{
+			// 640x480: 639 | 479 << 14 = 0x0077c27f
+			"webp lossless",
+			{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'L', 0, 0, 0, 0, 0x2f, 0x7f, 0xc2, 0x77, 0x00, 0, 0, 0, 0, 0},
+			640,
+			480,
+		},
+		{
+			"webp extended",
+			{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'X', 0, 0, 0, 0, 0x10, 0, 0, 0, 0x7f, 0x02, 0x00, 0xdf, 0x01, 0x00},
+			640,
+			480,
+		},
+		{
+			// Stored top-down, so with a negative height.
+			"bmp",
+			{'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0x64, 0, 0, 0, 0xce, 0xff, 0xff, 0xff},
+			100,
+			50,
+		},
+		{
+			"jpeg",
+			{0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0x01, 0x2c, 0x01, 0x90, 3, 0, 0, 0},
+			400,
+			300,
+		},
+		{"png cut short", {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 13, 'I', 'H', 'D', 'R', 0, 0}, 0, 0},
+		{"text", transmute([]u8)string("just some text, not a picture at all"), 0, 0},
+	}
+	for c in cases {
+		w, h, ok := dimensions(c.data)
+		testing.expectf(t, ok == (c.width > 0), "%s: ok is %v", c.name, ok)
+		testing.expectf(t, w == c.width && h == c.height, "%s: %dx%d", c.name, w, h)
+	}
+}

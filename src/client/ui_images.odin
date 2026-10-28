@@ -717,6 +717,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		im.viewer = {} // closed with the title bar's button
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 	cnt := mu.get_current_container(ctx)
 

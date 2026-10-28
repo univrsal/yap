@@ -225,10 +225,14 @@ UI :: struct {
 	// restores it instead of always unmuting (see set_deafened).
 	muted_before_deafen: bool,
 
-	// Whose message header is being drawn, and the byte range of their name in
-	// it, so that a click on the name opens their menu. 0: none.
+	// The byte range of the name in the message header being drawn, which is
+	// bold, and whose it is, so that a click on the name opens their menu (0:
+	// none, as for our own).
 	header_sender:       proto.Account_Id,
 	header_name:         [2]int,
+	// The byte range of the time in the header, which is dimmed ({} if it
+	// has none, see time_column).
+	header_time:         [2]int,
 	// Where a bot's tag goes in the header (a byte offset after its name, where the
 	// header leaves room for it, see ui_bots.odin). 0 for none.
 	header_bot:          int,
@@ -275,8 +279,11 @@ UI :: struct {
 	focus_thread:        int, // which composer: Composer.thread
 	// People's pictures (ui_avatars.odin).
 	avatars:             UI_Avatars,
-	// Whether the last frame was laid out narrow. In that case an open thread takes
-	// the place of the conversation instead of floating over it (see ui_threads.odin).
+	// Whether this frame is laid out narrow, as layout works out before drawing
+	// anything. Then the list and the conversation take turns, an open thread
+	// takes the place of the conversation instead of floating over it (see
+	// ui_threads.odin), and who we are and mute and deafen are in the rail
+	// instead of the voice panel (see rail_bottom).
 	narrow:              bool,
 	// Whether controls are sized for a finger (see style_apply): in a narrow
 	// window, or once a touch screen has been used (web, ui_touch_web.odin).
@@ -312,6 +319,13 @@ UI :: struct {
 	titlebar_left:       i32,
 	titlebar_right:      i32,
 	titlebar_height:     i32,
+	// With the title bar merged, where the line under the first row (the
+	// title row) is in this frame, or 0 where there is none. Above it the
+	// window can be dragged (see mouse_button_callback).
+	title_line:          i32,
+	// Where the lighter line under a conversation's header is in this frame
+	// (header_line_below), or 0 where there is none.
+	conv_line:           i32,
 	// Where this frame's text boxes are, and whether one has the focus,
 	// for a phone's keyboard in a web build (see ui_text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
@@ -435,6 +449,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// The server rail down the left (see ui_servers.odin), and one window
 	// that always fills the rest of the OS window.
 	rail := rail_width(ui)
+	ui.narrow = w - rail < NARROW_LAYOUT
 	server_rail(ui, h)
 	rail_menu(ui)
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
@@ -444,12 +459,20 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		// zindex is below 0, and sorts the lowest first.
 		cnt.zindex = -1
 	}
-	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+	// Without a frame: it is in the sidebars' color, and the content's surface
+	// is painted over that (content_surface).
+	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_CLOSE}
+	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, opts) {
+		mu.draw_rect(ctx, mu.get_current_container(ctx).rect, theme.sidebar)
 		titlebar_buttons(ui, w)
+		ui.title_line, ui.conv_line = 0, 0
 		main_window(ui)
+		// Under the title row, from the rail to the window's right edge.
+		if ui.title_line > 0 {
+			mu.draw_rect(ctx, {rail, ui.title_line, w - rail, 1}, theme.divider)
+		}
 		mu.end_window(ctx)
 	}
-	rail_divider_gap(ui, rail)
 	// An enlarged image floats above everything else (see ui_images.odin).
 	image_viewer(ui, w, h)
 	// A screen that is being watched, popped out of its tab (see ui_video.odin).
@@ -475,29 +498,97 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	voice_drag_frame(ui)
 }
 
-// rail_divider_gap hides the line between the rail and the main window
-// (their two borders) along the strip of the merged macOS title bar, where
-// the window's buttons are (see ui_titlebar_darwin.odin). The borders belong
-// to the windows, which can't draw outside themselves, so this is a window of
-// its own, in the windows' color, drawn over them.
-@(private = "file")
-rail_divider_gap :: proc(ui: ^UI, rail: i32) {
-	if ui.titlebar_left <= 0 || ui.titlebar_height <= 0 {
+// content_surface paints the content's surface (theme.content) under the next
+// layout cell: a conversation, a settings page, beside the sidebars. It reaches
+// halfway into the gaps to the cells around it, and to the window's edges where
+// the cell is next to one. It returns the area it painted, for the lines drawn
+// along it once the cell has been laid out (conversation_lines).
+content_surface :: proc(ui: ^UI) -> mu.Rect {
+	ctx := &ui.ctx
+	cell := mu.layout_next(ctx)
+	mu.layout_set_next(ctx, cell, false)
+	win := mu.get_current_container(ctx).rect
+	near := ctx.style.padding + 1
+	half := ctx.style.spacing / 2
+	left := win.x if cell.x - win.x <= near else cell.x - half
+	top := win.y if cell.y - win.y <= near else cell.y - half
+	right := cell.x + cell.w
+	right = win.x + win.w if win.x + win.w - right <= near else right + half
+	bottom := cell.y + cell.h
+	bottom = win.y + win.h if win.y + win.h - bottom <= near else bottom + half
+	r := mu.Rect{left, top, right - left, bottom - top}
+	mu.draw_rect(ctx, r, theme.content)
+	return r
+}
+
+// keep_in_window keeps the current window, one that floats over the main window
+// and can be dragged by its title bar, inside the OS window and below the
+// strip along its top (the merged title bar and its line, UI.title_line), so
+// that it can't cover the window's own buttons or be lost off an edge. microui
+// moves a dragged window after drawing it, so this takes effect before it is
+// drawn again. Call right after mu.begin_window.
+keep_in_window :: proc(ui: ^UI) {
+	cnt := mu.get_current_container(&ui.ctx)
+	w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
+	top := ui.titlebar_height
+	if ui.title_line > 0 {
+		top = max(top, ui.title_line + 1)
+	}
+	r := &cnt.rect
+	r.w, r.h = min(r.w, max(w, 96)), min(r.h, max(h - top, 64))
+	r.x = clamp(r.x, 0, max(w - r.w, 0))
+	r.y = clamp(r.y, top, max(h - r.h, top))
+}
+
+// How much room a conversation's header has above and below its row, and in
+// from the left. The search box beside it has the same (search_box).
+CONV_HEADER_PAD :: 6
+
+// header_pad is the room above or below a conversation's header: an empty row.
+header_pad :: proc(ui: ^UI) {
+	mu.layout_row(&ui.ctx, {-1}, CONV_HEADER_PAD)
+	mu.layout_next(&ui.ctx)
+}
+
+// header_line_below ends a conversation's header with the room below it, and
+// notes that it has a lighter line under that (conversation_lines), halfway
+// into the gap to what follows.
+header_line_below :: proc(ui: ^UI) {
+	header_pad(ui)
+	layout := mu.get_layout(&ui.ctx)
+	ui.conv_line = layout.body.y + layout.next_row - ui.ctx.style.spacing / 2
+}
+
+// header_surface carries a conversation's surface `r` (content_surface) on
+// across the members pinned down the side, along its header, where the search
+// box is (search_box). Call after the conversation, before the members.
+header_surface :: proc(ui: ^UI, r: mu.Rect) {
+	if ui.conv_line <= r.y {
 		return
 	}
 	ctx := &ui.ctx
-	r := mu.Rect{rail - 1, 0, 3, ui.titlebar_height}
-	cnt := mu.get_container(ctx, "title gap")
-	if cnt == nil {
-		return
+	win := mu.get_current_container(ctx).rect
+	x := r.x + r.w
+	mu.draw_rect(ctx, {x, r.y, win.x + win.w - x, ui.conv_line - r.y}, theme.content)
+}
+
+// conversation_lines draws the lines along a conversation's surface `r`
+// (content_surface): the lighter one under its header, from the surface's left
+// edge to the window's right one (across the members' column), and with
+// `divider`, the one down its right-hand edge between it and the members, from
+// there to the bottom.
+conversation_lines :: proc(ui: ^UI, r: mu.Rect, divider: bool) {
+	ctx := &ui.ctx
+	win := mu.get_current_container(ctx).rect
+	top := r.y
+	if ui.conv_line > 0 {
+		top = ui.conv_line
+		mu.draw_rect(ctx, {r.x, top, win.x + win.w - r.x, 1}, theme.divider_soft)
+		top += 1
 	}
-	cnt.rect = r
-	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE, .NO_INTERACT}
-	if !mu.begin_window(ctx, "title gap", r, opts) {
-		return
+	if divider {
+		mu.draw_rect(ctx, {r.x + r.w, top, 1, r.y + r.h - top}, theme.divider)
 	}
-	defer mu.end_window(ctx)
-	mu.draw_rect(ctx, r, ctx.style.colors[.WINDOW_BG])
 }
 
 @(private = "file")
@@ -644,8 +735,7 @@ session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	body := mu.get_current_container(ctx).body
-	narrow := body.w < NARROW_LAYOUT
-	ui.narrow = narrow
+	narrow := ui.narrow
 	ui.profiles.members_pinned = body.w >= MEMBERS_PIN_LAYOUT
 
 	screen_tab_follow(ui)
@@ -667,13 +757,16 @@ session_screen :: proc(ui: ^UI) {
 	}
 
 	// Side by side where there is room. In a narrow window the list and
-	// the chat take turns (see ui_channels.odin), over the voice panel.
+	// the chat take turns (see ui_channels.odin), over the voice panel if it
+	// has anything to show.
 	if narrow {
 		mu.layout_row(ctx, {-1}, -(voice_panel_height(ui) + 1))
 		if ui.channels.show_list {
 			channel_list(ui)
 		} else {
+			surface := content_surface(ui)
 			side_panel(ui, narrow)
+			conversation_lines(ui, surface, false)
 		}
 		voice_panel(ui)
 	} else {
@@ -689,10 +782,13 @@ session_screen :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {280, -1}, -1)
 		}
 		channel_list(ui)
+		surface := content_surface(ui)
 		side_panel(ui, narrow)
 		if ui.profiles.members_pinned {
+			header_surface(ui, surface)
 			members_panel(ui)
 		}
+		conversation_lines(ui, surface, ui.profiles.members_pinned)
 	}
 	user_menu(ui)
 	channel_menu(ui)
@@ -714,8 +810,17 @@ titlebar_merged :: proc(ui: ^UI) -> bool {
 // the left, so the row starts to the right of them. On Windows and X11 they are
 // on the right, so widths counted from the right-hand edge are counted
 // from the buttons instead.
+//
+// With the title bar merged, a line goes under the row (see UI.title_line).
 title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout := mu.get_layout(&ui.ctx)
+	if titlebar_merged(ui) && ui.title_line == 0 {
+		// Halfway into the gap under the row, where the content's surface
+		// starts (content_surface). A row of height 0 is a control's height.
+		style := ui.ctx.style
+		h := height if height > 0 else style.size.y + 2 * style.padding
+		ui.title_line = layout.body.y + layout.next_row + h + style.spacing - style.spacing / 2
+	}
 	indent := layout.indent
 	layout.indent += max(ui.titlebar_left - layout.body.x, 0)
 	if ui.titlebar_right == 0 {

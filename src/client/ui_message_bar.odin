@@ -17,8 +17,8 @@ import "common:proto"
 // thread, edit it, pin or unpin it and delete it. Each action is only offered
 // where it is allowed (the server checks again):
 //
-//   Recent   The emoji most recently reacted with on this server
-//            (settings.recent_reactions). An emoji is highlighted if we
+//   Recent   The emoji most often reacted with on this server
+//            (settings.quick_reactions). An emoji is highlighted if we
 //            already reacted with it, and clicking it takes our reaction
 //            back. Custom emoji that the server no longer has are left out.
 //   Reply    In the conversation's timeline (a thread's window already has
@@ -251,12 +251,13 @@ Recent_Reaction :: struct {
 	me:     bool, // we have already reacted with it
 }
 
-// bar_recent_reactions are the recent reactions that the bar offers for `m`.
+// bar_recent_reactions are the most used reactions that the bar offers for `m`.
 @(private = "file")
 bar_recent_reactions :: proc(ui: ^UI, m: conn.View_Message) -> []Recent_Reaction {
 	v := ui.view
 	out := make([dynamic]Recent_Reaction, context.temp_allocator)
-	for e in settings.recent_reactions(&ui.settings, v.server_key) {
+	for use in settings.quick_reactions(&ui.settings, v.server_key) {
+		e := use.emoji
 		r := Recent_Reaction {
 			emoji = e,
 		}
@@ -321,8 +322,8 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 }
 
 // send_reaction adds (`on`) or removes our reaction to message `id`. A
-// reaction that is added is also recorded as recent on this server, for the
-// bar to offer.
+// reaction that is added is also counted on this server, for the bar to offer
+// the most used.
 send_reaction :: proc(ui: ^UI, id: proto.Msg_Id, emoji: string, on: bool) {
 	// Not where we may not react (the server would refuse it).
 	if ui.session == nil || .React not_in rights_here(ui.view) {
@@ -333,7 +334,8 @@ send_reaction :: proc(ui: ^UI, id: proto.Msg_Id, emoji: string, on: bool) {
 		conn.React_Command{id = id, emoji = strings.clone(emoji), on = on},
 	)
 	server := ui.view.server_key
-	if on && server != {} && settings.note_reaction(&ui.settings, server, emoji) {
+	if on && server != {} {
+		settings.note_reaction(&ui.settings, server, emoji)
 		ui.settings_dirty = true
 	}
 }

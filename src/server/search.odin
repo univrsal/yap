@@ -17,9 +17,13 @@ import "sqlite"
 // attachments.odin). Both are read side by side, newest first, and a message
 // is only found once even if it matches in both ways.
 //
+// `has:file` keeps only messages with files. On its own (or with only
+// from:), it finds every message with files, walking the index of the
+// files' names without matching anything in it.
+//
 // The text typed by the user is never passed to the query language of FTS5
-// as is. It is split into words, "phrases" and from:username, and then
-// assembled again with every word quoted. This way nothing that is typed
+// as is. It is split into words, "phrases", from:username and has:file, and
+// then assembled again with every word quoted. This way nothing that is typed
 // can be interpreted as an operator or cause a syntax error.
 //
 // Prefix searches (word*) are not supported. FTS5 merges the lists of all
@@ -41,9 +45,10 @@ import "sqlite"
 SEARCH_BUDGET :: 4 * time.Millisecond
 
 // fts_query converts a search as typed by the user into an FTS5 query
-// (allocated with the temp allocator) and the username after from:, if there
-// is one. `ok` is false if there is no word to search for.
-fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool) {
+// (allocated with the temp allocator), the username after from:, if there
+// is one, and whether it has has:file. `ok` is false if there is no word to
+// search for.
+fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool, has_file: bool) {
 	b := strings.builder_make(context.temp_allocator)
 	terms := 0
 	has_word :: proc(s: string) -> bool {
@@ -90,12 +95,16 @@ fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool) {
 			from = strings.trim_prefix(strings.trim_prefix(word, "from:"), "@")
 			continue
 		}
+		if strings.equal_fold(word, "has:file") || strings.equal_fold(word, "has:files") {
+			has_file = true
+			continue
+		}
 		word = strings.trim_right(word, "*")
 		if has_word(word) {
 			add(&b, &terms, word)
 		}
 	}
-	return strings.to_string(b), from, terms > 0
+	return strings.to_string(b), from, terms > 0, has_file
 }
 
 // msg_search answers a Msg_Search with a page of the matching messages, newest first.
@@ -105,8 +114,8 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	query, from, has_words := fts_query(req.query)
-	if !has_words {
+	query, from, has_words, has_file := fts_query(req.query)
+	if !has_words && !has_file {
 		respond(u, id, .Invalid)
 		return
 	}
@@ -132,15 +141,20 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	me := u.account.id
 
 	// Two result lists, one for the message words and one for the file
-	// names, each sorted newest first.
+	// names, each sorted newest first. Without words, the only list is every
+	// message with files.
 	qs := [2]^sqlite.Stmt{db_stmt(&s.db, .Msg_Search), db_stmt(&s.db, .File_Search)}
+	// The next message of each list: its id, 0 once the list has run out,
+	// or -1 if the list still has to be advanced.
+	heads := [2]i64{-1, -1}
+	if !has_words {
+		qs[0] = db_stmt(&s.db, .Files_All)
+		heads[1] = 0
+	}
 	for q in qs {
 		db_bind_text(q, 1, query)
 		db_bind_int(q, 2, i64(min(before, proto.Msg_Id(max(i64)))))
 	}
-	// The next message of each list: its id, 0 once the list has run out,
-	// or -1 if the list still has to be advanced.
-	heads := [2]i64{-1, -1}
 
 	// Stop the search once it has used up its share of the main loop.
 	deadline := time.tick_add(time.tick_now(), SEARCH_BUDGET)
@@ -189,6 +203,7 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			author := proto.Account_Id(db_col_int(q, 2))
 			flags := transmute(proto.Msg_Flags)u8(db_col_int(q, 5))
 			wanted := .Deleted not_in flags && (sender == 0 || author == sender)
+			wanted &&= !has_file || .Has_Attachments in flags
 			if wanted {
 				if req.conv != 0 {
 					wanted = conv_id == req.conv

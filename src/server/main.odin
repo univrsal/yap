@@ -9,9 +9,9 @@ import "core:strconv"
 import "core:strings"
 
 import "common:."
-import "lib:gateway"
 import "common:memtrack"
 import "common:proto"
+import "lib:gateway"
 
 Options :: struct {
 	config: string `args:"pos=0" usage:"Config file (default config.json): port, key, password, relay, channels... Created with defaults and a new key if missing. For the accounts, see: yap-server account; to purge old messages: yap-server purge; to try the email config: yap-server email test"`,

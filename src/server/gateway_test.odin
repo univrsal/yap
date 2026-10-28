@@ -11,10 +11,10 @@ import "core:testing"
 import "core:thread"
 import "core:time"
 
+import "common:proto"
 import "lib:gateway"
 import "lib:http"
 import "lib:lite"
-import "common:proto"
 
 // Tests of the bot API's gateway (lib/gateway). They cover the whole path
 // from HTTP to the gateway, to the server and back, all in one process:
@@ -1966,16 +1966,16 @@ test_gateway_moderation :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.room, proto.Room(0))
 
 	r := gt_run(
-		t,
-		&ts,
-		&h,
-		token,
-		{
-			{"PUT", ban, `{"purge": "weekly"}`, 400},
-			{"PUT", ban, `{"reason": "bye", "purge": "none"}`, 204},
-			{"GET", "/api/v1/bans", "", 200},
-			{"PUT", ban_admin, "", 400}, // never the owner
-		},
+	t,
+	&ts,
+	&h,
+	token,
+	{
+		{"PUT", ban, `{"purge": "weekly"}`, 400},
+		{"PUT", ban, `{"reason": "bye", "purge": "none"}`, 204},
+		{"GET", "/api/v1/bans", "", 200},
+		{"PUT", ban_admin, "", 400}, // never the owner
+	},
 	)
 	testing.expect(t, .Disabled in alice_acc.flags)
 	if r != nil {

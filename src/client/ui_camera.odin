@@ -486,6 +486,7 @@ camera_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		cam.window_shown, cam.popped = false, false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	buttons: i32 = 0

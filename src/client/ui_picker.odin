@@ -107,6 +107,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.open = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	// Search by shortcode or browse a category.

@@ -6,29 +6,46 @@ import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "client:richtext"
 import "common:proto"
 
-// Searching messages (src/common/proto/search.odin) happens in a floating
-// window opened by the magnifier in the conversation's header. It has a box to
-// type in, a checkbox to look in all of our conversations instead of only this
-// one, and the results, newest first. Each result has Go to (which jumps there
-// like a link does, see ui_forward.odin), and More at the end loads older
-// results.
+// Searching messages (src/common/proto/search.odin). Beside a channel whose
+// members are pinned down the side, it is a box above them (search_box):
+// giving it the focus opens a dropdown under it, as wide as the box, with a
+// checkbox to look in all of our conversations instead of only this one, and
+// the results, newest first. A click outside the box and the dropdown, or
+// Escape, closes it again. Elsewhere (a DM, or a window too narrow for the
+// members) a magnifier in the conversation's header opens the same in a
+// floating window, with the box at its top. Each result has Go to (which
+// jumps there like a link does, see ui_forward.odin), and More at the end
+// loads older results.
 //
 // Words match whole words regardless of case and accents. "a phrase" matches
-// the words in a row, and from:username matches one person's messages.
+// the words in a row, from:username matches one person's messages, and
+// has:file only messages with files. The file button beside the pins searches
+// for has:file alone: every message with files in the conversation
+// (files_button).
 
 UI_Search :: struct {
-	open:   bool,
-	placed: bool,
-	focus:  bool, // just opened: the query box takes the focus
-	query: Text_Field(proto.MAX_SEARCH_QUERY),
-	all:    bool, // search in all of our conversations
+	open:     bool,
+	placed:   bool,
+	focus:    bool, // just opened: the query box takes the focus
+	query:    Text_Field(proto.MAX_SEARCH_QUERY),
+	all:      bool, // search in all of our conversations
+	// Where search_box put the box in this frame, or {} if it isn't there and
+	// the search is the floating window. Whether it was there last frame.
+	box:      mu.Rect,
+	dropdown: bool,
+	submit:   bool, // Enter in search_box, for the dropdown to search
 }
 
 @(private = "file")
 SEARCH_WINDOW :: "Search"
+@(private = "file")
+SEARCH_DROPDOWN :: "search dropdown"
+@(private = "file")
+DROPDOWN_PAD :: 6
 
 // search_button is the header's magnifier, which opens and closes the window.
 // Call with the View locked.
@@ -47,8 +64,69 @@ search_button :: proc(ui: ^UI) {
 	}
 }
 
+// files_button is the header's sheets of paper, which search the conversation
+// for every message with files.
+files_button :: proc(ui: ^UI) {
+	if .SUBMIT in icon_button(ui, "files", .File, "Messages with files") {
+		search_for(ui, "has:file")
+	}
+}
+
+// search_for opens the search (the box's dropdown or the window) and searches
+// this conversation for `query`.
+search_for :: proc(ui: ^UI, query: string) {
+	s := &ui.search
+	field_set(&s.query, query)
+	s.all = false
+	s.open, s.placed, s.submit = true, false, true
+}
+
+// search_box is the box above the members pinned down the side, in a row of
+// its own. Giving it the focus opens the dropdown (search_window). Call with the
+// View locked.
+search_box :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	s := &ui.search
+	// As much room around it as the conversation's header has.
+	header_pad(ui)
+	defer header_pad(ui)
+	mu.layout_row(ctx, {-1})
+	id := mu.get_id(ctx, uintptr(&s.query.buf[0]))
+	// Opened from elsewhere (the palette): ready to type in. Not in the frame
+	// of a click, which would take the focus from the box again.
+	if s.open && !s.placed && ctx.mouse_pressed_bits == {} {
+		s.placed = true
+		focus_at(ctx, id, s.query.len)
+	}
+	if .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len) {
+		s.submit = true
+	}
+	r := ctx.last_rect
+	s.box = r
+	if ctx.focus_id == id && !s.open {
+		s.open, s.placed = true, true
+	}
+	// What it is for while it is empty, and a magnifier at its end.
+	pad := ctx.style.padding
+	if s.query.len == 0 && ctx.focus_id != id {
+		y := r.y + (r.h - ctx.text_height(ctx.style.font)) / 2
+		mu.draw_text(ctx, ctx.style.font, "Search messages", {r.x + pad, y}, theme.dim)
+	}
+	mu.draw_icon(ctx, render.icon_id(.Search), {r.x + r.w - r.h, r.y, r.h, r.h}, theme.dim)
+}
+
 search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	s := &ui.search
+	box := s.box
+	s.box = {}
+	submit := s.submit
+	s.submit = false
+	// From the box to the window or back (the members were pinned or let go):
+	// whatever was open closes.
+	if (box != {}) != s.dropdown {
+		s.dropdown = box != {}
+		s.open = false
+	}
 	if !s.open {
 		return
 	}
@@ -57,6 +135,10 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	sync.guard(&v.mutex)
 	if ui.session == nil || v.status != .Connected {
 		s.open = false
+		return
+	}
+	if box != {} {
+		search_dropdown(ui, box, window_h, submit)
 		return
 	}
 	if !s.placed {
@@ -76,9 +158,9 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		s.open = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
-	cmds := &ui.session.client.commands
 	// Ready to type in, however it was opened. Not in the frame of the click
 	// that opened it, which would take the focus from the box again.
 	if s.focus && ctx.mouse_pressed_bits == {} {
@@ -86,8 +168,76 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		focus_at(ctx, mu.get_id(ctx, uintptr(&s.query.buf[0])), s.query.len)
 	}
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
-	submit := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
-	submit |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
+	find := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
+	find |= submit
+	find |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
+	search_results(ui, find)
+}
+
+// search_dropdown is the dropdown under search_box's `box`: a window without a
+// title, as wide as the box and as tall as what is in it, up to the bottom of
+// the window. A press anywhere but in it or the box closes it, and so does
+// Escape. Call with the View locked.
+@(private = "file")
+search_dropdown :: proc(ui: ^UI, box: mu.Rect, window_h: i32, submit: bool) {
+	ctx := &ui.ctx
+	s := &ui.search
+	cnt := mu.get_container(ctx, SEARCH_DROPDOWN)
+	if cnt == nil {
+		return
+	}
+	if key_take(ui, .Escape) {
+		s.open = false
+		mu.set_focus(ctx, 0) // which would open it again
+		return
+	}
+	// Not the press that opened it from elsewhere (search_for), before the
+	// box has the focus.
+	if ctx.mouse_pressed_bits != {} &&
+	   s.placed &&
+	   !inside(box, ctx.mouse_pos) &&
+	   !(cnt.open && inside(cnt.rect, ctx.mouse_pos)) {
+		s.open = false
+		return
+	}
+	top := box.y + box.h + 2
+	most := max(window_h - top - 12, 60)
+	if !cnt.open {
+		cnt.open = true
+		cnt.scroll = {}
+		cnt.content_size = {}
+		mu.bring_to_front(ctx, cnt)
+	}
+	// More room inside than a window has.
+	pad := ctx.style.padding + DROPDOWN_PAD
+	h := clamp(cnt.content_size.y + 2 * pad, 40, most)
+	cnt.rect = {box.x, top, box.w, h}
+	opts := mu.Options{.NO_TITLE, .NO_RESIZE, .NO_CLOSE}
+	saved := ctx.style.padding
+	ctx.style.padding = pad // the window's body is inset by it
+	opened := mu.begin_window(ctx, SEARCH_DROPDOWN, cnt.rect, opts)
+	ctx.style.padding = saved
+	if !opened {
+		return
+	}
+	defer mu.end_window(ctx)
+	search_results(ui, submit)
+	// Shut with the search, so that it opens afresh next time.
+	defer if !s.open {
+		cnt.open = false
+	}
+}
+
+// search_results is what is under the query box: whether to look in all of our
+// conversations, and the results. With `submit`, the query is searched for.
+// Call with the View locked.
+@(private = "file")
+search_results :: proc(ui: ^UI, submit: bool) {
+	ctx := &ui.ctx
+	s := &ui.search
+	v := ui.view
+	submit := submit
+	cmds := &ui.session.client.commands
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
 		submit = true
@@ -104,7 +254,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		error_label(ctx, found.error)
 		return
 	case found.query == "":
-		dim_label(ctx, `Whole words, "a phrase", from:username.`)
+		dim_label(ctx, `Whole words, "a phrase", from:username, has:file.`)
 		return
 	case found.loading && len(found.found) == 0:
 		dim_label(ctx, "Searching...")

@@ -191,6 +191,7 @@ Stmt :: enum {
 	Files_Index_Add,
 	Files_Index_Remove,
 	File_Search,
+	Files_All,
 	Account_Erase,
 	Device_Erase,
 	Buddy_Erase,
@@ -340,13 +341,16 @@ STMT_SQL := [Stmt]string {
 	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
-	.Attach_Of_Msg          = "SELECT blob, name, size FROM attachments WHERE msg = ?1 ORDER BY idx",
+	.Attach_Of_Msg          = "SELECT a.blob, a.name, a.size, coalesce(b.width, 0), coalesce(b.height, 0) FROM attachments a LEFT JOIN blobs b ON b.id = a.blob WHERE a.msg = ?1 ORDER BY a.idx",
 	.Attach_Clear           = "DELETE FROM attachments WHERE msg = ?1",
 	.Attach_Blob_Convs      = "SELECT DISTINCT m.conv FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob = ?1",
 	.Files_Index_Add        = "INSERT INTO files_fts (rowid, names) VALUES (?1, ?2)",
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
 	// Like Msg_Search, but searches the names of the files attached to messages.
 	.File_Search            = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	// Every message that has files (has:file without words), newest first.
+	// It is bound like the two above, and has no use for ?1.
+	.Files_All              = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE f.rowid < ?2 ORDER BY f.rowid DESC",
 	// What is left of a deleted account (see account_erase): a name nobody can
 	// log in with, and nothing else.
 	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', verify_code = '', verify_expires = 0, pw_hash = zeroblob(32) WHERE id = ?1",
@@ -431,13 +435,7 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		db_close(db)
 		return false
 	}
-	for pragma in ([]string {
-			"PRAGMA journal_mode = WAL",
-			"PRAGMA synchronous = NORMAL",
-			"PRAGMA wal_autocheckpoint = 0",
-			"PRAGMA foreign_keys = ON",
-			"PRAGMA temp_store = MEMORY",
-		}) {
+	for pragma in ([]string{"PRAGMA journal_mode = WAL", "PRAGMA synchronous = NORMAL", "PRAGMA wal_autocheckpoint = 0", "PRAGMA foreign_keys = ON", "PRAGMA temp_store = MEMORY"}) {
 		if !db_exec(db, pragma) {
 			db_close(db)
 			return false

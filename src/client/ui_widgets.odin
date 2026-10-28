@@ -291,7 +291,11 @@ stable_button :: proc(
 }
 
 // button is mu.button with a label, as a stable_button: Tab stops at it.
-button :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {.ALIGN_CENTER}) -> mu.Result_Set {
+button :: proc(
+	ctx: ^mu.Context,
+	label: string,
+	opt: mu.Options = {.ALIGN_CENTER},
+) -> mu.Result_Set {
 	return stable_button(ctx, label, label, opt)
 }
 

@@ -10,8 +10,8 @@ import "core:thread"
 import "core:time"
 
 import "common:."
-import "lib:lite"
 import "common:proto"
+import "lib:lite"
 
 // The bot API's gateway (docs/bot-api) offers HTTP and JSON for programs. To
 // the server it looks like just another client. For each token in use it keeps
