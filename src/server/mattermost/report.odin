@@ -93,6 +93,14 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "files bigger than this server lets people upload; they are kept"
 	case .Attachment_Failed:
 		return "files that couldn't be read or stored; left out"
+	case .Persona_Dropped:
+		return(
+			"integrations that pose under the name of an account, which yap doesn't allow; the post starts with the name instead" \
+		)
+	case .Icon_Failed:
+		return(
+			"pictures that integrations pose with that couldn't be fetched; those posts have none" \
+		)
 	case .Reaction_User_Gone:
 		return "people who reacted but aren't imported; those reactions are left out"
 	case .Reactions_Cut:
@@ -287,6 +295,15 @@ report_write :: proc(s: ^Scan, w: io.Writer) {
 		st.attachments,
 		st.saved,
 	)
+	if st.webhook_posts + st.bot_overrides + st.cards > 0 {
+		fmt.wprintfln(
+			w,
+			"  from integrations: %d posts of webhooks in channels, %d of bots under another name, %d with cards",
+			st.webhook_posts,
+			st.bot_overrides,
+			st.cards,
+		)
+	}
 	if len(st.by_type) > 0 {
 		types := make([dynamic]string, 0, len(st.by_type), context.temp_allocator)
 		for name in st.by_type {
@@ -305,9 +322,11 @@ report_write :: proc(s: ^Scan, w: io.Writer) {
 
 	// What the mapping makes of it.
 	if len(s.plan.accounts) > 0 {
-		made, bots, left: int
+		made, bots, left, hooks: int
 		for acc in s.plan.accounts {
 			switch {
+			case acc.webhook:
+				hooks += 1
 			case acc.bot:
 				bots += 1
 			case acc.author_only:
@@ -324,6 +343,13 @@ report_write :: proc(s: ^Scan, w: io.Writer) {
 			bots,
 			left,
 		)
+		if hooks > 0 {
+			fmt.wprintfln(
+				w,
+				"  %d more bots, one for each webhook that posted in a channel",
+				hooks,
+			)
+		}
 		fmt.wprintfln(w, "  the owner: %s", s.plan.owner)
 		fmt.wprintfln(
 			w,

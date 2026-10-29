@@ -24,6 +24,7 @@ Account_Plan :: struct {
 	admin:       bool, // gets the Admin role
 	guest:       bool, // gets the guest role
 	bot:         bool,
+	webhook:     bool, // a bot made for a webhook, which has no account in Mattermost
 	disabled:    bool, // deactivated in Mattermost, or has left the team
 	author_only: bool, // not a member of the team: wrote in it, and is in no channel
 }
@@ -45,6 +46,9 @@ Emoji_Plan :: struct {
 	ext:     string,
 	convert: bool,
 }
+
+// The start of the name that a webhook's bot has in the plan (Account_Plan.mm_name).
+WEBHOOK_PREFIX :: "webhook:"
 
 // build_plan applies the mapping rules to a scan. `owner` is the account that
 // was asked for as the owner, or "". If there can be none, `err` says why.
@@ -149,6 +153,29 @@ build_plan :: proc(s: ^Scan, owner: string) -> (err: string) {
 			},
 			u.email,
 			a,
+		)
+	}
+
+	// A bot for each webhook that posted in a channel (D13). It has no account in
+	// Mattermost, so its name there is the hook's, behind "webhook:", which isn't
+	// a username.
+	for hook in s.webhooks {
+		display, _ := clean_text(hook, proto.MAX_NAME_SIZE)
+		if display == "" {
+			display = "webhook"
+		}
+		username, _ := username_of(&names, hook)
+		mm_name := strings.concatenate({WEBHOOK_PREFIX, hook}, a)
+		p.by_name[mm_name] = len(p.accounts)
+		append(
+			&p.accounts,
+			Account_Plan {
+				mm_name = mm_name,
+				name = username,
+				display = strings.clone(display, a),
+				bot = true,
+				webhook = true,
+			},
 		)
 	}
 

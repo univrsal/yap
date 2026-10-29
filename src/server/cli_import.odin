@@ -23,6 +23,9 @@ import "mattermost"
 //                  passwords.csv next to the config)
 // --dry-run        only read the export and say what an import would do
 // --yes            don't ask before importing
+// --fetch-icons    fetch the pictures that webhooks and bots pose with from the
+//                  web addresses that the export has (public ones only), for
+//                  their messages; without it they have none
 //
 // The server has to be stopped, and the database one that a server has never
 // been used with (a server that was started once, to make config.json, is fine:
@@ -31,9 +34,9 @@ import "mattermost"
 // It makes everything in one transaction, so that if anything fails, the
 // database is as it was. It writes the generated passwords to a new file, and
 // what it found and did to import-report.txt next to the config. What isn't
-// imported yet is said at the end (IMPORT_NOT_YET).
+// imported yet is said at the end (IMPORT_LEFT_OUT).
 
-IMPORT_USAGE :: `usage: yap-server import mattermost <export folder> --team <name> [--owner <username>] [--passwords <file.csv>] [--dry-run] [--yes] [config.json]`
+IMPORT_USAGE :: `usage: yap-server import mattermost <export folder> --team <name> [--owner <username>] [--passwords <file.csv>] [--dry-run] [--yes] [--fetch-icons] [config.json]`
 
 Import_Args :: struct {
 	folder:    string,
@@ -42,6 +45,8 @@ Import_Args :: struct {
 	passwords: string,
 	config:    string,
 	dry_run:   bool,
+	// Fetch the pictures that integrations pose with, from the web.
+	fetch_icons: bool,
 	yes:       bool,
 }
 
@@ -63,6 +68,8 @@ parse_import_args :: proc(args: []string) -> (a: Import_Args, ok: bool) {
 			a.dry_run = true
 		case "--yes", "-y":
 			a.yes = true
+		case "--fetch-icons":
+			a.fetch_icons = true
 		case "--team", "--owner", "--passwords":
 			if !inline {
 				if i + 1 >= len(rest) {
@@ -224,7 +231,13 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		fmt.eprintfln("%s, and nothing was changed", what)
 		return 1
 	}
-	if !import_accounts(&im) || !import_channels(&im) || !import_emoji(&im) || !import_messages(&im) {
+	if !import_accounts(&im) || !import_channels(&im) || !import_emoji(&im) {
+		return fail(&im, "the import failed")
+	}
+	if a.fetch_icons && !import_icons(&im) {
+		return fail(&im, "the import failed")
+	}
+	if !import_messages(&im) {
 		return fail(&im, "the import failed")
 	}
 	if !import_read_state(&im) || !import_record(&im) {
@@ -266,6 +279,12 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	} else {
 		fmt.printfln("What was found and done is in %s.", report)
 	}
-	fmt.println(IMPORT_NOT_YET)
+	if !a.fetch_icons && len(scan.icons) > 0 {
+		fmt.printfln(
+			"%d pictures that webhooks and bots pose with were not fetched; run with --fetch-icons to have them (it connects to those addresses).",
+			len(scan.icons),
+		)
+	}
+	fmt.println(IMPORT_LEFT_OUT)
 	return 0
 }

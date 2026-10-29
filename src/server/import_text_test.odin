@@ -22,7 +22,6 @@ run_text :: proc(t: ^testing.T, it: ^Import_Test) {
 	db_commit(&it.db)
 }
 
-@(private = "file")
 token :: proc(it: ^Import_Test, username: string) -> string {
 	return fmt.tprintf("<@%d>", account_find(&it.accounts, username).id)
 }

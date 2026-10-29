@@ -56,6 +56,13 @@ Importer :: struct {
 	// upload (0 for none), which the files of an import are measured against.
 	emoji_dir:      string,
 	max_attachment: u64,
+	// The accounts that are bots, and the names that accounts go by (user names
+	// and display names, in lower case), which a persona may not be (a bot posing
+	// as a person), and the pictures that were fetched for integrations to pose
+	// with, by address.
+	bots:           map[proto.Account_Id]bool,
+	names:          map[string]bool,
+	icons:          map[string]Blob_Id,
 	// The rules for the text of a message (mattermost/rewrite.odin), set up when
 	// the messages are written.
 	rewriter:       mattermost.Rewriter,
@@ -97,6 +104,9 @@ importer_init :: proc(im: ^Importer) {
 	im.ids = make(map[string]proto.Account_Id, a)
 	im.directs = make(map[string]^Conv, a)
 	im.roots = make(map[i64]proto.Msg_Id, a)
+	im.bots = make(map[proto.Account_Id]bool, a)
+	im.names = make(map[string]bool, a)
+	im.icons = make(map[string]Blob_Id, a)
 	im.everyone.allocator = a
 	im.passwords.allocator = a
 	im.written.allocator = a

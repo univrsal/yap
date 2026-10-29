@@ -73,7 +73,7 @@ test_import_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, home.name, "Town Square")
 	testing.expect_value(t, home.flags, proto.Conv_Flags{.Home, .Text_Only})
 	testing.expect_value(t, it.im.channels[0], home)
-	testing.expect_value(t, len(home.members), 10)
+	testing.expect_value(t, len(home.members), 11)
 
 	byname :: proc(c: ^Convs, name: string) -> ^Conv {
 		return conv_by_name(c, name)

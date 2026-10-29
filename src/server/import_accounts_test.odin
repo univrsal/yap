@@ -80,7 +80,7 @@ test_import_accounts :: proc(t: ^testing.T) {
 
 	a := &it.accounts
 	// Seven members and three bots.
-	testing.expect_value(t, len(a.by_id), 10)
+	testing.expect_value(t, len(a.by_id), 11) // seven members, three bots and the CI hook's
 	for mm_name in ([]string {
 			"admin",
 			"alice",
@@ -177,7 +177,7 @@ test_import_accounts :: proc(t: ^testing.T) {
 	testing.expect_value(t, it.scan.issues[.Avatar_Failed].count, 0)
 
 	// All of it is in the database, not only in memory.
-	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM accounts"), 10)
+	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM accounts"), 11)
 	testing.expect_value(
 		t,
 		it_count(&it, "SELECT count(*) FROM accounts WHERE avatar IS NOT NULL"),
@@ -241,7 +241,7 @@ test_import_undo :: proc(t: ^testing.T) {
 	testing.expect(t, import_accounts(&it.im))
 	path := file_in(it.dir, "passwords.csv")
 	testing.expect_value(t, import_write_passwords(&it.im, path), "")
-	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM accounts"), 10)
+	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM accounts"), 11)
 	testing.expect(t, len(it.im.written) > 0)
 	files := it.im.written[:]
 

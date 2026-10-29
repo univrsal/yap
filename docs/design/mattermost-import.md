@@ -23,7 +23,7 @@ says about the export comes from reading Mattermost's source (master,
 | 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | built (2026-10-28), see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | built (2026-10-28) |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | built (2026-10-29) |
-| 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
+| 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | built (2026-10-29) |
 | 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | built (2026-10-28) |
 | 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | built (2026-10-28) |
 | 13 | Channel admins | M | protocol, schema, server, client | - | built (2026-10-28) |
@@ -465,7 +465,66 @@ a name and picture of their choosing (`override_username`). Turned into
 Markdown text by the importer: the card's title in bold, its text, its
 fields as a list. Who it shows as is D13.
 
-The webhooks and slash commands themselves are not in the export.
+Built (2026-10-29): `mattermost/hooks.odin`, `import_messages.odin`,
+`import_icons.odin`.
+
+- **A bot for each webhook** that posted in a channel (D13), named after the
+  webhook (`CI hook` is `ci_hook`, made unique among all accounts: a person who
+  is already `ci_hook` makes it `ci_hook_2`), found by the scan from
+  `webhook_display_name`. A webhook without it (older versions of Mattermost
+  didn't have it; it isn't known) is named after the name it poses under, and one
+  with neither stays with its author. The bot has no password and, like every
+  bot, is only in the home channel; its posts are in channels it isn't in, which
+  is fine for history. The `webhook:` before its name in the plan isn't a
+  username, so nobody's name can be the same.
+- **A webhook in a DM or a group** has no bot: a bot that isn't one of the two
+  can't post there, so the author stays, and the name that the post poses under
+  starts it, in bold. A webhook that only ever posted in DMs gets no bot.
+- **Personas (D14).** The name a post poses under (`override_username`) is the
+  post's persona if its sender is a bot, which is the case for a webhook's bot
+  in a channel and for a bot's own post with `from_bot` (the sample's
+  `buildbot` posing as `Nightly`). A name that is an account's username or
+  display name (a webhook posing as a person, which Mattermost lets it) can't be
+  one, as yap's server wouldn't allow it either: the post starts with the name in
+  bold instead, and the importer reports it (`Persona_Dropped`). A name that is
+  the bot's own is not a persona, as it poses as itself.
+- **Cards** (`props.attachments`) follow the message, a blank line between,
+  quoted line by line so that they stand apart: what comes before, the author,
+  the title (just the link if it has one, as yap doesn't put bold around a
+  link), the text, the fields as a list (`- **Env**: staging`), a picture's
+  address as a link, and the footer in italics. The colour, the time and
+  Mattermost's own side-panel card (`props.card`) are left out. A card with
+  nothing but a fallback text is that text. The cards go through the same
+  rewriting of mentions and emoji as the message, and a post that is only a
+  card is a message.
+- **Pictures** (`override_icon_url`) are web addresses that every client of
+  Mattermost fetched. A persona's picture is a blob of the server's own, so
+  `--fetch-icons` has the importer fetch each address once (the most used 100,
+  within five minutes), make a profile picture of it as for an account, and give
+  it to the posts. It is off by default because it is the one thing that makes
+  the importer connect to addresses from an export, which could be anywhere,
+  including this machine's own network: it speaks only HTTP and HTTPS, takes at
+  most 2 MB and ten seconds an address, follows three redirects, and connects
+  only to the public internet, by the check that push uses (`webpush.address_public`)
+  on every connection, redirects included. An address that isn't a picture, can't
+  be reached or isn't public is told of with the reason, and its posts have no
+  picture. Without the flag the importer says how many weren't fetched.
+
+Tested: who made a post (the sample's two kinds, a hook without its name, flags
+as strings and as booleans, props that aren't an object) and the cards (the
+sample's, authors, fields of all kinds, quoting of lines, several cards, a
+fallback, empty ones); the sample's bot and persona and its card as a message;
+a made-up export with a hook posing as a person, as itself, under a name and not
+at all, an older hook, a nameless one, a DM hook, a card with a mention in it, and a
+person who is already called `ci_hook`; the check refusing loopback, `localhost`,
+`[::1]` and a private address and anything but HTTP(S) for a web address, and
+fetches of a picture, one through a redirect, a 404 and one that is too big,
+and the whole import with a picture used by two posts, one that isn't a picture
+and one that isn't found, from a small web server that the test runs (the check
+is switched off for that only: a test can't reach the public internet, and
+without libcurl the two are skipped). 4 new tests in the server package and 2 in
+`mattermost` (192 and 27). Looked at in the client: "Nightly BOT - via Build
+Bot" and "Jenkins BOT - via CI hook" with the card quoted under it.
 
 ### Webhooks
 
@@ -1059,8 +1118,8 @@ its reactions 👍 2, ❤ 1, :partyparrot: 1.
 
 `import_finish.odin`. The importer is complete as far as steps 7a to 7g go,
 and `--unfinished` is gone: the command makes everything, in one transaction,
-and says at the end what isn't imported yet (`IMPORT_NOT_YET`, until steps 8
-to 10 are done).
+and says at the end what isn't imported (`IMPORT_LEFT_OUT`; it said what was
+not imported yet until steps 8 to 10 were done).
 
 - **What people have read.** Mattermost says when a member last opened a
   channel, not what they had read. A member has read the messages up to

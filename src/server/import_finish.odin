@@ -15,9 +15,9 @@ import "mattermost"
 // member has read to, a record of what was imported, a check of the result,
 // and the report that is kept.
 
-// What an import doesn't bring yet, which the report says. It goes when steps
-// 8 to 10 are done.
-IMPORT_NOT_YET :: `Not imported yet: the cards of bots and webhooks.`
+// What an import doesn't bring, which the report says: yap has nothing to put it
+// in (see "Not imported" in the design note).
+IMPORT_LEFT_OUT :: `Not imported: the sidebar's categories and favourites, user groups, the webhooks and slash commands themselves (their posts are), thread following, edit history, and the data of plugins.`
 
 @(private = "file")
 Reader :: struct {
@@ -340,7 +340,7 @@ import_write_report :: proc(im: ^Importer, path: string) -> (err: string) {
 		io.write_string(w, fmt.tprintf("  the passwords are in %s\n", im.csv))
 	}
 	io.write_string(w, "\n")
-	io.write_string(w, IMPORT_NOT_YET)
+	io.write_string(w, IMPORT_LEFT_OUT)
 	io.write_string(w, "\n")
 	if write_err := os.write_entire_file(path, strings.to_string(b)); write_err != nil {
 		return fmt.tprintf("could not write %s: %v", path, write_err)

@@ -78,8 +78,10 @@ network. For the bot API behind it, set `api.behind_proxy` in `config.json`.
 `yap-server import mattermost` makes a new yap server from a Mattermost one: its
 people, channels, direct messages and group messages, history, threads,
 reactions, pinned and saved posts, the files attached to posts and the custom
-emoji, and who was mentioned in what (@name, @channel). The cards of bots and
-webhooks aren't imported yet; the command says so at the end. How it works is in
+emoji, who was mentioned in what (@name, @channel), and the posts of bots and
+webhooks, with a bot made for each webhook. What yap has no place for (the
+sidebar's categories, user groups, the webhooks themselves, plugin data) is not
+imported; the command says so at the end. How it works is in
 [design/mattermost-import.md](design/mattermost-import.md).
 
 1. On the Mattermost server, as an admin, export the whole instance (not one
@@ -114,6 +116,9 @@ webhooks aren't imported yet; the command says so at the end. How it works is in
    yap-server import mattermost export --team <team name> [--owner <username>]
    ```
 
+   `--fetch-icons` also fetches the pictures that webhooks and bots pose with
+   from the web addresses in the export (only public ones, and a few seconds
+   and 2 MB for each): without it those posts have no picture.
    `--owner` is who becomes the server's owner (by default the first system
    admin of the export). The import is one step: if anything goes wrong the
    database is as it was. It prints what it is doing every few seconds, and

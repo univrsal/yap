@@ -20,15 +20,23 @@ test_plan_sample :: proc(t: ^testing.T) {
 	p := s.plan
 
 	testing.expect_value(t, p.owner, "admin")
-	// Seven members, three bots, nobody who left the team.
-	testing.expect_value(t, len(p.accounts), 10)
+	// Seven members, three bots and one for the webhook that posted, nobody who
+	// left the team.
+	testing.expect_value(t, len(p.accounts), 11)
 	bots := 0
 	for acc in p.accounts {
 		bots += int(acc.bot)
+		if acc.webhook {
+			testing.expect_value(t, acc.mm_name, "webhook:CI hook")
+			testing.expect_value(t, acc.name, "ci_hook")
+			testing.expect_value(t, acc.display, "CI hook")
+			testing.expect(t, acc.bot)
+			continue
+		}
 		testing.expectf(t, acc.name == acc.mm_name, "%s became %s", acc.mm_name, acc.name)
 		testing.expect(t, acc.display != "")
 	}
-	testing.expect_value(t, bots, 3)
+	testing.expect_value(t, bots, 4)
 	owner := p.accounts[p.by_name["admin"]]
 	testing.expect(t, owner.owner && owner.admin)
 	testing.expect_value(t, owner.display, "The Admin")

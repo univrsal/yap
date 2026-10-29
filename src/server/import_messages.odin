@@ -44,6 +44,15 @@ import_messages :: proc(im: ^Importer) -> bool {
 	for acc in s.plan.accounts {
 		im.rewriter.users[strings.to_lower(acc.mm_name, a)] = u32(im.ids[acc.mm_name])
 	}
+	for acc in s.plan.accounts {
+		id := im.ids[acc.mm_name]
+		if acc.bot {
+			im.bots[id] = true
+		}
+		im.names[strings.to_lower(acc.name, a)] = true
+		im.names[strings.to_lower(acc.display, a)] = true
+	}
+	im.names[strings.to_lower(proto.DELETED_NAME, a)] = true
 	for c, i in s.channels {
 		im.rewriter.channels[strings.to_lower(c.name, a)] = s.plan.channels[i].name
 	}
@@ -187,7 +196,23 @@ import_message :: proc(
 			m.sender = who
 		}
 	case .Not_System:
-		text, cut := mattermost.clean_message(body.message)
+		// An integration's post: a webhook's in a channel is its bot's, and the name
+		// it poses under is a persona where the bot may have one.
+		info := mattermost.hook_info(body.props)
+		if !ref.direct && info.hook != "" {
+			hook := strings.concatenate(
+				{mattermost.WEBHOOK_PREFIX, info.hook},
+				context.temp_allocator,
+			)
+			if id, found := im.ids[hook]; found {
+				m.sender = id
+			}
+		}
+		// The cards are part of the text.
+		text, cut := mattermost.clean_message(mattermost.with_cards(body.message, body.props))
+		if info.hook != "" || info.bot {
+			text = import_persona(im, &m, info, text, ref.direct)
+		}
 		// What it says about people, channels and emoji, in yap's words, which
 		// can make it longer.
 		mentioned = mattermost.rewrite_text(&im.rewriter, text)
@@ -197,7 +222,7 @@ import_message :: proc(
 		}
 		m.kind = .Text
 		m.text = kept
-		import_attachments(im, body.attachments, sender, &m) or_return
+		import_attachments(im, body.attachments, m.sender, &m) or_return
 		if body.is_pinned {
 			m.flags += {.Pinned}
 		}
@@ -223,7 +248,7 @@ import_message :: proc(
 	}
 	im.files += m.attachment_count
 	if m.kind == .Text {
-		import_mentions(im, conv, m, sender, mentioned) or_return
+		import_mentions(im, conv, m, m.sender, mentioned) or_return
 	}
 	if ref.reply < 0 && body.replies > 0 {
 		im.roots[ref.offset] = m.id
@@ -399,4 +424,41 @@ import_mentions :: proc(
 		append(&im.everyone, Everyone_Mention{conv.id, m.id, sender})
 	}
 	return true
+}
+
+// import_persona decides how an integration's post shows the name that it poses
+// under (`info.name`). A bot may have it as a persona, with the picture that was
+// fetched for its address if there is one, unless the post is in a DM or a
+// group (where the bot isn't one of the people) or the name is the name of an
+// account, which yap's personas can't be (a bot posing as a person). Then the
+// post starts with the name in bold instead. It returns the text, which may
+// start so.
+@(private = "file")
+import_persona :: proc(
+	im: ^Importer,
+	m: ^proto.Message,
+	info: mattermost.Hook_Info,
+	text: string,
+	direct: bool,
+) -> string {
+	name, _ := mattermost.clean_text(info.name, proto.MAX_PERSONA_NAME_SIZE)
+	if name == "" {
+		return text
+	}
+	lower := strings.to_lower(name, context.temp_allocator)
+	author := im.accounts.by_id[m.sender]
+	if author != nil &&
+	   (strings.equal_fold(name, author.display) || strings.equal_fold(name, author.username)) {
+		return text // it poses as itself
+	}
+	taken := lower in im.names
+	if taken {
+		mattermost.note(im.scan, .Persona_Dropped, name, virtual.arena_allocator(&im.scan.arena))
+	}
+	if direct || taken || m.sender not_in im.bots {
+		return strings.concatenate({"**", name, "**\n", text}, context.temp_allocator)
+	}
+	m.flags += {.Persona}
+	m.persona = {name, im.icons[info.icon] or_else 0}
+	return text
 }

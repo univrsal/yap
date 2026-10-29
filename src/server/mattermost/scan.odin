@@ -73,6 +73,8 @@ Issue_Kind :: enum {
 	Saved_User_Gone, // a post saved by someone who isn't imported
 	Pins_Cut, // pins beyond the limit of a conversation; the oldest are not kept
 	Bookmarks_Cut, // saved posts beyond the limit of an account; the oldest are not kept
+	Persona_Dropped, // an integration posing under the name of an account; it keeps its own name, which the post starts with
+	Icon_Failed, // a picture that an integration poses with that couldn't be fetched
 	// Found by the writing steps:
 	Group_Too_Big, // a group message of more people than yap's groups have; left out, with its posts
 	Guest_Disabled, // a guest, which yap has no kind of account for; made disabled
@@ -115,6 +117,9 @@ Stats :: struct {
 	extra_reactions_posts: int, // posts that extras.jsonl adds reactions to
 	by_type:               map[string]int, // posts by their type
 	reaction_names:        map[string]int, // how many reactions there are of each emoji name
+	webhook_posts:         int, // posts in channels that webhooks made
+	bot_overrides:         int, // posts of bots that pose under another name
+	cards:                 int, // posts with cards (props.attachments)
 	text_tokens:           map[string]int, // how often each `:name:` is written in messages
 }
 
@@ -162,6 +167,12 @@ Scan :: struct {
 	extra_reactions: map[string][]Reaction,
 	// What each of the custom emoji (in `emoji`, in the same order) is as a file.
 	emoji_files:     [dynamic]Emoji_File,
+	// The webhooks that posted in channels, by the name they post as, in the order
+	// they were first seen, and the addresses of the pictures that integrations
+	// pose with, by how many posts have each.
+	webhooks:        [dynamic]string,
+	webhook_index:   map[string]int,
+	icons:           map[string]int,
 	// What made the scan stop, as a sentence (see scan_file).
 	fatal:           string,
 }
@@ -238,6 +249,9 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 	s.authors_only.allocator = a
 	s.authors_gone.allocator = a
 	s.privacy.allocator = a
+	s.webhooks.allocator = a
+	s.webhook_index = make(map[string]int, a)
+	s.icons = make(map[string]int, a)
 	s.emoji_files.allocator = a
 	s.extra_reactions = make(map[string][]Reaction, a)
 	s.privacy_dir = make(map[Privacy_Key]bool, a)
@@ -650,9 +664,11 @@ scan_post :: proc(s: ^Scan, p: Post, at: i64, length: int, a: Allocator) {
 		check_file(s, f.path, .Attachment_Missing, a)
 	}
 	note_privacy_change(s, p.type, p.message, conv, p.create_at, a)
+	note_hook(s, p.props, a)
 	append(&s.posts, Post_Ref{p.create_at, at, i32(length), -1, i32(conv), false})
 	for r, i in p.replies {
 		check_author(s, r.user, a)
+		note_hook(s, r.props, a)
 		count_post(
 			s,
 			r.type,
@@ -946,6 +962,36 @@ resolve_privacy_changes :: proc(s: ^Scan) {
 			}
 			s.privacy_dir[{channel, c.time}] = direction
 			direction = !direction
+		}
+	}
+}
+
+// note_hook notes who made a post in a channel if it is an integration's: the
+// webhook, so that it gets a bot, and the picture it poses with.
+@(private = "file")
+note_hook :: proc(s: ^Scan, props: json.Value, a: Allocator) {
+	info := hook_info(props)
+	if info.hook != "" {
+		s.stats.webhook_posts += 1
+		if info.hook not_in s.webhook_index {
+			name := strings.clone(info.hook, a)
+			s.webhook_index[name] = len(s.webhooks)
+			append(&s.webhooks, name)
+		}
+	}
+	if info.bot && info.name != "" {
+		s.stats.bot_overrides += 1
+	}
+	if (info.hook != "" || info.bot) && info.icon != "" {
+		if info.icon in s.icons {
+			s.icons[info.icon] += 1
+		} else {
+			s.icons[strings.clone(info.icon, a)] = 1
+		}
+	}
+	if object, ok := props.(json.Object); ok {
+		if list, is_list := object["attachments"].(json.Array); is_list && len(list) > 0 {
+			s.stats.cards += 1
 		}
 	}
 }
