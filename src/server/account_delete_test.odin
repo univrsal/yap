@@ -179,9 +179,10 @@ test_account_delete :: proc(t: ^testing.T) {
 
 	// What she wrote stays attributed to her, both in the channel and in
 	// the DM. Bob can read the DM but can't write to it or open it again.
+	// The home channel also says that she left the server.
 	ids, read := senders(t, &ts, bob, home)
 	testing.expect_value(t, read, proto.Status.Ok)
-	testing.expect(t, len(ids) == 1 && ids[0] == alice_acc.id)
+	testing.expect(t, len(ids) == 2 && ids[0] == alice_acc.id && ids[1] == alice_acc.id)
 	ids, read = senders(t, &ts, bob, dm)
 	testing.expect_value(t, read, proto.Status.Ok)
 	testing.expect(t, len(ids) == 1 && ids[0] == alice_acc.id)

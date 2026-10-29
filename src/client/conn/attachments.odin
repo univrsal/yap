@@ -232,7 +232,7 @@ attach_send :: proc(c: ^Server_Conn, cmd: Attach_Send_Command) {
 	if !ok {
 		return
 	}
-	buf: [proto.MAX_CHAT_SIZE]u8
+	buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	raw := typed_text(c, cmd.text) if cmd.typed else cmd.text
 	p := new(Attach_Post)
 	p^ = {

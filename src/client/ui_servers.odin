@@ -78,6 +78,8 @@ Server_UI :: struct {
 	// message (ui_message_menu.odin).
 	pins:           UI_Pins,
 	msg_menu:       UI_Message_Menu,
+	bookmarks:      UI_Bookmarks, // the list of bookmarks (ui_bookmarks.odin)
+	channel_edit:   UI_Channel_Edit, // a channel's admin changing it (ui_channel_edit.odin)
 	// The server whose per-user volumes the session has been given
 	// (apply_gains).
 	gains_for:      [proto.KEY_SIZE]u8,
@@ -230,17 +232,22 @@ server_ui_destroy :: proc(ui: ^UI) {
 	picked_files_destroy(&ui.buddies.files)
 	for &t in ui.threads {
 		picked_files_destroy(&t.files)
+		free(t.buf)
 	}
+	free(ui.chat.buf)
+	free(ui.buddies.buf)
 	delete(ui.reactors_asked.emoji)
 	ui.srv = {}
 }
 
 // stash_destroy frees a session's stashed Server_UI.
 stash_destroy :: proc(ui: ^UI, ns: ^Net_Session) {
-	shown := ui.srv
+	// Kept aside on the heap: a Server_UI is too big for the stack.
+	shown := new(Server_UI, context.temp_allocator)
+	shown^ = ui.srv
 	ui.srv = ns.stash
 	server_ui_destroy(ui)
-	ui.srv = shown
+	ui.srv = shown^
 	ns.stash = {}
 }
 
@@ -892,14 +899,30 @@ switch_now :: proc(ui: ^UI) {
 	join_close(ui)
 	settings_after := ui.rail.settings
 	ui.rail.settings = false
-	dm := ui.inbox_open
-	ui.inbox_open = 0
+	dm, group := ui.inbox_open, ui.inbox_open_group
+	ui.inbox_open, ui.inbox_open_group = 0, 0
+	stay := ui.switch_stay
+	ui.switch_stay = false
 	for ns in ui.sessions {
 		if ns == ui.switch_to {
+			// The group picker is each server's, like the rest of the inbox's
+			// state, but it moves along when it is what picked the server.
+			page, picker := ui.page, ui.buddies.picker
+			if stay {
+				ui.buddies.picker.open = false
+			}
 			show_session(ui, ns)
 			// Leave the inbox or the settings, even for the server that is
-			// already shown.
-			if dm != 0 {
+			// already shown, unless asked to stay (the group picker picking
+			// the server, from the inbox), where only the conversation that
+			// was open is closed, being the other server's.
+			if stay {
+				ui.page = page
+				ui.buddies.picker = picker
+				ui.buddies.selected, ui.buddies.selected_group = 0, 0
+			} else if group != 0 {
+				open_group(ui, group)
+			} else if dm != 0 {
 				open_conversation(ui, dm)
 			} else {
 				ui.page = .Main

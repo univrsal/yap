@@ -244,11 +244,22 @@ publish_call :: proc(c: ^Server_Conn) {
 	}
 }
 
-// system_text returns the text of a call system message (proto.Call_System),
-// which says whether the call was missed, declined, or how long it lasted.
-// `name` is the caller's name and `mine` is true if we are the caller. The
-// result is allocated in the temp allocator.
-system_text :: proc(what: u8, arg: u32, name: string, mine: bool) -> string {
+// system_text returns the text of a system message. One about a call
+// (proto.Call_System) says whether the call was missed, declined, or how long
+// it lasted; `name` is the caller's name and `mine` is true if we are the
+// caller. One about a channel or the server is conv_system_text's, with
+// `arg_name` the account it is about and `text` what changed. The result is
+// allocated in the temp allocator.
+system_text :: proc(
+	what: u8,
+	arg: u32,
+	text: string,
+	name, arg_name: string,
+	mine: bool,
+) -> string {
+	if !proto.system_counts_unread(what) {
+		return conv_system_text(what, text, name, arg_name, mine)
+	}
 	switch proto.Call_System(what) {
 	case .Missed:
 		return "Your call was not answered" if mine else fmt.tprintf("Missed call from %s", name)

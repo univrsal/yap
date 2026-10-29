@@ -1,6 +1,7 @@
 package conn
 
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 
 import "client:richtext"
@@ -135,6 +136,9 @@ report_message :: proc(c: ^Server_Conn, m: proto.Message) {
 	}
 	place := room_name(c, proto.Room(m.conv))
 	who := account_display(c, m.sender)
+	if .Persona in m.flags {
+		who = fmt.tprintf("%s (via %s)", m.persona.name, who)
+	}
 	if m.thread_root != 0 {
 		log.infof(
 			"[chat] %s %s (#%d, in the thread of #%d): %s",
@@ -181,11 +185,11 @@ report_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	)
 }
 
-report_pins :: proc(c: ^Server_Conn, conv: proto.Conv_Id, pins: []proto.Message) {
+report_pins :: proc(c: ^Server_Conn, conv: proto.Conv_Id, pins: []proto.Message, first: bool) {
 	if c.view != nil {
 		return
 	}
-	if len(pins) == 0 {
+	if len(pins) == 0 && first {
 		log.infof("[pins] %s: nothing pinned", room_name(c, proto.Room(conv)))
 	}
 	for m in pins {
@@ -224,16 +228,22 @@ report_typing :: proc(
 	}
 }
 
-report_members :: proc(c: ^Server_Conn, conv: proto.Conv_Id, members: []proto.Account_Id) {
+report_members :: proc(
+	c: ^Server_Conn,
+	conv: proto.Conv_Id,
+	members: []proto.Account_Id,
+	admins: []proto.Account_Id,
+) {
 	if c.view != nil {
 		return
 	}
 	for m in members {
 		acc := c.auth.accounts[m] or_else {}
 		log.infof(
-			"[members] %s: %s%s%s",
+			"[members] %s: %s%s%s%s",
 			room_name(c, proto.Room(conv)),
 			account_display(c, m),
+			" (admin)" if slice.contains(admins, m) else "",
 			" (here)" if is_online(c, m) else "",
 			fmt.tprintf(" - %s", acc.status) if acc.status != "" else "",
 		)
@@ -289,7 +299,9 @@ describe :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 		text = system_text(
 			m.system,
 			m.system_arg,
+			m.text,
 			account_display(c, m.sender),
+			account_display(c, proto.Account_Id(m.system_arg)),
 			m.sender == c.auth.me,
 		)
 	case .Text:

@@ -963,7 +963,14 @@ purge_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	place := "every conversation"
 	if conv := conv_by_id(&s.convs, p.conv); conv != nil {
-		place = conv.name if conv.kind == .Channel else "a DM"
+		switch conv.kind {
+		case .Channel:
+			place = conv.name
+		case .DM:
+			place = "a DM"
+		case .Group:
+			place = "a group"
+		}
 	}
 	if author := account_by_id(&s.accounts, p.author); author != nil {
 		log.infof(

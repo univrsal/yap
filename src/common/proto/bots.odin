@@ -36,7 +36,7 @@ BOT_TOKEN_SIZE :: len(BOT_TOKEN_PREFIX) + 43
 BOT_DEVICE_NAME :: "token"
 
 BOT_BODY_MAX ::
-	4 + (1 + MAX_USERNAME_SIZE) + (1 + MAX_NAME_SIZE) + KEY_SIZE + (1 + MAX_DEVICE_NAME)
+	4 + (1 + MAX_USERNAME_SIZE) + (2 + MAX_NAME_SIZE) + KEY_SIZE + (1 + MAX_DEVICE_NAME)
 
 encode_bot_create :: proc(
 	out: []u8,
@@ -49,7 +49,7 @@ encode_bot_create :: proc(
 		buf = out,
 	}
 	put_str8(&w, username)
-	put_str8(&w, display)
+	put_str16(&w, display)
 	put_bytes(&w, key[:])
 	put_str8(&w, device)
 	return written(&w)
@@ -67,7 +67,7 @@ decode_bot_create :: proc(
 		buf = body,
 	}
 	username = get_str8(&r)
-	display = get_str8(&r)
+	display = get_str16(&r)
 	copy(key[:], get_bytes(&r, KEY_SIZE))
 	device = get_str8(&r)
 	return username, display, key, device, !r.overflow

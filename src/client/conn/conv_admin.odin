@@ -60,6 +60,15 @@ Conv_Member_Command :: struct {
 	on:      bool,
 }
 
+// Make a member of a channel (0: the one we're looking at) one of its admins,
+// or no longer one. Headless, by name.
+Conv_Admin_Command :: struct {
+	conv:    proto.Conv_Id,
+	account: proto.Account_Id,
+	name:    string, // owned by the command
+	on:      bool,
+}
+
 conv_update :: proc(c: ^Server_Conn, cmd: Conv_Update_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	buf: [proto.CONV_UPDATE_MAX_SIZE]u8
@@ -273,6 +282,28 @@ conv_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	if c.convs.changing == 0 && status != .Reset {
 		channels_changed(c)
 	}
+}
+
+conv_admin_set :: proc(c: ^Server_Conn, cmd: Conv_Admin_Command) {
+	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
+	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
+	if account == 0 {
+		log.warn("there's no such account")
+		return
+	}
+	buf: [proto.CONV_MEMBER_SET_SIZE]u8
+	request(
+		c,
+		.Conv_Admin_Set,
+		proto.encode_conv_member_set(&buf, conv, account, cmd.on),
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
+			manage_done(c, status, body, tag)
+			// Fetch the members shown again, which say who the admins are.
+			if status == .Ok && c.profiles.members_conv != 0 {
+				members_fetch(c, c.profiles.members_conv)
+			}
+		},
+	)
 }
 
 conv_member_set :: proc(c: ^Server_Conn, cmd: Conv_Member_Command) {

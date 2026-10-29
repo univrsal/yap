@@ -666,6 +666,7 @@ account_create_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Res
 	buf: [4]u8
 	respond(u, p.request, .Ok, proto.encode_account_id(&buf, acc.id))
 	account_changed(s, acc)
+	account_joined(s, acc)
 }
 
 @(private = "file")

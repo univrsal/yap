@@ -1735,6 +1735,109 @@ test_gateway_files :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_gateway_persona :: proc(t: ^testing.T) {
+	ts: Test_Server
+	lt_open(t, &ts)
+	defer lt_close(&ts)
+	s := &ts.s
+	dir := test_dir(t)
+	dir = strings.clone(dir)
+	defer delete(dir)
+	defer remove_tree(dir)
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	admin := gt_admin(t, &ts)
+	ts_account(t, &ts, "alice", "alice's password")
+	token, pub := gt_token(t, &ts, admin, "helper")
+	defer delete(token)
+	bot := device_of(&ts.s.accounts, pub).account
+	conv_member_add(&ts.s.convs, ts.s.convs.home, bot)
+	home := ts.s.convs.home.id
+	h: Harness
+	gt_open(t, &ts, &h)
+	defer gt_close(&ts, &h)
+	jpeg := strings.clone(string(test_jpeg(64, 48, 9)))
+	defer delete(jpeg)
+	home_messages := fmt.aprintf("/api/v1/convs/%d/messages", home)
+	defer delete(home_messages)
+
+	r := gt_run(
+		t,
+		&ts,
+		&h,
+		token,
+		{
+			{"POST", "/api/v1/avatars", jpeg, 201},
+			{"POST", "/api/v1/avatars", "not a picture", 400},
+		},
+	)
+	if r == nil {
+		return
+	}
+	picture: struct {
+		id: string,
+	}
+	if !gt_json(t, r[0], &picture) || !testing.expect(t, picture.id != "") {
+		return
+	}
+	picture.id = strings.clone(picture.id)
+	defer delete(picture.id)
+
+	named := strings.concatenate(
+		{
+			`{"content": "Build 7 failed", "persona": {"name": "Build Server", "avatar": "`,
+			picture.id,
+			`"}}`,
+		},
+	)
+	defer delete(named)
+	r = gt_run(
+		t,
+		&ts,
+		&h,
+		token,
+		{
+			{"POST", home_messages, named, 201},
+			{"POST", home_messages, `{"content": "x", "persona": {"name": "Alice"}}`, 403},
+			{"POST", home_messages, `{"content": "x", "persona": {"name": "  "}}`, 400},
+			{"POST", home_messages, `{"content": "x", "persona": {"avatar": "5"}}`, 400},
+			{"POST", home_messages, `{"content": "x", "persona": "Build"}`, 400},
+			{
+				"POST",
+				home_messages,
+				`{"content": "x", "persona": {"name": "CI", "avatar": "999"}}`,
+				404,
+			},
+			{"POST", home_messages, `{"content": "plain", "persona": null}`, 201},
+		},
+	)
+	if r == nil {
+		return
+	}
+	post, plain: struct {
+		author:  struct {
+			username: string,
+			bot:      bool,
+		},
+		content: string,
+		persona: Maybe(struct {
+				name:   string,
+				avatar: string,
+			}),
+	}
+	if !gt_json(t, r[0], &post) || !gt_json(t, r[6], &plain) {
+		return
+	}
+	testing.expect_value(t, post.author.username, "helper")
+	testing.expect(t, post.author.bot)
+	got, has := post.persona.?
+	testing.expect(t, has)
+	testing.expect_value(t, got.name, "Build Server")
+	testing.expect_value(t, got.avatar, picture.id)
+	_, has = plain.persona.?
+	testing.expect(t, !has)
+}
+
+@(test)
 test_gateway_login_rule :: proc(t: ^testing.T) {
 	at :: proc(address: string) -> net.Endpoint {
 		ep, _ := net.parse_endpoint(address)

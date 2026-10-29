@@ -91,15 +91,18 @@ Stmt :: enum {
 	Device_Set_Seen,
 	Conv_Add,
 	Conv_Add_DM,
+	Conv_Add_Group,
 	Conv_All,
 	Member_Add,
 	Member_Remove,
 	Member_All,
 	Member_Set_Read,
 	Member_Set_Notify,
+	Member_Set_Admin,
 	Msg_Unread,
 	Conv_Set_Last,
 	Msg_Add,
+	Msg_Times_Of,
 	Msg_By_Nonce,
 	Msg_Before,
 	Msg_After,
@@ -119,8 +122,14 @@ Stmt :: enum {
 	Pin_Remove,
 	Pin_Count,
 	Pins_Of,
+	Bookmark_Add,
+	Bookmark_Remove,
+	Bookmark_Count,
+	Bookmark_Ids,
+	Bookmarks_Of,
 	Mention_Add,
 	Mention_Clear,
+	Mention_Everyone,
 	Mentioned_In,
 	Mention_Count,
 	React_Add,
@@ -183,6 +192,8 @@ Stmt :: enum {
 	Purge_Files_Conv,
 	Attach_Strip,
 	Blob_Scan,
+	Blob_Hashes,
+	Persona_Avatar_Used,
 	Blob_Touch,
 	Attach_Add,
 	Attach_Of_Msg,
@@ -199,6 +210,7 @@ Stmt :: enum {
 	Mention_Erase,
 	Member_Erase,
 	Invite_Erase,
+	Bookmark_Erase,
 	Account_Set_Digest,
 	Msg_Newest,
 	Digest_DMs,
@@ -213,7 +225,12 @@ Stmt :: enum {
 
 // The columns of a whole message, in the order msg_of_row (messages.odin)
 // reads them.
-MSG_COLS :: "m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time"
+// Whether a message counts as unread: any but a system message about a channel
+// (proto.CONV_SYSTEM_FIRST and up), whose kind is the number its text starts with.
+COUNTS_UNREAD :: "(kind != 3 OR CAST(text AS INTEGER) < 16)"
+COUNTS_UNREAD_M :: "(m.kind != 3 OR CAST(m.text AS INTEGER) < 16)"
+
+MSG_COLS :: "m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time, m.persona_name, m.persona_avatar"
 
 @(private = "file", rodata)
 STMT_SQL := [Stmt]string {
@@ -244,15 +261,18 @@ STMT_SQL := [Stmt]string {
 	.Device_Set_Seen        = "UPDATE devices SET last_seen = ?2 WHERE key = ?1",
 	.Conv_Add               = "INSERT INTO convs (kind, flags, name, topic, position, created, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
 	.Conv_Add_DM            = "INSERT INTO convs (kind, a, b, created, created_by) VALUES (1, ?1, ?2, ?3, ?4)",
+	.Conv_Add_Group         = "INSERT INTO convs (kind, created, created_by) VALUES (2, ?1, ?2)",
 	.Conv_All               = "SELECT id, kind, flags, name, topic, position, created, created_by, last_msg, a, b, COALESCE((SELECT time FROM messages WHERE id = convs.last_msg), 0) FROM convs ORDER BY id",
 	.Member_Add             = "INSERT OR IGNORE INTO members (conv, account, joined, read_id) VALUES (?1, ?2, ?3, ?4)",
 	.Member_Remove          = "DELETE FROM members WHERE conv = ?1 AND account = ?2",
-	.Member_All             = "SELECT conv, account, read_id, notify FROM members",
+	.Member_All             = "SELECT conv, account, read_id, notify, admin FROM members",
 	.Member_Set_Read        = "UPDATE members SET read_id = ?3 WHERE conv = ?1 AND account = ?2 AND read_id < ?3",
 	.Member_Set_Notify      = "UPDATE members SET notify = ?3 WHERE conv = ?1 AND account = ?2",
-	.Msg_Unread             = "SELECT count(*) FROM (SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 AND sender != ?3 AND flags & 1 = 0 LIMIT 100)",
+	.Member_Set_Admin       = "UPDATE members SET admin = ?3 WHERE conv = ?1 AND account = ?2",
+	.Msg_Unread             = "SELECT count(*) FROM (SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 AND sender != ?3 AND flags & 1 = 0 AND " + COUNTS_UNREAD + " LIMIT 100)",
 	.Conv_Set_Last          = "UPDATE convs SET last_msg = ?2 WHERE id = ?1",
-	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+	.Msg_Times_Of           = "SELECT id, time, sender FROM messages WHERE conv = ?1 ORDER BY id",
+	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time, persona_name, persona_avatar, edited) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
 	.Msg_By_Nonce           = "SELECT id, time FROM messages WHERE sender = ?1 AND nonce = ?2",
 	.Msg_Before             = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
 	.Msg_After              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id > ?2 ORDER BY m.id LIMIT ?3",
@@ -267,12 +287,13 @@ STMT_SQL := [Stmt]string {
 	.Msg_By_Id              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.id = ?1",
 	.Msg_Edit               = "UPDATE messages SET text = ?2, edited = ?3 WHERE id = ?1",
 	// Marks the message as deleted, and as neither pinned nor having files.
-	.Msg_Delete             = "UPDATE messages SET flags = (flags | 1) & ~18, text = NULL, file_size = 0 WHERE id = ?1",
+	.Msg_Delete             = "UPDATE messages SET flags = (flags | 1) & ~50, text = NULL, file_size = 0, persona_name = NULL, persona_avatar = NULL WHERE id = ?1",
 	.Msg_Set_Flags          = "UPDATE messages SET flags = ?2 WHERE id = ?1",
 	.Pin_Add                = "INSERT OR IGNORE INTO pins (conv, message, by, time) VALUES (?1, ?2, ?3, ?4)",
 	.Pin_Remove             = "DELETE FROM pins WHERE conv = ?1 AND message = ?2",
 	.Pin_Count              = "SELECT count(*) FROM pins WHERE conv = ?1",
 	.Mention_Add            = "INSERT OR IGNORE INTO mentions (account, conv, message) VALUES (?1, ?2, ?3)",
+	.Mention_Everyone       = "INSERT OR IGNORE INTO mentions (account, conv, message) SELECT account, conv, ?3 FROM members WHERE conv = ?1 AND read_id < ?3 AND account != ?2",
 	.Mention_Clear          = "DELETE FROM mentions WHERE message = ?1",
 	.Mentioned_In           = "SELECT account FROM mentions WHERE message = ?1",
 	.React_Add              = "INSERT OR IGNORE INTO reactions (message, emoji, account, time) VALUES (?1, ?2, ?3, ?4)",
@@ -282,7 +303,13 @@ STMT_SQL := [Stmt]string {
 	.Reactions_Of           = "SELECT emoji, count(*), max(account = ?2) FROM reactions WHERE message = ?1 GROUP BY emoji ORDER BY min(time), emoji",
 	.React_Clear            = "DELETE FROM reactions WHERE message = ?1",
 	.Mention_Count          = "SELECT count(*) FROM (SELECT 1 FROM mentions WHERE account = ?1 AND conv = ?2 AND message > ?3 LIMIT 100)",
-	.Pins_Of                = "SELECT " + MSG_COLS + " FROM pins p JOIN messages m ON m.id = p.message WHERE p.conv = ?1 ORDER BY p.time DESC, p.message DESC LIMIT ?2",
+	.Pins_Of                = "SELECT " + MSG_COLS + " FROM pins p JOIN messages m ON m.id = p.message WHERE p.conv = ?1 ORDER BY p.time DESC, p.message DESC LIMIT ?2 OFFSET ?3",
+	.Bookmark_Add           = "INSERT OR IGNORE INTO bookmarks (account, message, time) VALUES (?1, ?2, ?3)",
+	.Bookmark_Remove        = "DELETE FROM bookmarks WHERE account = ?1 AND message = ?2",
+	.Bookmark_Count         = "SELECT count(*) FROM bookmarks WHERE account = ?1",
+	.Bookmark_Ids           = "SELECT message FROM bookmarks WHERE account = ?1 ORDER BY time DESC, message DESC",
+	// The bookmark's time is the column after the message's (BOOKMARK_TIME_COL).
+	.Bookmarks_Of           = "SELECT " + MSG_COLS + ", b.time FROM bookmarks b JOIN messages m ON m.id = b.message WHERE b.account = ?1 AND (?2 = 0 OR b.time < ?2 OR (b.time = ?2 AND b.message < ?3)) ORDER BY b.time DESC, b.message DESC",
 	.Buddy_All              = "SELECT account, buddy FROM buddies",
 	.Role_All               = "SELECT id, name, perms, color, position, flags FROM roles ORDER BY id",
 	.Role_Add               = "INSERT INTO roles (name, perms, color, position, flags) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -338,7 +365,9 @@ STMT_SQL := [Stmt]string {
 	.Purge_Files            = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0), m.thread_root FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Purge_Files_Conv       = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0), m.thread_root FROM messages m WHERE m.conv = ?4 AND m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Attach_Strip           = "UPDATE attachments SET blob = NULL WHERE msg = ?1",
-	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM messages WHERE persona_avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Persona_Avatar_Used    = "SELECT 1 FROM messages WHERE persona_avatar = ?1 LIMIT 1",
+	.Blob_Hashes            = "SELECT sha256 FROM blobs",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
 	.Attach_Of_Msg          = "SELECT a.blob, a.name, a.size, coalesce(b.width, 0), coalesce(b.height, 0) FROM attachments a LEFT JOIN blobs b ON b.id = a.blob WHERE a.msg = ?1 ORDER BY a.idx",
@@ -358,17 +387,18 @@ STMT_SQL := [Stmt]string {
 	.Buddy_Erase            = "DELETE FROM buddies WHERE account = ?1 OR buddy = ?1",
 	.Setting_Erase          = "DELETE FROM settings WHERE account = ?1",
 	.Mention_Erase          = "DELETE FROM mentions WHERE account = ?1",
-	.Member_Erase           = "DELETE FROM members WHERE account = ?1",
+	.Member_Erase           = "DELETE FROM members WHERE account = ?1 AND conv NOT IN (SELECT id FROM convs WHERE kind = 2)",
 	.Invite_Erase           = "UPDATE invites SET revoked = 1 WHERE creator = ?1",
+	.Bookmark_Erase         = "DELETE FROM bookmarks WHERE account = ?1",
 	// Emailing accounts what they missed (see digest.odin).
 	.Account_Set_Digest     = "UPDATE accounts SET digest_upto = ?2 WHERE id = ?1",
 	.Msg_Newest             = "SELECT coalesce(max(id), 0) FROM messages",
 	// The unread messages of account ?1 in the DMs it gets notifications from,
 	// after message ?2 and posted after ?3, at most ?4 of them.
-	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind = 1 AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind IN (1, 2) AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	// The same for every conversation where the account is notified of every
 	// message, except archived channels.
-	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 AND " + COUNTS_UNREAD_M + " ORDER BY m.id LIMIT ?4",
 	.Digest_Mentions        = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM mentions y JOIN members x ON x.conv = y.conv AND x.account = y.account JOIN messages m ON m.id = y.message WHERE y.account = ?1 AND y.message > max(x.read_id, ?2) AND x.notify != 2 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	// Web Push subscriptions (push_subs.odin).
 	.Push_Sub_Put           = "INSERT INTO push_subs (device, account, endpoint, p256dh, auth, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (endpoint) DO UPDATE SET device = ?1, account = ?2, p256dh = ?4, auth = ?5, created = ?6",
@@ -435,7 +465,13 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		db_close(db)
 		return false
 	}
-	for pragma in ([]string{"PRAGMA journal_mode = WAL", "PRAGMA synchronous = NORMAL", "PRAGMA wal_autocheckpoint = 0", "PRAGMA foreign_keys = ON", "PRAGMA temp_store = MEMORY"}) {
+	for pragma in ([]string {
+			"PRAGMA journal_mode = WAL",
+			"PRAGMA synchronous = NORMAL",
+			"PRAGMA wal_autocheckpoint = 0",
+			"PRAGMA foreign_keys = ON",
+			"PRAGMA temp_store = MEMORY",
+		}) {
 		if !db_exec(db, pragma) {
 			db_close(db)
 			return false
@@ -579,6 +615,16 @@ db_commit :: proc(db: ^DB) {
 	if db.log_pages >= DB_LOG_MOST {
 		db_checkpoint(db)
 	}
+}
+
+// db_rollback undoes what this turn wrote. Only a command that fails halfway
+// and means to leave the database as it was (the importer) does this.
+db_rollback :: proc(db: ^DB) {
+	if !db.in_tx {
+		return
+	}
+	db.in_tx = false
+	db_exec(db, "ROLLBACK")
 }
 
 // db_idle is called when the loop has nothing to do, which is a good moment for

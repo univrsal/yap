@@ -46,6 +46,8 @@ test_mentions_transform :: proc(t: ^testing.T) {
 		mentions_encode("@nobody @ @everyone", accounts, nil),
 		"@nobody @ <@everyone>",
 	)
+	testing.expect_value(t, mentions_encode("@here look", accounts, nil), "<@here> look")
+	testing.expect_value(t, mentions_for_edit("<@here> look", accounts, nil), "@here look")
 	testing.expect_value(t, mentions_encode("no mentions", accounts, nil), "no mentions")
 
 	// And back again, for editing.

@@ -331,18 +331,17 @@ search_results :: proc(ui: ^UI, submit: bool) {
 }
 
 // conversation_name is how a list names one of our conversations: #name, or
-// the other person's name for a DM. Call with the View locked.
+// the other person's name for a DM, or the others' for a group. Call with the
+// View locked.
 conversation_name :: proc(v: ^conn.View, conv: proto.Conv_Id) -> string {
 	for ch in v.channels {
 		if ch.id == conv {
 			return fmt.tprintf("#%s", ch.name)
 		}
 	}
-	for dm in v.dms {
+	for &dm in v.dms {
 		if dm.id == conv {
-			if acc, ok := v.accounts[dm.with]; ok {
-				return acc.display
-			}
+			return dm_name(v, &dm)
 		}
 	}
 	return "a conversation"

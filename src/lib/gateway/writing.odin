@@ -25,7 +25,8 @@ import "lib:lite"
 // Bodies are JSON objects. A field that is left out stays unchanged, and null
 // means "none" where that makes sense.
 
-// POST /convs/{id}/messages {content, thread, nonce} -> 201 the message.
+// POST /convs/{id}/messages {content, thread, nonce, attachments, persona} ->
+// 201 the message.
 // `content` is the text as a person would type it, including markdown and
 // @mentions. `thread` is the first message of a thread, to reply in it.
 // `nonce` can be anything (a string or a number) and must be the same when a
@@ -84,6 +85,9 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 		}
 		p.attachment_count = len(list)
 	}
+	if !field_persona(j, obj, &p.persona) {
+		return
+	}
 	if (got != .Value || p.text == "") && p.attachment_count == 0 {
 		reply(
 			j,
@@ -117,8 +121,56 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	j.scratch = {conv, u64(p.thread_root), 0}
 	j.answer = posted
-	buf: [proto.MSG_POST_MAX_SIZE]u8
+	buf := new([proto.MSG_POST_MAX_SIZE]u8, context.temp_allocator)
 	ask(c, j, .Msg_Post, proto.encode_msg_post(buf[:], p))
+}
+
+// field_persona reads the `persona` of a post: {name, avatar}, where avatar
+// is the id of a picture from POST /avatars. It is left empty if there is
+// none. ok is false, and the Job has been answered, if it is something else.
+@(private)
+field_persona :: proc(j: ^Job, obj: json.Object, persona: ^proto.Persona) -> (ok: bool) {
+	v, there := obj["persona"]
+	if !there {
+		return true
+	}
+	if _, null := v.(json.Null); null {
+		return true
+	}
+	fields, is_object := v.(json.Object)
+	if !is_object {
+		reply(j, error_reply(400, "invalid", "persona must be an object {name, avatar}."))
+		return
+	}
+	got: Field
+	name_ok: bool
+	if persona.name, got, name_ok = field_string(j, fields, "name"); !name_ok {
+		return
+	}
+	if got != .Value || persona.name == "" {
+		reply(j, error_reply(400, "invalid", "persona needs a name."))
+		return
+	}
+	if len(persona.name) > proto.MAX_PERSONA_NAME_SIZE {
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf(
+					"A persona's name can be at most %d bytes long.",
+					proto.MAX_PERSONA_NAME_SIZE,
+				),
+			),
+		)
+		return
+	}
+	avatar: u64
+	if avatar, ok = field_id(j, fields, "avatar"); !ok {
+		return
+	}
+	persona.avatar = proto.Blob_Id(avatar)
+	return true
 }
 
 // POST /messages/{id}/forward {conv, thread, nonce} -> 201 the copy. The
@@ -255,8 +307,8 @@ edit_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	j.answer = answered_empty
-	buf: [proto.MSG_EDIT_MAX_SIZE]u8
-	ask(c, j, .Msg_Edit, proto.encode_msg_edit(&buf, proto.Msg_Id(msg), text))
+	buf := new([proto.MSG_EDIT_MAX_SIZE]u8, context.temp_allocator)
+	ask(c, j, .Msg_Edit, proto.encode_msg_edit(buf, proto.Msg_Id(msg), text))
 }
 
 // DELETE /messages/{id} -> 204 deletes a message. The account can delete its
@@ -470,6 +522,67 @@ dm_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	buf: [4]u8
 	ask(c, j, .DM_Open, proto.encode_account_id(&buf, proto.Account_Id(account)))
+}
+
+// POST /groups {accounts} -> the group of the account and those accounts (2
+// to proto.MAX_GROUP_MEMBERS - 1 of them), which is created if it doesn't exist
+// yet. Bots can't be in groups, so for a bot's token this is always 403.
+@(private)
+group_run :: proc(c: ^Conn, j: ^Job) {
+	obj, body_ok := body_object(j)
+	if !body_ok {
+		return
+	}
+	invalid :: proc(j: ^Job) {
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf(
+					"accounts is required and is a list of 2 to %d ids of the others in the group.",
+					proto.MAX_GROUP_MEMBERS - 1,
+				),
+			),
+		)
+	}
+	list, is_array := obj["accounts"].(json.Array)
+	if !is_array || len(list) < 2 || len(list) > proto.MAX_GROUP_MEMBERS - 1 {
+		invalid(j)
+		return
+	}
+	others: [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id
+	for v, i in list {
+		id, id_ok := value_id(j, v, "an account")
+		if !id_ok {
+			return
+		}
+		if id == 0 || id > u64(max(u32)) {
+			invalid(j)
+			return
+		}
+		others[i] = proto.Account_Id(id)
+	}
+	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
+		if a.status != .Ok {
+			reply(j, status_reply(a.status))
+			return
+		}
+		conv, ok := proto.decode_conv_id(a.body)
+		if !ok {
+			reply(j, status_reply(.Internal))
+			return
+		}
+		j.scratch[0] = u64(conv)
+		after_events(c, j, reply_conv)
+	}
+	buf: [proto.GROUP_OPEN_MAX_SIZE]u8
+	body := proto.encode_group_open(&buf, others[:len(list)])
+	if body == nil {
+		invalid(j)
+		return
+	}
+	ask(c, j, .Group_Open, body)
 }
 
 // reply_conv replies with the conversation j.scratch[0] as the model has

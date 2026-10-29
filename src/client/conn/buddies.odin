@@ -3,6 +3,7 @@ package conn
 import log "common:wlog"
 import "core:fmt"
 import "core:slice"
+import "core:strings"
 import "core:time"
 
 import "common:proto"
@@ -20,6 +21,10 @@ import "common:proto"
 // messages (see messages.odin). We may not have a DM with somebody yet. In
 // that case, what we write to them waits in the outbox until the server opens
 // the DM (DM_Open), which it does only once per pair of accounts.
+//
+// A group is like a DM with 2 to proto.MAX_GROUP_MEMBERS - 1 others, which
+// never change. It is opened with Group_Command (Group_Open) before anything is
+// written there; until something is, the others don't see it.
 //
 // When somebody was last online is requested with Last_Seen_Command. The
 // server only answers for people who have exchanged messages with us.
@@ -53,6 +58,19 @@ DM_Command :: struct {
 	account: proto.Account_Id,
 	name:    string, // owned by the command
 	text:    string, // owned by the command
+}
+
+// Looks at our notes, the DM with ourselves, opening it first if there is
+// none yet.
+Notes_Command :: struct {}
+
+// Opens the group of us and some others, creating it if there is none. The
+// others are given as accounts, or as names separated by commas if there are no
+// accounts (headless), and they must be 2 to proto.MAX_GROUP_MEMBERS - 1.
+Group_Command :: struct {
+	accounts: [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id,
+	count:    int,
+	names:    string, // owned by the command
 }
 
 buddies_destroy :: proc(c: ^Server_Conn) {
@@ -113,14 +131,19 @@ account_named :: proc(c: ^Server_Conn, name: string) -> proto.Account_Id {
 }
 
 // who returns the account a command refers to, which is `account` or else the
-// account called `name`. It returns 0 if that is ourselves.
+// account called `name`. It returns 0 if that is ourselves, unless `self_ok`.
 @(private = "file")
-who :: proc(c: ^Server_Conn, account: proto.Account_Id, name: string) -> proto.Account_Id {
+who :: proc(
+	c: ^Server_Conn,
+	account: proto.Account_Id,
+	name: string,
+	self_ok := false,
+) -> proto.Account_Id {
 	id := account if account != 0 else account_named(c, name)
 	switch {
 	case id == 0:
 		log.warnf("there's nobody called %q here", name)
-	case id == c.auth.me:
+	case id == c.auth.me && !self_ok:
 		log.warn("that's you")
 		return 0
 	}
@@ -170,16 +193,142 @@ dm_with :: proc(c: ^Server_Conn, account: proto.Account_Id) -> proto.Conv_Id {
 }
 
 // dm_other returns the other participant of a DM, which is the one of its two
-// accounts that isn't ours.
+// accounts that isn't ours, or ours in a DM with ourselves. It is 0 for
+// anything else.
 dm_other :: proc(c: ^Server_Conn, info: Conv_Info) -> proto.Account_Id {
-	return info.b if info.a == c.auth.me else info.a
+	if info.kind != .DM {
+		return 0
+	}
+	info := info
+	accounts := info.accounts[:clamp(info.account_count, 0, proto.MAX_GROUP_MEMBERS)]
+	for a in accounts {
+		if a != c.auth.me {
+			return a
+		}
+	}
+	return c.auth.me if len(accounts) > 0 else 0
 }
 
-// dm_command opens the DM with somebody, first posting `text` if there is any.
-// If no conversation exists yet there is nothing to open, and posting the text
-// is what creates it.
+// group_others returns the members of a group other than us, in ascending order,
+// in the temp allocator. It is empty for anything but a group.
+group_others :: proc(c: ^Server_Conn, info: Conv_Info) -> []proto.Account_Id {
+	if info.kind != .Group {
+		return nil
+	}
+	info := info
+	others := make([dynamic]proto.Account_Id, 0, proto.MAX_GROUP_MEMBERS, context.temp_allocator)
+	for a in info.accounts[:clamp(info.account_count, 0, proto.MAX_GROUP_MEMBERS)] {
+		if a != c.auth.me {
+			append(&others, a)
+		}
+	}
+	return others[:]
+}
+
+// group_name returns what a group is called: the display names of its other
+// members, joined with commas, in the temp allocator.
+group_name :: proc(c: ^Server_Conn, info: Conv_Info) -> string {
+	others := group_others(c, info)
+	names := make([]string, len(others), context.temp_allocator)
+	for a, i in others {
+		names[i] = account_display(c, a)
+	}
+	return strings.join(names, ", ", context.temp_allocator)
+}
+
+// group_command opens a group (Group_Open), which the server tells us about
+// (Conv_Changed) before it answers. Headless, the group is then looked at, so
+// that /say posts there.
+group_command :: proc(c: ^Server_Conn, cmd: Group_Command) {
+	others := make([dynamic]proto.Account_Id, 0, len(cmd.accounts), context.temp_allocator)
+	if cmd.count > 0 {
+		cmd := cmd
+		append(&others, ..cmd.accounts[:clamp(cmd.count, 0, len(cmd.accounts))])
+	} else {
+		for part in strings.split(cmd.names, ",", context.temp_allocator) {
+			name := strings.trim_space(part)
+			if name == "" {
+				continue
+			}
+			account := who(c, 0, name)
+			if account == 0 {
+				return
+			}
+			if !slice.contains(others[:], account) {
+				append(&others, account)
+			}
+		}
+	}
+	buf: [proto.GROUP_OPEN_MAX_SIZE]u8
+	body := proto.encode_group_open(&buf, others[:])
+	if body == nil {
+		log.warnf(
+			"a group is you and 2 to %d others; for one other, write a DM",
+			proto.MAX_GROUP_MEMBERS - 1,
+		)
+		return
+	}
+	request(
+		c,
+		.Group_Open,
+		body,
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok:
+			case .Reset:
+				return
+			case .Denied:
+				log.warn("bots can't be in a group")
+				return
+			case .Not_Found:
+				log.warn("one of them isn't here any more")
+				return
+			case:
+				log.warnf("the server failed to open the group (%v)", status)
+				return
+			}
+			conv, ok := proto.decode_conv_id(body)
+			if ok && c.view == nil && conv in c.convs.convs {
+				conv_view(c, conv)
+			}
+		},
+	)
+}
+
+// notes_command looks at the DM with ourselves, asking the server to open it
+// if we have none yet. The server tells us about it before it answers.
+notes_command :: proc(c: ^Server_Conn) {
+	if conv := dm_with(c, c.auth.me); conv != 0 {
+		conv_view(c, conv)
+		return
+	}
+	buf: [4]u8
+	request(
+		c,
+		.DM_Open,
+		proto.encode_account_id(&buf, c.auth.me),
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok:
+			case .Reset:
+				return
+			case:
+				log.warnf("the server failed to open your notes (%v)", status)
+				return
+			}
+			conv, ok := proto.decode_conv_id(body)
+			if ok && conv in c.convs.convs {
+				conv_view(c, conv)
+			}
+		},
+	)
+}
+
+// dm_command opens the DM with somebody, ourselves included, first posting
+// `text` if there is any. If no conversation exists yet there is nothing to
+// open, and posting the text is what creates it.
 dm_command :: proc(c: ^Server_Conn, cmd: DM_Command) {
-	account := who(c, cmd.account, cmd.name)
+	account := who(c, cmd.account, cmd.name, self_ok = true)
 	if account == 0 {
 		return
 	}
@@ -252,7 +401,7 @@ list_buddies :: proc(c: ^Server_Conn) {
 		log.infof("buddy: %s%s", account_display(c, b), " (here)" if is_online(c, b) else "")
 	}
 	for id, info in c.convs.convs {
-		if info.kind != .DM {
+		if info.kind == .Channel {
 			continue
 		}
 		unread := ""
@@ -260,9 +409,9 @@ list_buddies :: proc(c: ^Server_Conn) {
 			unread = fmt.tprintf(", %s unread", unread_count(info.unread))
 		}
 		log.infof(
-			"%s DMs with %s%s",
+			"%s %s%s",
 			"*" if id == c.convs.viewing else " ",
-			account_display(c, dm_other(c, info)),
+			room_name(c, proto.Room(id)),
 			unread,
 		)
 	}
@@ -274,7 +423,7 @@ list_buddies :: proc(c: ^Server_Conn) {
 @(private = "file")
 dm_count :: proc(c: ^Server_Conn) -> (n: int) {
 	for _, info in c.convs.convs {
-		if info.kind == .DM {
+		if info.kind != .Channel {
 			n += 1
 		}
 	}

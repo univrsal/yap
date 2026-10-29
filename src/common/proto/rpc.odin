@@ -89,6 +89,8 @@ Request_Op :: enum u16 {
 	// Web Push subscriptions, see push.odin.
 	Push_Subscribe       = 0x0026,
 	Push_Unsubscribe     = 0x0027,
+	// A channel's admins, see convs.odin (the conversations' range is full).
+	Conv_Admin_Set       = 0x0028,
 	// Conversations and voice rooms, see convs.odin.
 	Conv_Create          = 0x0030,
 	Conv_Update          = 0x0031,
@@ -102,6 +104,7 @@ Request_Op :: enum u16 {
 	Voice_Join           = 0x0039,
 	// 0x003A was Conv_View, while chat was still streamed per channel.
 	Conv_Rights_Get      = 0x003B,
+	Group_Open           = 0x003F,
 	Conv_Rights_Set      = 0x003C,
 	// Moving and muting people in voice, see moderation.odin.
 	Voice_Move           = 0x003D,
@@ -118,6 +121,9 @@ Request_Op :: enum u16 {
 	Reactors_Get         = 0x0048,
 	Msg_Forward          = 0x0049,
 	Msg_Search           = 0x004A, // search.odin
+	// Bookmarks, see bookmarks.odin.
+	Bookmark_Set         = 0x004B,
+	Bookmarks_Get        = 0x004C,
 	// Roles, see roles.odin.
 	Role_Set             = 0x0070,
 	Role_Delete          = 0x0071,
@@ -168,6 +174,9 @@ Event_Op :: enum u16 {
 	Reaction_Changed = 0x0042,
 	// See purge.odin.
 	Msgs_Purged      = 0x0043,
+	// See bookmarks.odin.
+	Bookmarks        = 0x0044,
+	Bookmark_Changed = 0x0045,
 	// See emoji.odin.
 	Emoji_Sheet      = 0x0060,
 	// See calls.odin.

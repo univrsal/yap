@@ -82,7 +82,7 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 	at := Attach_Target{g_ui.page, 0}
 	ctx := &g_ui.ctx
 	for &t, i in g_ui.threads {
-		if t.key != {} && ctx.focus_id == mu.get_id(ctx, uintptr(&t.buf[0])) {
+		if t.key != {} && t.buf != nil && ctx.focus_id == mu.get_id(ctx, uintptr(&t.buf[0])) {
 			at.thread = i + 1
 		}
 	}

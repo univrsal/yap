@@ -105,8 +105,10 @@ Command :: union {
 	Attach_Preview_Command,
 	File_Action_Command,
 	Transfer_Limits_Command,
-	// Buddies and DMs, see buddies.odin.
+	// Buddies, DMs and groups, see buddies.odin.
 	DM_Command,
+	Notes_Command,
+	Group_Command,
 	Buddy_Command,
 	Buddies_Command,
 	Last_Seen_Command,
@@ -150,6 +152,8 @@ Command :: union {
 	Reactors_Command,
 	Forward_Command,
 	Search_Command,
+	Bookmark_Command,
+	Bookmarks_Command,
 	Thread_Command,
 	Root_Command,
 	// Profiles and settings, see profiles.odin.
@@ -180,6 +184,7 @@ Command :: union {
 	Conv_Flag_Command,
 	Conv_Delete_Command,
 	Conv_Member_Command,
+	Conv_Admin_Command,
 	Roles_Command,
 	// Calls, see calls.odin.
 	Call_Command,
@@ -278,6 +283,8 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.text)
 	case Conv_Member_Command:
 		delete(v.name)
+	case Conv_Admin_Command:
+		delete(v.name)
 	case Call_Command:
 		delete(v.name)
 	case Watch_Camera_Names_Command:
@@ -324,6 +331,8 @@ command_destroy :: proc(cmd: Command) {
 	case DM_Command:
 		delete(v.name)
 		delete(v.text)
+	case Group_Command:
+		delete(v.names)
 	case Buddy_Command:
 		delete(v.name)
 	case Last_Seen_Command:
@@ -389,6 +398,10 @@ process_commands :: proc(c: ^Server_Conn) {
 			msg_forward(c, v)
 		case Search_Command:
 			search_start(c, v)
+		case Bookmark_Command:
+			bookmark_set(c, v.id, v.on)
+		case Bookmarks_Command:
+			bookmarks_command(c, v)
 		case Thread_Command:
 			v.thread.conv = v.thread.conv if v.thread.conv != 0 else c.convs.viewing
 			if v.open {
@@ -448,6 +461,8 @@ process_commands :: proc(c: ^Server_Conn) {
 			conv_delete(c, v.conv)
 		case Conv_Member_Command:
 			conv_member_set(c, v)
+		case Conv_Admin_Command:
+			conv_admin_set(c, v)
 		case Roles_Command:
 			roles_list(c)
 		case Call_Command:
@@ -548,6 +563,10 @@ process_commands :: proc(c: ^Server_Conn) {
 			video_watch_camera_names(c, v.names)
 		case DM_Command:
 			dm_command(c, v)
+		case Notes_Command:
+			notes_command(c)
+		case Group_Command:
+			group_command(c, v)
 		case Buddy_Command:
 			buddy_command(c, v)
 		case Buddies_Command:

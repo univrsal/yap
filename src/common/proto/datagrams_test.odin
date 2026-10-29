@@ -1,6 +1,7 @@
 #+build !wasi
 package proto
 
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -177,8 +178,6 @@ test_sanitize_name :: proc(t: ^testing.T) {
 		{"bad\xffutf8", "badutf8"},
 		// Right-to-left override and zero-width space, used for spoofing.
 		{"ev\u202eil\u200bname", "evilname"},
-		// Cut at 32 bytes without splitting a character (é is 2 bytes).
-		{"0123456789012345678901234567890é", "0123456789012345678901234567890"},
 		{"", ""},
 		{"   ", ""},
 	}
@@ -186,6 +185,14 @@ test_sanitize_name :: proc(t: ^testing.T) {
 		buf: [MAX_NAME_SIZE]u8
 		testing.expect_value(t, sanitize_name(c.input, &buf), c.want)
 	}
+	// Cut at MAX_NAME_SIZE bytes without splitting a character (é is 2 bytes).
+	almost := strings.repeat("n", MAX_NAME_SIZE - 1, context.temp_allocator)
+	buf: [MAX_NAME_SIZE]u8
+	testing.expect_value(
+		t,
+		sanitize_name(strings.concatenate({almost, "é"}, context.temp_allocator), &buf),
+		almost,
+	)
 }
 
 @(test)

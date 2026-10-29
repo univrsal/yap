@@ -66,6 +66,11 @@ test_buddy_list :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(buddy_list(&s, &v)), 3)
 	v.dms[1].last = 201
 	testing.expect_value(t, len(buddy_list(&s, &v)), 4)
+
+	// Our notes, the DM with ourselves, aren't listed.
+	append(&v.dms, conn.View_DM{id = 12, with = 1, last = 300})
+	testing.expect_value(t, len(buddy_list(&s, &v)), 4)
+	testing.expect_value(t, notes_conv(&v), proto.Conv_Id(12))
 }
 
 // A DM hidden up to a message newer than its newest is hidden from before the

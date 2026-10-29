@@ -35,25 +35,28 @@ import "common:proto"
 // before the connection restarted). The request is kept and acted on once the
 // server has told us which channels there are.
 
-// A channel we are subscribed to, or a DM.
+// A channel we are subscribed to, a DM or a group.
 Conv_Info :: struct {
-	kind:      proto.Conv_Kind,
-	flags:     proto.Conv_Flags,
-	name:      string, // owned
-	topic:     string, // owned
+	kind:          proto.Conv_Kind,
+	flags:         proto.Conv_Flags,
+	name:          string, // owned
+	topic:         string, // owned
 	// Its newest message, what we have read, and from those what is unread.
-	last:      proto.Msg_Id,
-	read:      proto.Msg_Id,
-	unread:    int, // at most proto.UNREAD_CAP
+	last:          proto.Msg_Id,
+	read:          proto.Msg_Id,
+	unread:        int, // at most proto.UNREAD_CAP
 	// When the newest message was posted, 0 if there is none. DMs from every
 	// server are sorted by this.
-	last_time: proto.Unix_Ms,
-	mentions:  int,
-	notify:    proto.Notify_Level,
-	// A DM's two accounts (see dm_other); 0 for a channel.
-	a, b:      proto.Account_Id,
-	position:  int, // the position of a channel in the list
-	rights:    proto.Conv_Rights, // what we may do there
+	last_time:     proto.Unix_Ms,
+	mentions:      int,
+	notify:        proto.Notify_Level,
+	// Whom a DM or a group is between, ourselves included, in ascending
+	// order; none for a channel. See dm_other and group_others.
+	accounts:      [proto.MAX_GROUP_MEMBERS]proto.Account_Id,
+	account_count: int,
+	position:      int, // the position of a channel in the list
+	rights:        proto.Conv_Rights, // what we may do there
+	admin:         bool, // we are one of the channel's admins
 }
 
 // A Mark_Read to send, once a second has passed since the last one.
@@ -303,11 +306,16 @@ home_conv :: proc(c: ^Server_Conn) -> proto.Conv_Id {
 }
 
 // room_name returns what to call a voice room, which is the name of its channel
-// if it is one of ours. For a DM it is who the DM is with.
+// if it is one of ours. For a DM it is who the DM is with, and for a group who
+// else is in it.
 room_name :: proc(c: ^Server_Conn, room: proto.Room) -> string {
 	if info, ok := c.convs.convs[proto.Conv_Id(room)]; ok {
-		if info.kind == .DM {
+		switch info.kind {
+		case .Channel:
+		case .DM:
 			return fmt.tprintf("DMs with %s", account_display(c, dm_other(c, info)))
+		case .Group:
+			return fmt.tprintf("the group with %s", group_name(c, info))
 		}
 		return info.name
 	}
@@ -355,7 +363,7 @@ convs_synced :: proc(c: ^Server_Conn) {
 	// DMs that arrived while we were away count as mail, which is announced once.
 	if !cv.mail_played && !quiet(c) {
 		for _, info in cv.convs {
-			if info.kind == .DM && info.unread > 0 && info.notify != .None {
+			if info.kind != .Channel && info.unread > 0 && info.notify != .None {
 				cv.mail_played = true
 				audio.voice_notification_play(&c.voice, .Direct_Message)
 				break
@@ -397,20 +405,21 @@ conv_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 			read, unread, mentions = info.read, info.unread, info.mentions
 		}
 		info^ = {
-			kind      = record.kind,
-			flags     = record.flags,
-			name      = strings.clone(record.name),
-			topic     = strings.clone(record.topic),
-			last      = max(record.last, info.last),
-			last_time = max(record.last_time, info.last_time),
-			read      = read,
-			unread    = unread,
-			mentions  = mentions,
-			notify    = record.notify,
-			a         = record.a,
-			b         = record.b,
-			position  = record.position,
-			rights    = record.rights,
+			kind          = record.kind,
+			flags         = record.flags,
+			name          = strings.clone(record.name),
+			topic         = strings.clone(record.topic),
+			last          = max(record.last, info.last),
+			last_time     = max(record.last_time, info.last_time),
+			read          = read,
+			unread        = unread,
+			mentions      = mentions,
+			notify        = record.notify,
+			accounts      = record.accounts,
+			account_count = record.account_count,
+			position      = record.position,
+			rights        = record.rights,
+			admin         = record.admin,
 		}
 		if cv.synced {
 			if added && record.kind == .Channel {
@@ -474,7 +483,7 @@ conv_view :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	if conv != 0 {
 		log.infof(
 			"looking at %s",
-			room_name(c, proto.Room(conv)) if info.kind == .DM else fmt.tprintf("%q", info.name),
+			room_name(c, proto.Room(conv)) if info.kind != .Channel else fmt.tprintf("%q", info.name),
 		)
 	}
 	if known && info.kind == .Channel {
@@ -839,7 +848,9 @@ conv_new_message :: proc(c: ^Server_Conn, m: proto.Message) -> (interrupts: bool
 		if m.id > info.read {
 			info.read, info.unread, info.mentions = m.id, 0, 0
 		}
-	case m.id <= info.read:
+	case m.id <= info.read, m.kind == .System && !proto.system_counts_unread(m.system):
+		// Read already, or something that doesn't count as unread (someone
+		// joined, the channel was renamed, ...).
 		if newer {
 			publish_channels(c)
 		}
@@ -871,7 +882,10 @@ mentions_me :: proc(c: ^Server_Conn, m: proto.Message) -> bool {
 	if m.kind != .Text || .Deleted in m.flags {
 		return false
 	}
-	return proto.mentions_account(m.text, c.auth.me, c.auth.accounts[c.auth.me].roles)
+	// <@here> mentions those who were online when it was posted, which as
+	// far as we know is us if we are online now.
+	me := c.auth.accounts[c.auth.me]
+	return proto.mentions_account(m.text, c.auth.me, me.roles, here = me.activity == .Online)
 }
 
 // conv_reading handles the UI saying which conversation is being read, if any.

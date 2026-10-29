@@ -75,7 +75,7 @@ test_register :: proc(t: ^testing.T) {
 	ts.s.registration = {
 		open = true,
 	}
-	r = reg(t, &ts, {username = "x", password = PW})
+	r = reg(t, &ts, {username = "x y", password = PW})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Username)
 	r = reg(t, &ts, {username = "alice", password = "short"})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Password)

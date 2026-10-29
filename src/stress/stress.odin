@@ -339,7 +339,7 @@ do_work :: proc(b: ^Bot, kind: int) {
 		for _ in 0 ..< 3 + rand.int_max(10) {
 			fmt.sbprintf(&sb, " %s", rand.choice(words[:]))
 		}
-		buf: [proto.MAX_CHAT_SIZE + 64]u8
+		buf := new([proto.MAX_CHAT_SIZE + 64]u8, context.temp_allocator)
 		body := proto.encode_msg_post(
 			buf[:],
 			{conv = b.home, nonce = rand.uint64(), kind = .Text, text = strings.to_string(sb)},

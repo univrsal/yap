@@ -26,6 +26,7 @@ View_Message :: struct {
 	system_arg:  u32,
 	// For a forwarded message: the original.
 	forward:     proto.Forward_Info,
+	persona:     proto.Persona, // .Persona: the name is owned
 	files:       []Msg_File, // owned, as are their names
 }
 
@@ -33,6 +34,7 @@ View_Message :: struct {
 view_message_destroy :: proc(m: View_Message) {
 	m := m
 	delete(m.text)
+	delete(m.persona.name)
 	reactions_destroy(&m.reactions)
 	msg_files_destroy(m.files)
 }
@@ -86,6 +88,7 @@ view_message_of :: proc(m: Msg) -> View_Message {
 		system = m.system,
 		system_arg = m.system_arg,
 		forward = m.forward,
+		persona = {strings.clone(m.persona.name), m.persona.avatar},
 		files = msg_files_clone(m.files),
 	}
 }
@@ -141,20 +144,31 @@ publish_pins_loading :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	v.pins.loading = true
 }
 
-publish_pins :: proc(c: ^Server_Conn, conv: proto.Conv_Id, pins: []proto.Message) {
+// publish_pins shows a page of a conversation's pins: the first one, or one
+// that is `added` after those shown. They are `loading` while more pages are
+// coming.
+publish_pins :: proc(
+	c: ^Server_Conn,
+	conv: proto.Conv_Id,
+	pins: []proto.Message,
+	added: bool,
+	loading: bool,
+) {
 	v := c.view
 	if v == nil {
 		return
 	}
 	view_write(v)
-	view_clear_pins(v)
+	if !added || v.pins.conv != conv {
+		view_clear_pins(v)
+	}
 	v.pins.conv = conv
 	for m in pins {
 		kept := msg_of(m)
 		append(&v.pins.messages, view_message_of(kept))
 		msg_destroy(&kept)
 	}
-	v.pins.loading = false
+	v.pins.loading = loading
 	v.pins.count += 1
 }
 

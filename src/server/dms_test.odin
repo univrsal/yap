@@ -1,6 +1,7 @@
 package server
 
 import "core:os"
+import "core:slice"
 import "core:testing"
 
 import "common:proto"
@@ -82,8 +83,10 @@ test_dm_open :: proc(t: ^testing.T) {
 	record, told, _ := told_of(t, &ts, alice, conv)
 	testing.expect(t, told, "the one that opened it isn't told of it")
 	testing.expect_value(t, record.kind, proto.Conv_Kind.DM)
-	testing.expect_value(t, record.a, alice_acc.id)
-	testing.expect_value(t, record.b, bob_acc.id)
+	testing.expect(
+		t,
+		slice.equal(proto.conv_accounts(&record), []proto.Account_Id{alice_acc.id, bob_acc.id}),
+	)
 	testing.expect(t, record.member)
 	_, told, _ = told_of(t, &ts, alice_phone, conv)
 	testing.expect(t, told, "the opener's other device isn't told of it")
@@ -96,11 +99,67 @@ test_dm_open :: proc(t: ^testing.T) {
 	testing.expect_value(t, from_bob, conv)
 	testing.expect_value(t, len(s.convs.dms), 1)
 
-	// A DM with oneself or with a nonexistent account is rejected.
-	status, _ = dm_open_as(t, &ts, alice, alice_acc.id)
-	testing.expect_value(t, status, proto.Status.Invalid)
+	// A DM with a nonexistent account is rejected.
 	status, _ = dm_open_as(t, &ts, alice, 999)
 	testing.expect_value(t, status, proto.Status.Not_Found)
+}
+
+@(test)
+test_dm_self :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	alice := logged_in(t, &ts, "alice")
+	alice_phone := logged_in(t, &ts, "alice")
+	bob := logged_in(t, &ts, "bob")
+	_, with_bob := dm_open_as(t, &ts, alice, bob_acc.id)
+
+	// One DM with oneself, apart from the one with bob, with alice as its only
+	// member and twice in the record.
+	status, conv := dm_open_as(t, &ts, alice, alice_acc.id)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect(t, conv != with_bob, "the DM with oneself is the one with bob")
+	_, again := dm_open_as(t, &ts, alice_phone, alice_acc.id)
+	testing.expect_value(t, again, conv)
+	record, told, _ := told_of(t, &ts, alice, conv)
+	testing.expect(t, told, "alice isn't told of her DM with herself")
+	testing.expect_value(t, record.kind, proto.Conv_Kind.DM)
+	testing.expect(
+		t,
+		slice.equal(proto.conv_accounts(&record), []proto.Account_Id{alice_acc.id, alice_acc.id}),
+	)
+	testing.expect_value(t, len(s.convs.by_id[conv].members), 1)
+
+	// What she writes there reaches her other device, unread for nobody, and
+	// mentioning bob there doesn't tell him anything.
+	ts_events(t, &ts, alice_phone)
+	ts_events(t, &ts, bob)
+	status, _ = post(t, &ts, alice, conv, "a note to self, @bob", 1)
+	testing.expect_value(t, status, proto.Status.Ok)
+	got := false
+	for e in ts_events(t, &ts, alice_phone) {
+		if e.op == .Msg_New {
+			m, _ := proto.decode_message(e.body)
+			got = m.conv == conv
+		}
+	}
+	testing.expect(t, got, "her other device didn't get the note")
+	testing.expect_value(t, conv_record(&s.convs, s.convs.by_id[conv], alice_acc.id).unread, 0)
+	for e in ts_events(t, &ts, bob) {
+		testing.expectf(t, e.op != .Msg_New && e.op != .Conv_Changed, "bob heard of it: %v", e.op)
+	}
+
+	// Files can't be offered to oneself.
+	buf := make([]u8, proto.MSG_POST_MAX_SIZE, context.temp_allocator)
+	body := proto.encode_msg_post(
+		buf,
+		{conv = conv, nonce = 2, kind = .File, text = "clip.mp4", file_size = 100},
+	)
+	status, _ = ts_ask(t, &ts, alice, .Msg_Post, body)
+	testing.expect_value(t, status, proto.Status.Invalid)
 }
 
 @(test)

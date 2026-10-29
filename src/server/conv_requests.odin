@@ -22,7 +22,8 @@ import "common:proto"
 // A DM is opened with DM_Open, which creates it the first time. The account that
 // opened it is told about it immediately, while the other account is told when
 // the first message is posted (see messages.odin). This way a DM that was opened
-// but left empty doesn't show up on the other side.
+// but left empty doesn't show up on the other side. A group is opened the same
+// way with Group_Open.
 
 // conv_request handles a request about conversations or rooms. It returns false
 // if `op` isn't one.
@@ -36,6 +37,8 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		conv_delete(s, u, id, body)
 	case .Conv_Member_Set:
 		conv_member_set(s, u, id, body)
+	case .Conv_Admin_Set:
+		conv_admin_set(s, u, id, body)
 	case .Conv_Browse:
 		conv_browse(s, u, id, body)
 	case .Conv_Subscribe:
@@ -50,6 +53,8 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		conv_notify(s, u, id, body)
 	case .DM_Open:
 		dm_open(s, u, id, body)
+	case .Group_Open:
+		group_open(s, u, id, body)
 	case .Conv_Rights_Get:
 		conv_rights_get(s, u, id, body)
 	case .Conv_Rights_Set:
@@ -101,6 +106,7 @@ send_conv_to_account :: proc(s: ^Server, account: proto.Account_Id, conv: ^Conv)
 
 // dm_open answers with the DM between the connection's account and another
 // account, creating it if it doesn't exist yet, since anyone may message anyone.
+// The other account may be the connection's own, for a DM with oneself.
 // The account's connections are told about the DM before the answer is sent, so
 // they already know about it by the time the answer arrives.
 @(private = "file")
@@ -108,7 +114,7 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	other, ok := proto.decode_account_id(body)
 	me := u.account.id
 	switch {
-	case !ok || other == me:
+	case !ok:
 		respond(u, id, .Invalid)
 		return
 	case account_live(&s.accounts, other) == nil:
@@ -129,6 +135,53 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	send_conv_to_account(s, me, conv)
 	buf: [4]u8
 	respond(u, id, .Ok, proto.encode_conv_id(&buf, conv.id))
+}
+
+// group_open answers with the group of the connection's account and the
+// accounts it names, creating it if it doesn't exist yet, like dm_open does for
+// a DM. Bots can't be in a group, neither as the one who opens it nor as one of
+// the others.
+@(private = "file")
+group_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	buf: [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id
+	others, ok := proto.decode_group_open(body, &buf)
+	me := u.account.id
+	if !ok || slice.contains(others, me) {
+		respond(u, id, .Invalid)
+		return
+	}
+	if .Bot in u.account.flags {
+		respond(u, id, .Denied)
+		return
+	}
+	for other in others {
+		acc := account_live(&s.accounts, other)
+		if acc == nil {
+			respond(u, id, .Not_Found)
+			return
+		}
+		if .Bot in acc.flags {
+			respond(u, id, .Denied)
+			return
+		}
+	}
+	accounts := make([]proto.Account_Id, len(others) + 1, context.temp_allocator)
+	copy(accounts, others)
+	accounts[len(others)] = me
+	conv := group_find(&s.convs, accounts)
+	if conv == nil {
+		conv = group_add(&s.convs, accounts, me)
+		if conv == nil {
+			respond(u, id, .Internal)
+			return
+		}
+		log.debugf("%s opened a group with %v", conn_label(u), others)
+	}
+	// As with a DM, a group that someone else opened and that has no messages
+	// yet is new to this account.
+	send_conv_to_account(s, me, conv)
+	out: [4]u8
+	respond(u, id, .Ok, proto.encode_conv_id(&out, conv.id))
 }
 
 @(private = "file")
@@ -159,8 +212,10 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		position = max(position, other.position + 1)
 	}
 	conv := conv_add(&s.convs, name, topic, flags, u.account.id, position)
-	// The creator of a channel is always a member of it.
-	if conv == nil || !conv_member_add(&s.convs, conv, u.account.id) {
+	// The creator of a channel is always a member of it, and its first admin.
+	if conv == nil ||
+	   !conv_member_add(&s.convs, conv, u.account.id) ||
+	   !conv_set_admin(&s.convs, conv, u.account.id, true) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -253,6 +308,11 @@ conv_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	if on {
 		if !conv_is_member(conv, acc.id) {
+			// Said before joining, so that it is among what the new member
+			// has read already, like everything else in the channel.
+			if .Home not_in conv.flags {
+				system_post(s, conv, acc.id, .Joined)
+			}
 			if !conv_member_add(&s.convs, conv, acc.id) {
 				respond(u, id, .Internal)
 				return
@@ -278,6 +338,7 @@ conv_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		log.infof("%s unsubscribed from %q", conn_label(u), conv.name)
 		member_gone(s, conv, acc.id)
+		system_post(s, conv, acc.id, .Left)
 	}
 	respond(u, id, .Ok)
 }
@@ -294,8 +355,9 @@ conv_members :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	}
-	out := make([]u8, 2 + len(conv.members) * 4, context.temp_allocator)
-	respond(u, id, .Ok, proto.encode_conv_members(out, conv.members[:]))
+	admins := conv_admins(conv)
+	out := make([]u8, 2 + len(conv.members) * 4 + 2 + len(admins) * 4, context.temp_allocator)
+	respond(u, id, .Ok, proto.encode_conv_members(out, conv.members[:], admins))
 }
 
 // voice_join puts a connection in a channel's voice room, or takes it out of its
@@ -427,13 +489,15 @@ conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-// Managing channels (phase 13): renaming a channel and changing its topic and
-// its position in the lists (Manage_Channels), archiving a channel, which is as
-// good as deleting it (also Manage_Channels), adding somebody to a channel, which
-// is as if they had subscribed (requires Invite and being in it), and removing
-// somebody from a private channel (Manage_Channels). Those who manage channels
-// may do this to the private channels they aren't in as well (conv_manageable),
-// which they find with Conv_Browse's BROWSE_ALL.
+// Managing channels (phase 13): renaming a channel and changing its topic
+// (Manage_Channels or being its admin) and its position in the lists
+// (Manage_Channels), archiving a channel, which is as good as deleting it (also
+// Manage_Channels), adding somebody to a channel, which is as if they had
+// subscribed (requires Invite and being in it, or being its admin), removing
+// somebody from a private channel (Manage_Channels or being its admin), and who
+// its admins are (conv_admin_set). Those who manage channels may do this to the
+// private channels they aren't in as well (conv_manageable), which they find
+// with Conv_Browse's BROWSE_ALL.
 //
 // The voice room of a private channel is only for its members. Whoever is
 // removed from the channel or leaves it is removed from its room as well, and
@@ -443,14 +507,17 @@ conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	up, ok := proto.decode_conv_update(body)
 	conv := conv_by_id(&s.convs, up.conv)
+	// A channel's admin may change its name and topic, and nothing else.
+	admin := conv != nil && conv_admin(conv, u.account.id) && conv_visible(conv, u.account)
+	admin_only := up.mask & ~u8(proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC) == 0
 	switch {
-	case !can(u.account, .Manage_Channels):
-		respond(u, id, .Denied)
-		return
 	case !ok:
 		respond(u, id, .Invalid)
 		return
-	case conv == nil || !conv_manageable(conv, u.account):
+	case !can(u.account, .Manage_Channels) && !(admin && admin_only):
+		respond(u, id, .Denied)
+		return
+	case conv == nil || (!admin && !conv_manageable(conv, u.account)):
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -482,6 +549,9 @@ conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 	}
+	// The old name and topic, for the system messages about the change.
+	old_name := strings.clone(conv.name, context.temp_allocator)
+	old_topic := strings.clone(conv.topic, context.temp_allocator)
 	if !conv_update(&s.convs, conv, name, topic, position) ||
 	   (flags != conv.flags && !conv_set_flags(&s.convs, conv, flags)) {
 		respond(u, id, .Internal)
@@ -489,6 +559,19 @@ conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	log.infof("%s changed the channel %q", conn_label(u), conv.name)
 	respond(u, id, .Ok)
+	if conv.name != old_name {
+		system_post(s, conv, u.account.id, .Renamed, 0, system_change_text(old_name, conv.name))
+	}
+	if conv.topic != old_topic {
+		system_post(
+			s,
+			conv,
+			u.account.id,
+			.Topic_Changed,
+			0,
+			system_change_text(old_topic, conv.topic),
+		)
+	}
 	// This also empties the voice room of a channel that became text only.
 	channel_access_changed(s, conv)
 }
@@ -511,6 +594,8 @@ conv_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
+	// Said while the members still have the channel, before it is archived.
+	system_post(s, conv, u.account.id, .Archived)
 	if !conv_set_flags(&s.convs, conv, conv.flags + {.Archived}) {
 		respond(u, id, .Internal)
 		return
@@ -546,10 +631,12 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	     (!conv_visible(conv, u.account) && (on || !conv_manageable(conv, u.account))):
 		respond(u, id, .Not_Found)
 		return
-	case on && !(can(u.account, .Invite) && conv_is_member(conv, u.account.id)):
+	case on &&
+	     !(can(u.account, .Invite) && conv_is_member(conv, u.account.id)) &&
+	     !conv_admin(conv, u.account.id):
 		respond(u, id, .Denied)
 		return
-	case !on && !can(u.account, .Manage_Channels):
+	case !on && !can(u.account, .Manage_Channels) && !conv_admin(conv, u.account.id):
 		respond(u, id, .Denied)
 		return
 	case target == nil:
@@ -573,7 +660,8 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if on {
 		if !conv_is_member(conv, account) {
 			// Everything already in the channel counts as read for a newly added
-			// member.
+			// member, including that they were added.
+			system_post(s, conv, u.account.id, .Added, account)
 			if !conv_member_add(&s.convs, conv, account) {
 				respond(u, id, .Internal)
 				return
@@ -594,6 +682,54 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		log.infof("%s took %s out of %q", conn_label(u), target.username, conv.name)
 		member_gone(s, conv, account)
+		system_post(s, conv, u.account.id, .Removed, account)
+	}
+	respond(u, id, .Ok)
+}
+
+// conv_admin_set makes a member of a channel one of its admins, or no longer
+// one. Its admins may make others admins and stop being one themselves; those
+// with Manage_Channels may also make an admin no longer one. The member is
+// sent the channel again, which says whether it is an admin now.
+@(private = "file")
+conv_admin_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	conv_id, account, on, ok := proto.decode_conv_member_set(body)
+	if !ok {
+		respond(u, id, .Invalid)
+		return
+	}
+	conv := conv_by_id(&s.convs, conv_id)
+	target := account_live(&s.accounts, account)
+	managing := conv != nil && can(u.account, .Manage_Channels) && conv_manageable(conv, u.account)
+	admin := conv != nil && conv_admin(conv, u.account.id)
+	switch {
+	case conv == nil || conv.kind != .Channel || (!conv_visible(conv, u.account) && !managing):
+		respond(u, id, .Not_Found)
+		return
+	case !managing && !admin:
+		respond(u, id, .Denied)
+		return
+	case !on && account != u.account.id && !managing:
+		// An admin may only stop being one themselves.
+		respond(u, id, .Denied)
+		return
+	case target == nil || !conv_is_member(conv, account):
+		respond(u, id, .Not_Found)
+		return
+	}
+	if on != conv_admin(conv, account) {
+		if !conv_set_admin(&s.convs, conv, account, on) {
+			respond(u, id, .Internal)
+			return
+		}
+		log.infof(
+			"%s made %s %s of %q",
+			conn_label(u),
+			target.username,
+			"an admin" if on else "no longer an admin",
+			conv.name,
+		)
+		send_conv_to_account(s, account, conv)
 	}
 	respond(u, id, .Ok)
 }

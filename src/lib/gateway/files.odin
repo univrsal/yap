@@ -16,6 +16,8 @@ import "lib:lite"
 //	GET    /attachments/{id}   a message's file (its attachment's id)
 //	GET    /blobs/{id}         a picture: an avatar, the emoji, the icon
 //	PUT    /me/avatar          a JPEG as the body  ->  /me
+//	POST   /avatars            a JPEG as the body  ->  201 {id}, a picture
+//	                           for a persona (writing.odin)
 //	DELETE /me/avatar          ->  /me
 //
 // A finished upload can be attached to a message by naming it in
@@ -583,6 +585,10 @@ blob_upload_turn :: proc(c: ^Conn, b: ^Blob_Upload, now: time.Tick) {
 	}
 }
 
+Avatar_Upload_JSON :: struct {
+	id: string, // to be named in the `persona` of a message
+}
+
 Upload_JSON :: struct {
 	id:   string, // to be listed in the `attachments` of a message
 	name: string,
@@ -857,6 +863,25 @@ blob_run :: proc(c: ^Conn, j: ^Job) {
 // the avatar and returns /me.
 @(private)
 avatar_run :: proc(c: ^Conn, j: ^Job) {
+	avatar_upload(c, j)
+}
+
+// POST /avatars takes a JPEG like PUT /me/avatar does but doesn't make it
+// anybody's picture. It returns the picture's id, which a bot names in the
+// `persona` of the messages it posts. A picture that no message uses within an
+// hour is removed.
+@(private)
+persona_avatar_run :: proc(c: ^Conn, j: ^Job) {
+	j.scratch[0] = PERSONA_AVATAR
+	avatar_upload(c, j)
+}
+
+// What j.scratch[0] is for a job that uploads a persona's picture.
+@(private)
+PERSONA_AVATAR :: 1
+
+@(private)
+avatar_upload :: proc(c: ^Conn, j: ^Job) {
 	data := j.body
 	if len(data) == 0 || len(data) > proto.MAX_AVATAR_SIZE {
 		reply(
@@ -936,7 +961,11 @@ blob_put :: proc(c: ^Conn, b: ^Blob_Upload) {
 			blob_upload_end(c, b, status_reply(.Internal))
 		case have:
 			blob_upload_end(c, b, {})
-			set_avatar(c, j, blob)
+			if j.scratch[0] == PERSONA_AVATAR {
+				reply(j, json_reply(201, Avatar_Upload_JSON{id_string(blob)}))
+			} else {
+				set_avatar(c, j, blob)
+			}
 		case handle != b.handle:
 			// Start sending it, or start over.
 			proto.blob_sender_destroy(&b.send)

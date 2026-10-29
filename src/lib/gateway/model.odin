@@ -270,7 +270,7 @@ Role_JSON :: struct {
 
 Conv_JSON :: struct {
 	id:                     string,
-	kind:                   string, // channel, dm
+	kind:                   string, // channel, dm, group
 	name:                   string,
 	topic:                  string,
 	home:                   bool, // the channel that everyone is in
@@ -280,8 +280,10 @@ Conv_JSON :: struct {
 	// What the account may do there: see, write, react, edit, delete, voice.
 	rights:                 []string,
 	position:               int,
-	// A DM's other account.
+	// A DM's other account, or the account itself in a DM with oneself.
 	recipient:              Maybe(string),
+	// A group's other accounts.
+	members:                Maybe([]string),
 	member:                 bool,
 	last_message_id:        Maybe(string),
 	last_message_timestamp: Maybe(string),
@@ -311,6 +313,11 @@ Reaction_JSON :: struct {
 	me:    bool,
 }
 
+Persona_JSON :: struct {
+	name:   string,
+	avatar: Maybe(string), // a blob id
+}
+
 Forwarded_JSON :: struct {
 	author_id: string,
 	conv_id:   string,
@@ -330,6 +337,7 @@ File_JSON :: struct {
 System_JSON :: struct {
 	what: int,
 	arg:  int,
+	text: string, // what changed: the old value and the new one, a line each
 }
 
 Message_JSON :: struct {
@@ -346,6 +354,7 @@ Message_JSON :: struct {
 	pinned:           bool,
 	deleted:          bool,
 	forwarded:        Maybe(Forwarded_JSON),
+	persona:          Maybe(Persona_JSON), // the name and picture a bot posted it under
 	replies:          Maybe(Replies_JSON), // set on the first message of a thread
 	file:             Maybe(File_JSON), // a file offered in a DM
 	system:           Maybe(System_JSON), // what happened, e.g. a call
@@ -485,8 +494,23 @@ conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 		mentions  = c.mentions,
 		notify    = enum_name(c.notify),
 	}
-	if c.kind == .DM {
-		j.recipient = id_string(c.b if c.a == m.self else c.a)
+	switch c.kind {
+	case .Channel:
+	case .DM:
+		j.recipient = id_string(m.self) // until someone else is found: a DM with oneself
+		for a in proto.conv_accounts(c) {
+			if a != m.self {
+				j.recipient = id_string(a)
+			}
+		}
+	case .Group:
+		others := make([dynamic]string, 0, proto.MAX_GROUP_MEMBERS, context.temp_allocator)
+		for a in proto.conv_accounts(c) {
+			if a != m.self {
+				append(&others, id_string(a))
+			}
+		}
+		j.members = others[:]
 	}
 	rights := make([dynamic]string, 0, len(proto.Conv_Right), context.temp_allocator)
 	for r in c.rights {
@@ -506,8 +530,8 @@ conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 }
 
 // convs_json returns the conversations the account is in, ordered like a
-// client lists them: the channels by position (then id), followed by the DMs,
-// with the most recently active first.
+// client lists them: the channels by position (then id), followed by the DMs
+// and groups, with the most recently active first.
 convs_json :: proc(m: ^Model) -> []Conv_JSON {
 	convs := make([]^proto.Conv, len(m.convs), context.temp_allocator)
 	n := 0
@@ -516,10 +540,10 @@ convs_json :: proc(m: ^Model) -> []Conv_JSON {
 		n += 1
 	}
 	slice.sort_by(convs, proc(a, b: ^proto.Conv) -> bool {
-		if a.kind != b.kind {
+		if (a.kind == .Channel) != (b.kind == .Channel) {
 			return a.kind == .Channel
 		}
-		if a.kind == .DM {
+		if a.kind != .Channel {
 			if a.last_time != b.last_time {
 				return a.last_time > b.last_time
 			}
@@ -587,6 +611,15 @@ message_json :: proc(m: ^Model, msg: ^proto.Message) -> Message_JSON {
 			timestamp = iso_time(msg.forward.time),
 		}
 	}
+	if .Persona in msg.flags {
+		persona := Persona_JSON {
+			name = msg.persona.name,
+		}
+		if msg.persona.avatar != 0 {
+			persona.avatar = id_string(msg.persona.avatar)
+		}
+		j.persona = persona
+	}
 	if .Has_Thread in msg.flags {
 		j.replies = Replies_JSON {
 			count   = int(msg.reply_count),
@@ -597,7 +630,7 @@ message_json :: proc(m: ^Model, msg: ^proto.Message) -> Message_JSON {
 	case .File:
 		j.file = File_JSON{msg.file_name, msg.file_size}
 	case .System:
-		j.system = System_JSON{int(msg.system), int(msg.system_arg)}
+		j.system = System_JSON{int(msg.system), int(msg.system_arg), msg.text}
 	}
 	return j
 }

@@ -1,0 +1,40 @@
+# A Mattermost to make sample exports with (docs/design/mattermost-import.md,
+# step 6). The version is the one we are moving off. Local only: the port is
+# bound to 127.0.0.1, and the database password doesn't matter.
+#
+# With podman (rootless, where the bridge network fails with "create veth pair:
+# Operation not supported"), run a pod with the same two containers and the
+# same environment, and use CONTAINER_ENGINE=podman with the scripts:
+#   podman pod create --name yap-mm --network pasta -p 127.0.0.1:8068:8065
+#   (the db and app containers with --pod yap-mm; the app's database host is
+#   127.0.0.1, since both share the pod's network)
+#
+#   docker compose -p yap-mm -f tools/mattermost/docker-compose.yml up -d
+#   python tools/mattermost/seed.py http://127.0.0.1:8068 yap-mm-app <password>
+#   python tools/mattermost/export.py yap-mm-app tools/mattermost/sample
+#   MM_LOGIN=admin MM_PASSWORD=<password> \
+#     python tools/mattermost/extras.py http://127.0.0.1:8068 tools/mattermost/sample
+#   docker compose -p yap-mm -f tools/mattermost/docker-compose.yml down -v
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment: {POSTGRES_USER: mm, POSTGRES_PASSWORD: mm, POSTGRES_DB: mattermost}
+  app:
+    image: docker.io/mattermost/mattermost-team-edition:10.12.4
+    depends_on: [db]
+    ports: ["127.0.0.1:8068:8065"]
+    container_name: yap-mm-app
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mm:mm@db:5432/mattermost?sslmode=disable
+      MM_SERVICESETTINGS_SITEURL: http://127.0.0.1:8068
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS: "true"
+      MM_SERVICESETTINGS_ENABLEPOSTUSERNAMEOVERRIDE: "true"
+      MM_SERVICESETTINGS_ENABLEPOSTICONOVERRIDE: "true"
+      MM_SERVICESETTINGS_ENABLECUSTOMEMOJI: "true"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_COLLAPSEDTHREADS: default_on
+      MM_GUESTACCOUNTSSETTINGS_ENABLE: "true"
+      MM_RATELIMITSETTINGS_ENABLE: "false"

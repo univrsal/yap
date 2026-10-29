@@ -131,11 +131,15 @@ mentions_encode :: proc(text: string, accounts: map[proto.Account_Id]$T, roles: 
 		// Find the longest username that the word starts with.
 		matched := 0
 		account: proto.Account_Id
-		everyone := false
+		everyone, here := false, false
 		for end := word; end > i + 1; end -= 1 {
 			name := text[i + 1:end]
 			if name == proto.MENTION_EVERYONE {
 				matched, everyone = end, true
+				break
+			}
+			if name == proto.MENTION_HERE {
+				matched, here = end, true
 				break
 			}
 			if id := username_lookup(accounts, name); id != 0 {
@@ -160,9 +164,12 @@ mentions_encode :: proc(text: string, accounts: map[proto.Account_Id]$T, roles: 
 			i += 1
 			continue
 		}
-		if role != 0 {
+		switch {
+		case role != 0:
 			strings.write_string(&b, proto.role_mention_token(role))
-		} else {
+		case here:
+			strings.write_string(&b, "<@" + proto.MENTION_HERE + ">")
+		case:
 			strings.write_string(&b, proto.mention_token(0 if everyone else account))
 		}
 		i = matched
@@ -190,6 +197,8 @@ mentions_for_edit :: proc(
 		switch {
 		case m.everyone:
 			strings.write_string(&b, "@" + proto.MENTION_EVERYONE)
+		case m.here:
+			strings.write_string(&b, "@" + proto.MENTION_HERE)
 		case m.role != 0:
 			r, known := role_by_id(roles, m.role)
 			if known && !role_name_shadowed(accounts, r.name) {
@@ -312,10 +321,12 @@ text_display_links :: proc(
 			if m, ok := proto.next_mention(text, i); ok && m.start == i {
 				start := strings.builder_len(b)
 				strings.write_byte(&b, '@')
-				mine := m.everyone || (me != 0 && m.account == me)
+				mine := m.everyone || m.here || (me != 0 && m.account == me)
 				switch {
 				case m.everyone:
 					strings.write_string(&b, proto.MENTION_EVERYONE)
+				case m.here:
+					strings.write_string(&b, proto.MENTION_HERE)
 				case m.role != 0:
 					r, known := role_by_id(roles, m.role)
 					strings.write_string(&b, r.name if known else "unknown role")

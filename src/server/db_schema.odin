@@ -389,6 +389,38 @@ MIGRATIONS := [?]string {
 	`
 	UPDATE conv_rights SET rights = rights | 384 WHERE rights & 32 != 0;
 	`,
+	// 32: bookmarks (proto/bookmarks.odin): the messages each account marked
+	// to come back to, and when. A message that is purged takes its
+	// bookmarks with it.
+	`
+	CREATE TABLE bookmarks (
+		account INTEGER NOT NULL REFERENCES accounts(id),
+		message INTEGER NOT NULL REFERENCES messages(id),
+		time    INTEGER NOT NULL,
+		PRIMARY KEY (account, message)
+	) WITHOUT ROWID;
+	CREATE INDEX bookmarks_message ON bookmarks(message);
+	CREATE TRIGGER bookmarks_purged AFTER DELETE ON messages BEGIN
+		DELETE FROM bookmarks WHERE message = old.id;
+	END;
+	`,
+	// 33: channel admins (proto/convs.odin). Whoever made a channel and is
+	// still in it is its first admin.
+	`
+	ALTER TABLE members ADD COLUMN admin INTEGER NOT NULL DEFAULT 0;
+	UPDATE members SET admin = 1
+		WHERE EXISTS (SELECT 1 FROM convs c
+			WHERE c.id = members.conv AND c.kind = 0 AND c.created_by = members.account);
+	`,
+	// 34: personas (proto/messages.odin). A bot's message under another name
+	// and picture has them here, and the Persona flag. The picture is a blob
+	// that the message keeps alive.
+	`
+	ALTER TABLE messages ADD COLUMN persona_name TEXT;
+	ALTER TABLE messages ADD COLUMN persona_avatar INTEGER;
+	CREATE INDEX messages_persona_avatar ON messages(persona_avatar)
+		WHERE persona_avatar IS NOT NULL;
+	`,
 }
 
 // The version a database has once it has been through every step.

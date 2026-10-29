@@ -23,8 +23,9 @@ import "lib:lite"
 API_PREFIX :: "/api/"
 V1_PREFIX :: "/api/v1/"
 // The maximum size of a request body. Uploads are exempt because they are
-// streamed.
-MAX_BODY :: 64 * 1024
+// streamed. A message as long as the protocol allows (proto.MAX_CHAT_SIZE),
+// written as JSON with every character escaped, still fits.
+MAX_BODY :: 512 * 1024
 
 // A Route is an endpoint with its method and its path under V1_PREFIX. A {}
 // segment is a parameter (an id) and is stored in Job.params in order.

@@ -714,8 +714,10 @@ message_flags :: proc(
 		!has_thread_line(st, prev) &&
 		m.edited == 0 &&
 		m.flags & {.Deleted, .Pinned, .Forwarded} == {} &&
-		m.sender == prev.sender &&
-		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000))
+		!ui.view.bookmarks.ids[m.id] &&
+		m.sender == prev.sender &&// so that its header says so
+		m.persona == prev.persona &&
+		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000))// a bot's other persona has its own header
 	return
 }
 
@@ -779,7 +781,7 @@ viewed_unread :: proc(v: ^conn.View) -> (unread: int, read: proto.Msg_Id, mentio
 	}
 	for dm in v.dms {
 		if dm.id == v.viewing {
-			return dm.unread, dm.read, 0
+			return dm.unread, dm.read, dm.mentions
 		}
 	}
 	return
@@ -937,6 +939,14 @@ timeline_message :: proc(
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
+	// A bot's message under another name shows that name, and the bot's own
+	// after it (persona_note).
+	persona := .Persona in m.flags
+	via := ""
+	if persona {
+		via = name
+		name = m.persona.name
+	}
 	// Their name is bold, and opens their menu unless it is ours.
 	ui.header_sender = 0
 	ui.header_name = {}
@@ -966,8 +976,8 @@ timeline_message :: proc(
 	}
 	defer ui.header_time = {}
 	header :=
-		"" if merged else fmt.tprintf("%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
-	header_color := author_color(v, m.sender)
+		"" if merged else fmt.tprintf("%s%s%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", "  - bookmarked" if v.bookmarks.ids[m.id] else "", forward_note(ui, m), fmt.tprintf("  - via %s", via) if persona else "")
+	header_color := theme.chat_name if persona else author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
 		// The picture beside the header, or in the compact chat, the time on
@@ -983,7 +993,11 @@ timeline_message :: proc(
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)
 			pic := mu.Rect{x, y, size, size}
-			avatar(ui, m.sender, pic)
+			if persona {
+				persona_picture(ui, m.persona, m.sender, pic)
+			} else {
+				avatar(ui, m.sender, pic)
+			}
 			if m.sender != v.me && mu.mouse_over(ctx, pic) {
 				ui.chat.hovering = true // shows a hand, as over a link
 				if clicked_not_dragged(ui) {
@@ -1324,18 +1338,29 @@ draw_chip_emoji :: proc(ui: ^UI, c: Chip, pos: mu.Vec2) {
 	}
 }
 
-// system_line is what a system message says (so far, a call's line).
+// system_line is what a system message says: a call's line, with a phone in
+// front of it, or what happened in the channel or on the server.
 @(private = "file")
 system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
 	v := ui.view
-	name := "someone"
-	if acc, ok := v.accounts[m.sender]; ok {
-		name = acc.display
+	name_of :: proc(v: ^conn.View, id: proto.Account_Id) -> string {
+		if acc, ok := v.accounts[id]; ok {
+			return acc.display
+		}
+		return "someone"
 	}
-	return fmt.tprintf(
-		"\U0001F4DE %s",
-		conn.system_text(m.system, m.system_arg, name, m.sender == v.me),
+	text := conn.system_text(
+		m.system,
+		m.system_arg,
+		m.text,
+		name_of(v, m.sender),
+		name_of(v, proto.Account_Id(m.system_arg)),
+		m.sender == v.me,
 	)
+	if proto.system_counts_unread(m.system) {
+		return fmt.tprintf("\U0001F4DE %s", text)
+	}
+	return text
 }
 
 // What is left of a deleted message.

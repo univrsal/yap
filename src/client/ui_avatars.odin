@@ -77,6 +77,19 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	disc_letter(ui, r, color, acc.display if known && !deleted else "")
 }
 
+// persona_picture draws the picture of a bot's persona (a message under
+// another name) in `r`, or a disc with the name's first letter in the bot's
+// color. It has no activity dot: that is the bot's.
+persona_picture :: proc(ui: ^UI, persona: proto.Persona, bot: proto.Account_Id, r: mu.Rect) {
+	if persona.avatar != 0 {
+		if icon, ok := avatar_icon(ui, persona.avatar); ok {
+			mu.draw_icon(&ui.ctx, icon, r, {255, 255, 255, 255})
+			return
+		}
+	}
+	disc_letter(ui, r, avatar_color(bot), persona.name)
+}
+
 // letter_disc draws an account's disc and letter from its name, without
 // looking the account up in the View. It is for accounts on a server that isn't
 // shown, whose picture isn't available.

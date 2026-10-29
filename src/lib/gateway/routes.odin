@@ -34,6 +34,7 @@ ROUTES := [?]Route {
 	{method = "PATCH", pattern = "me", kind = .Call, run = profile_run},
 	{method = "PUT", pattern = "me/activity", kind = .Call, run = activity_run},
 	{method = "POST", pattern = "dms", kind = .Call, run = dm_run},
+	{method = "POST", pattern = "groups", kind = .Call, run = group_run},
 	{method = "PUT", pattern = "convs/{}/subscription", kind = .Call, run = subscribe_run},
 	{method = "DELETE", pattern = "convs/{}/subscription", kind = .Call, run = unsubscribe_run},
 	{method = "POST", pattern = "convs/{}/messages", kind = .Call, run = post_run},
@@ -56,6 +57,7 @@ ROUTES := [?]Route {
 	// The file endpoints are in files.odin. Uploads and attachments are
 	// streamed and therefore aren't routes (serve.odin).
 	{method = "GET", pattern = "blobs/{}", kind = .Call, run = blob_run},
+	{method = "POST", pattern = "avatars", kind = .Call, run = persona_avatar_run},
 	{method = "PUT", pattern = "me/avatar", kind = .Call, run = avatar_run},
 	{method = "DELETE", pattern = "me/avatar", kind = .Call, run = avatar_delete_run},
 }

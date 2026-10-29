@@ -34,6 +34,18 @@ import "core:encoding/endian"
 // because a picture in a message is an attachment (messages.odin).
 // Version 14 added the time of the newest message to a conversation's record,
 // which a list of DMs from several servers is put in order by (convs.odin).
+// Version 16 added groups (convs.odin): a conversation's record lists the
+// accounts a DM or a group is between instead of a DM's two accounts.
+// Version 17 raised the limits to Mattermost's: longer messages, names,
+// topics and statuses (which now have 2-byte lengths), longer stream messages,
+// and Pins_Get answering a page at a time.
+// Version 18 gave system messages a text and kinds about channels and the
+// server (Conv_System, messages.odin).
+// Version 19 added the <@here> mention (mentions.odin).
+// Version 20 added bookmarks (bookmarks.odin).
+// Version 21 added channel admins (convs.odin).
+// Version 22 added personas (messages.odin): a bot's message under another
+// name and picture.
 // Link.Media was added without a new version because it is only ever sent to
 // a client by a server that names a media port in Server_Info, and only on
 // that port.
@@ -96,7 +108,7 @@ import "core:encoding/endian"
 // Like Refused, it is unreliable, so the server sends a few copies and sends
 // them again whenever the client repeats its Handshake_Finish. A client
 // accepts nothing else on a new session until the Welcome arrives.
-HELLO_VERSION :: 15
+HELLO_VERSION :: 22
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
 

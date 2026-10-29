@@ -1,7 +1,9 @@
 package proto
 
-// Conversations: the things that messages are posted to. These are channels
-// and direct messages between two accounts.
+import "core:slice"
+
+// Conversations: the things that messages are posted to. These are channels,
+// direct messages between two accounts, and groups of a few accounts.
 //
 // An account is a member of the conversations it takes part in. For a channel,
 // membership is a subscription: the account's channel list consists of the
@@ -31,6 +33,8 @@ package proto
 // 	Conv_Member_Set [conv u32][account u32][on u8]   add someone to a
 // 	                channel (as if they had subscribed), or remove them from
 // 	                a private one
+// 	Conv_Admin_Set  [conv u32][account u32][on u8]   make a member of a
+// 	                channel one of its admins, or no longer one
 // 	Conv_Browse     [query str8][offset u16][limit u16]
 // 	                ->  [more u8][count u16] conversations: the channels
 // 	                that can be subscribed to and whose name or topic
@@ -46,10 +50,13 @@ package proto
 // 	                that doesn't know the flags ignores them.
 // 	Conv_Subscribe  [conv u32][on u8]
 // 	Conv_Members    [conv u32]  ->  [count u16][account u32]...
+// 	                [admins u16][account u32]...: the members, and which
+// 	                of them are the channel's admins
 // 	Voice_Join      [room u32]   0 leaves the room we're in
 // 	Mark_Read       [conv u32][id u64]   everything up to and including message `id` is read
 // 	Conv_Notify     [conv u32][notify u8]
 // 	DM_Open         [account u32]  ->  [conv u32]
+// 	Group_Open      [count u8][account u32]...  ->  [conv u32]   the others
 //
 // 	Conv_Changed    a conversation we're a member of that is new or has changed
 // 	Conv_Removed    [conv u32]: we are no longer a member of it
@@ -63,7 +70,7 @@ package proto
 // 	                our account has read there, and therefore what it hasn't
 //
 // 	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
-// 	              [a u32][b u32][last message u64][member u8]
+// 	              [count u8][account u32]...[last message u64][member u8]
 // 	              [read u64][unread u16][mentions u16][notify u8]
 // 	              [position u32][last time u64][rights u16]
 // 	rights map    [count u8]([role u32][rights u16])...
@@ -73,6 +80,19 @@ package proto
 // channel (Archived, set by Conv_Delete) no longer belongs to anyone. New
 // accounts are subscribed to a Default channel, but may leave it. A Text_Only
 // channel has no voice room.
+//
+// `member` is 1 if the receiver is a member, plus 2 if it is also one of the
+// channel's admins.
+//
+// A channel's admins are members who manage that one channel (any number of
+// them; whoever creates a channel is its first). An admin may add members and
+// remove them from a private channel, make other members admins and stop
+// being one, and change the channel's name and topic (Conv_Update with only
+// CONV_UPDATE_NAME and CONV_UPDATE_TOPIC). Everything else about a channel,
+// its position, flags and rights map and archiving it, needs Manage_Channels,
+// which also allows all that an admin may do, including making an admin no
+// longer one. Leaving a channel ends being its admin. DMs and groups have
+// none.
 //
 // What an account may do in a channel (Conv_Right) is given by the channel's
 // rights map: the rights each role has there. An account has the rights of all
@@ -100,14 +120,29 @@ package proto
 // was posted, in Unix milliseconds (0 for none). It is used to order a list of
 // DMs from many servers, because ids from different servers can't be compared.
 //
-// A direct message (DM) is a conversation between two accounts, `a` and `b`
-// (a < b), who both remain members permanently. For a channel they are 0.
-// There is one DM for each pair of accounts: DM_Open finds it or creates it and
+// The accounts in a conversation record are the people a DM or a group is
+// between, in ascending order, and none for a channel.
+//
+// A direct message (DM) is a conversation between two accounts, who both
+// remain members permanently. There is one DM for each pair of accounts: DM_Open finds it or creates it and
 // answers with its id. Anyone may message anyone. The account that opens the DM
 // is told about it (Conv_Changed) immediately. The other account is only told
 // once a message is posted there, so a conversation that was opened and left
 // empty doesn't show up on its side. Messages, reading and typing work in a DM
 // like in a channel. A DM has no voice room and cannot be subscribed to.
+//
+// An account may also have a DM with itself, for its own notes: DM_Open with
+// its own id. Both of the record's accounts are then that account. Nobody else
+// is told about it, mentioning someone there notifies nobody, and files can't
+// be offered there (attachments can be).
+//
+// A group is like a DM between 3 to MAX_GROUP_MEMBERS accounts, which never
+// change: nobody joins or leaves a group, and a different set of accounts is a
+// different group. Group_Open names the others (the asker is one of the
+// members) and finds or creates the group of exactly those accounts. As with a
+// DM, the opener is told about it at once and the others once a message is
+// posted. A group has no name of its own, no voice room and no file offers,
+// and bots can't be in one.
 //
 // What an account has read is tracked per conversation and is the same on all
 // its devices. It consists of the newest message it has read (`read`), the
@@ -130,7 +165,11 @@ Room :: distinct u32
 Conv_Kind :: enum u8 {
 	Channel = 0,
 	DM      = 1,
+	Group   = 2,
 }
+
+// The most accounts in a group, its opener included.
+MAX_GROUP_MEMBERS :: 8
 
 Conv_Flag :: enum u8 {
 	Home, // the channel that everyone is in
@@ -194,7 +233,7 @@ conv_rights_settle :: proc(given: Conv_Rights, flags: Conv_Flags) -> Conv_Rights
 // every right there can be.
 conv_rights_default :: proc(kind: Conv_Kind, flags: Conv_Flags) -> Conv_Rights {
 	rights := CONV_RIGHTS_ALL
-	if kind == .DM {
+	if kind != .Channel {
 		rights -= {.Voice, .Speak, .Video}
 	}
 	return conv_rights_settle(rights, flags)
@@ -206,7 +245,9 @@ Role_Rights :: struct {
 	rights: Conv_Rights,
 }
 
-MAX_TOPIC_SIZE :: 128 // bytes of UTF-8
+// Bytes of UTF-8: a Mattermost channel header, 1024 characters at up to 4 bytes
+// each.
+MAX_TOPIC_SIZE :: 4 * 1024
 
 // Unread counts stop at this value. A client shows larger counts as "99+".
 UNREAD_CAP :: 100
@@ -218,36 +259,38 @@ Notify_Level :: enum u8 {
 }
 
 Conv :: struct {
-	id:        Conv_Id,
-	kind:      Conv_Kind,
-	flags:     Conv_Flags,
-	name:      string, // sanitized and never empty for a channel
-	topic:     string,
-	member:    bool, // whether the receiver of this is a member
-	last:      Msg_Id, // the newest message, or 0 for none
+	id:            Conv_Id,
+	kind:          Conv_Kind,
+	flags:         Conv_Flags,
+	name:          string, // sanitized and never empty for a channel
+	topic:         string,
+	member:        bool, // whether the receiver of this is a member
+	admin:         bool, // ... and one of the channel's admins
+	last:          Msg_Id, // the newest message, or 0 for none
 	// The following belong to the receiver of this, as a member:
-	read:      Msg_Id, // the newest message that it has read
-	unread:    int, // messages since then that aren't its own, at most UNREAD_CAP
-	mentions:  int, // ... that mention it
-	notify:    Notify_Level,
-	// A DM's two accounts with the lower id first, or 0 for a channel.
-	a, b:      Account_Id,
+	read:          Msg_Id, // the newest message that it has read
+	unread:        int, // messages since then that aren't its own, at most UNREAD_CAP
+	mentions:      int, // ... that mention it
+	notify:        Notify_Level,
+	// Whom a DM or a group is between, in ascending order (none for a
+	// channel); see conv_accounts.
+	accounts:      [MAX_GROUP_MEMBERS]Account_Id,
+	account_count: int,
 	// A channel's place in a list: ordered by position, then by id.
-	position:  int,
+	position:      int,
 	// The time at which the newest message was posted, or 0 for none.
-	last_time: Unix_Ms,
+	last_time:     Unix_Ms,
 	// What the receiver may do there (only sent in Conv_Changed).
-	rights:    Conv_Rights,
+	rights:        Conv_Rights,
 }
 
 CONV_MAX_SIZE ::
 	4 +
 	1 +
 	1 +
-	(1 + MAX_CHANNEL_NAME_SIZE) +
-	(1 + MAX_TOPIC_SIZE) +
-	4 +
-	4 +
+	(2 + MAX_CHANNEL_NAME_SIZE) +
+	(2 + MAX_TOPIC_SIZE) +
+	(1 + 4 * MAX_GROUP_MEMBERS) +
 	8 +
 	1 +
 	8 +
@@ -263,12 +306,15 @@ put_conv :: proc(w: ^Writer, c: Conv) {
 	put_u32(w, u32(c.id))
 	put_u8(w, u8(c.kind))
 	put_u8(w, transmute(u8)c.flags)
-	put_str8(w, c.name)
-	put_str8(w, c.topic)
-	put_u32(w, u32(c.a))
-	put_u32(w, u32(c.b))
+	put_str16(w, c.name)
+	put_str16(w, c.topic)
+	count := clamp(c.account_count, 0, MAX_GROUP_MEMBERS)
+	put_u8(w, u8(count))
+	for i in 0 ..< count {
+		put_u32(w, u32(c.accounts[i]))
+	}
 	put_u64(w, u64(c.last))
-	put_u8(w, u8(c.member))
+	put_u8(w, u8(c.member) | u8(c.member && c.admin) << 1)
 	put_u64(w, u64(c.read))
 	put_u16(w, u16(clamp(c.unread, 0, UNREAD_CAP)))
 	put_u16(w, u16(clamp(c.mentions, 0, UNREAD_CAP)))
@@ -282,12 +328,19 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	c.id = Conv_Id(get_u32(r))
 	c.kind = Conv_Kind(get_u8(r))
 	c.flags = transmute(Conv_Flags)get_u8(r)
-	c.name = get_str8(r)
-	c.topic = get_str8(r)
-	c.a = Account_Id(get_u32(r))
-	c.b = Account_Id(get_u32(r))
+	c.name = get_str16(r)
+	c.topic = get_str16(r)
+	c.account_count = int(get_u8(r))
+	if c.account_count > MAX_GROUP_MEMBERS {
+		r.overflow = true
+		return
+	}
+	for &a in c.accounts[:c.account_count] {
+		a = Account_Id(get_u32(r))
+	}
 	c.last = Msg_Id(get_u64(r))
-	c.member = get_u8(r) != 0
+	member := get_u8(r)
+	c.member, c.admin = member & 1 != 0, member & 2 != 0
 	c.read = Msg_Id(get_u64(r))
 	c.unread = int(get_u16(r))
 	c.mentions = int(get_u16(r))
@@ -298,6 +351,20 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	c.position = int(get_u32(r))
 	c.last_time = Unix_Ms(get_u64(r))
 	return
+}
+
+// conv_accounts returns whom a DM or a group is between, which is nobody for a
+// channel.
+conv_accounts :: proc(c: ^Conv) -> []Account_Id {
+	return c.accounts[:clamp(c.account_count, 0, MAX_GROUP_MEMBERS)]
+}
+
+// conv_set_accounts sets whom a DM or a group is between, in ascending order. At
+// most MAX_GROUP_MEMBERS are kept.
+conv_set_accounts :: proc(c: ^Conv, accounts: []Account_Id) {
+	c.account_count = min(len(accounts), MAX_GROUP_MEMBERS)
+	copy(c.accounts[:], accounts[:c.account_count])
+	slice.sort(c.accounts[:c.account_count])
 }
 
 // encode_conv writes one conversation as it is sent in Conv_Changed, with the
@@ -333,7 +400,7 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 BROWSE_PAGE :: 50
 MAX_BROWSE_LIMIT :: 100
 MAX_BROWSE_QUERY :: MAX_CHANNEL_NAME_SIZE
-CONV_BROWSE_MAX_SIZE :: 1 + MAX_BROWSE_QUERY + 2 + 2 + 1
+CONV_BROWSE_MAX_SIZE :: 2 + MAX_BROWSE_QUERY + 2 + 2 + 1
 
 // Conv_Browse's flags.
 BROWSE_ALL :: 1
@@ -349,7 +416,7 @@ encode_conv_browse :: proc(out: ^[CONV_BROWSE_MAX_SIZE]u8, b: Browse) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
-	put_str8(&w, b.query[:min(len(b.query), MAX_BROWSE_QUERY)])
+	put_str16(&w, b.query[:min(len(b.query), MAX_BROWSE_QUERY)])
 	put_u16(&w, u16(clamp(b.offset, 0, int(max(u16)))))
 	put_u16(&w, u16(clamp(b.limit, 0, MAX_BROWSE_LIMIT)))
 	// Left out when there are none, so that the request is the same as before
@@ -369,7 +436,7 @@ decode_conv_browse :: proc(body: []u8) -> (b: Browse, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
-	b.query = get_str8(&r)
+	b.query = get_str16(&r)
 	b.offset = int(get_u16(&r))
 	b.limit = int(get_u16(&r))
 	if r.pos < len(body) {
@@ -456,7 +523,7 @@ decode_conv_list :: proc(body: []u8, convs_buf: []Conv) -> (convs: []Conv, ok: b
 	return convs_buf[:count], true
 }
 
-CONV_CREATE_MAX_SIZE :: (1 + 255) + (1 + 255) + 1 + 1
+CONV_CREATE_MAX_SIZE :: (2 + MAX_CHANNEL_NAME_SIZE) + (2 + MAX_TOPIC_SIZE) + 1 + 1
 
 // encode_conv_create writes a Conv_Create request. `flags` may have Default
 // and Text_Only, and is left out when it has neither, so that an older server
@@ -470,8 +537,8 @@ encode_conv_create :: proc(
 	w := Writer {
 		buf = out,
 	}
-	put_str8(&w, name)
-	put_str8(&w, topic)
+	put_str16(&w, name)
+	put_str16(&w, topic)
 	put_u8(&w, u8(private))
 	if flags & CONV_SETTABLE_FLAGS != {} {
 		put_u8(&w, transmute(u8)(flags & CONV_SETTABLE_FLAGS))
@@ -485,8 +552,8 @@ decode_conv_create :: proc(body: []u8) -> (name, topic: string, flags: Conv_Flag
 	r := Reader {
 		buf = body,
 	}
-	name = get_str8(&r)
-	topic = get_str8(&r)
+	name = get_str16(&r)
+	topic = get_str16(&r)
 	if get_u8(&r) != 0 {
 		flags += {.Private}
 	}
@@ -535,9 +602,61 @@ decode_conv_subscribe :: proc(body: []u8) -> (conv: Conv_Id, on: bool, ok: bool)
 	return conv, on, !r.overflow
 }
 
+GROUP_OPEN_MAX_SIZE :: 1 + 4 * (MAX_GROUP_MEMBERS - 1)
+
+// encode_group_open writes a Group_Open request for the group of the asker and
+// `others`. It returns nil for fewer than 2 or more than MAX_GROUP_MEMBERS - 1
+// others.
+encode_group_open :: proc(out: ^[GROUP_OPEN_MAX_SIZE]u8, others: []Account_Id) -> []u8 {
+	if len(others) < 2 || len(others) > MAX_GROUP_MEMBERS - 1 {
+		return nil
+	}
+	w := Writer {
+		buf = out[:],
+	}
+	put_u8(&w, u8(len(others)))
+	for a in others {
+		put_u32(&w, u32(a))
+	}
+	return written(&w)
+}
+
+// decode_group_open reads a Group_Open request into `buf`. It accepts 2 to
+// MAX_GROUP_MEMBERS - 1 accounts, none of them 0 and none twice; whether the
+// asker is among them is for the server to see.
+decode_group_open :: proc(
+	body: []u8,
+	buf: ^[MAX_GROUP_MEMBERS - 1]Account_Id,
+) -> (
+	others: []Account_Id,
+	ok: bool,
+) {
+	r := Reader {
+		buf = body,
+	}
+	count := int(get_u8(&r))
+	if r.overflow || count < 2 || count > len(buf) {
+		return
+	}
+	for &a in buf[:count] {
+		a = Account_Id(get_u32(&r))
+	}
+	if r.overflow || r.pos != len(body) {
+		return
+	}
+	others = buf[:count]
+	for a, i in others {
+		if a == 0 || slice.contains(others[:i], a) {
+			return nil, false
+		}
+	}
+	return others, true
+}
+
 // encode_conv_members writes a Conv_Members response with as many of
-// `accounts` as fit in `out`.
-encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
+// `accounts` as fit in `out`, followed by the `admins` among them if there is
+// room for all of them.
+encode_conv_members :: proc(out: []u8, accounts: []Account_Id, admins: []Account_Id = nil) -> []u8 {
 	w := Writer {
 		buf = out,
 	}
@@ -546,7 +665,40 @@ encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	for a in accounts[:count] {
 		put_u32(&w, u32(a))
 	}
+	if len(out) - w.pos >= 2 + len(admins) * 4 && len(admins) <= int(max(u16)) {
+		put_u16(&w, u16(len(admins)))
+		for a in admins {
+			put_u32(&w, u32(a))
+		}
+	}
 	return written(&w)
+}
+
+// decode_conv_admins reads which members a Conv_Members response says are
+// the channel's admins (none if it doesn't say).
+decode_conv_admins :: proc(body: []u8, buf: []Account_Id) -> (admins: []Account_Id, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	count := int(get_u16(&r))
+	if r.overflow || len(body) < 2 + count * 4 {
+		return
+	}
+	r.pos = 2 + count * 4
+	if r.pos == len(body) {
+		return buf[:0], true
+	}
+	n := int(get_u16(&r))
+	if r.overflow || n > len(buf) {
+		return
+	}
+	for &a in buf[:n] {
+		a = Account_Id(get_u32(&r))
+	}
+	if r.overflow {
+		return
+	}
+	return buf[:n], true
 }
 
 decode_conv_members :: proc(
@@ -672,7 +824,7 @@ Conv_Update :: struct {
 	flags:    Conv_Flags, // with CONV_UPDATE_FLAGS: which of CONV_SETTABLE_FLAGS it has
 }
 
-CONV_UPDATE_MAX_SIZE :: 4 + 1 + (1 + 255) + (1 + 255) + 4 + 1
+CONV_UPDATE_MAX_SIZE :: 4 + 1 + (2 + MAX_CHANNEL_NAME_SIZE) + (2 + MAX_TOPIC_SIZE) + 4 + 1
 
 encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	w := Writer {
@@ -680,8 +832,8 @@ encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	}
 	put_u32(&w, u32(u.conv))
 	put_u8(&w, u.mask)
-	put_str8(&w, u.name)
-	put_str8(&w, u.topic)
+	put_str16(&w, u.name)
+	put_str16(&w, u.topic)
 	put_u32(&w, u32(u.position))
 	if u.mask & CONV_UPDATE_FLAGS != 0 {
 		put_u8(&w, transmute(u8)(u.flags & CONV_SETTABLE_FLAGS))
@@ -695,8 +847,8 @@ decode_conv_update :: proc(body: []u8) -> (u: Conv_Update, ok: bool) {
 	}
 	u.conv = Conv_Id(get_u32(&r))
 	u.mask = get_u8(&r)
-	u.name = get_str8(&r)
-	u.topic = get_str8(&r)
+	u.name = get_str16(&r)
+	u.topic = get_str16(&r)
 	u.position = int(get_u32(&r))
 	if u.mask & CONV_UPDATE_FLAGS != 0 {
 		u.flags = transmute(Conv_Flags)get_u8(&r) & CONV_SETTABLE_FLAGS

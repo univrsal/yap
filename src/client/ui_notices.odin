@@ -49,7 +49,10 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 			continue
 		}
 		title := fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on)
-		if m.dm {
+		switch {
+		case m.group:
+			title = fmt.tprintf("%s wrote in %s%s", m.name, m.place, on)
+		case m.dm:
 			title = fmt.tprintf("%s messaged you%s", m.name, on)
 		}
 		notice(

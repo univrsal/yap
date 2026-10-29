@@ -148,6 +148,7 @@ rpc_handle :: proc(c: ^Server_Conn, msg: []u8) {
 		   !server_info_event(c, op, body) &&
 		   !conv_event(c, op, body) &&
 		   !messages_event(c, op, body) &&
+		   !bookmarks_event(c, op, body) &&
 		   !buddies_event(c, op, body) &&
 		   !emoji_event(c, op, body) &&
 		   !profiles_event(c, op, body) &&

@@ -185,6 +185,7 @@ UI :: struct {
 	// that person's server (see switch_now).
 	inbox:               []Buddy_Entry,
 	inbox_open:          proto.Account_Id,
+	inbox_open_group:    proto.Conv_Id,
 	// Voice, or a ringing call, in a server that isn't shown, as of this
 	// frame (see ui_voice_panel.odin).
 	voice_other:         Voice_Elsewhere,
@@ -197,6 +198,7 @@ UI :: struct {
 	// switch_now.
 	switch_to:           ^Net_Session,
 	switching:           bool,
+	switch_stay:         bool, // stay on the page we're on (see switch_now)
 	// Connecting and disconnecting wait on the network thread, which may be
 	// waiting on the View lock, so they happen after the layout, not during it.
 	action:              Action,
@@ -480,12 +482,15 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// The cameras, popped out of the Video tab (see ui_camera.odin).
 	camera_window(ui, w, h)
 	pins_window(ui, w, h)
+	bookmarks_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)
 	completion_window(ui)
 	picker_window(ui, w, h)
 	channels_window(ui, w, h)
+	channel_edit_window(ui, w, h)
 	forward_window(ui, w, h)
+	group_picker_window(ui, w, h)
 	search_window(ui, w, h)
 	palette_window(ui, w, h)
 	// After every timeline, the thread windows' timelines too.

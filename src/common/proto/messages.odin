@@ -1,6 +1,7 @@
 package proto
 
 import "core:encoding/endian"
+import "core:strings"
 
 // Messages: what is posted to a conversation (convs.odin). The server keeps
 // them permanently, and they are read a page at a time. Everything here travels
@@ -8,6 +9,7 @@ import "core:encoding/endian"
 //
 // 	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
 // 	             text: [text str16][count u8][upload u64]... (attachments)
+// 	                   [persona str8][avatar u64 if persona isn't empty]
 // 	             file: [size u64][name str8]
 // 	             ->  [id u64][time u64]
 // 	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
@@ -18,7 +20,8 @@ import "core:encoding/endian"
 // 	Msg_Edit     [id u64][text str16]
 // 	Msg_Delete   [id u64]
 // 	Msg_Pin      [id u64][on u8]
-// 	Pins_Get     [conv u32]  ->  [count u16] messages, the newest pin first
+// 	Pins_Get     [conv u32][offset u16]  ->  [count u16][more u8] messages:
+// 	             a page of the pins, the newest first, from the offset-th on
 // 	Msg_Forward  (forward.odin)
 // 	Msg_React    [id u64][emoji str8][on u8]
 // 	Reactors_Get [id u64][emoji str8]
@@ -38,9 +41,10 @@ import "core:encoding/endian"
 // 	                   if Has_Attachments: [count u8] per file:
 // 	                   [blob u64][size u64][width u16][height u16][name str8]
 // 	          file:    [size u64][name str8]
-// 	          system:  [what u8][arg u32]
+// 	          system:  [what u8][arg u32][text str16]
 // 	          if Has_Thread: [reply_count u32][last_reply u64]
 // 	          if Forwarded: [sender u32][conv u32][time u64] (forward.odin)
+// 	          if Persona: [name str8][avatar u64] (see Personas)
 // 	          [reaction_count u8] per reaction: [emoji str8][count u16][me u8]
 //
 // 	client -> server  Typing  [kind][conv u32][thread_root u64]
@@ -91,7 +95,10 @@ import "core:encoding/endian"
 // with the Deleted flag, but its text and files are permanently removed and it
 // is no longer pinned. Pinning marks a message as Pinned. In a DM either member
 // may pin, and in a channel those with Pin_Messages may. A conversation may have
-// at most MAX_PINS pinned messages (beyond that the answer is Too_Large). Each
+// at most MAX_PINS pinned messages (beyond that the answer is Too_Large).
+// Pins_Get answers with a page of them, at most PINS_PAGE or fewer if they
+// wouldn't fit in one stream message, and whether there are more after it; the
+// next page starts at the offset plus the page's count. Each
 // change is sent to every connection of every member as Msg_Changed, which
 // contains the whole message in its current state.
 //
@@ -105,10 +112,33 @@ import "core:encoding/endian"
 // it is never set, and the readers of events keep track of their own reactions
 // from Reaction_Changed.
 //
+// System messages: the server posts a message of kind System when something
+// happens that the conversation's history should show. `system` says what:
+// a call (Call_System, in a DM, calls.odin) or something about a channel or
+// the server (Conv_System). `sender` is who did it, `system_arg` an account it
+// was done to (or a call's length), and `text` what changed: the old value and
+// the new one, on a line each. A Conv_System message counts as neither unread
+// nor a mention (system_counts_unread), and notifies nobody. A `system` that
+// this build doesn't know is shown as such.
+//
+// Personas: a bot may post a message under another name and picture, as an
+// integration that posts for many projects or a bridge shows who it relays
+// for. The message is still the bot's: it is `sender`, replies and mentions
+// go to it, and it can edit and delete the message. The Persona flag says that
+// the record also holds the name that the message is shown under and a
+// picture, a blob of kind Avatar (0 for none). Only bots may post one, the
+// name may not be any account's username or display name (case ignored) and
+// the picture is checked like somebody's own. A client shows the message with
+// the persona's name and picture, always with the bot's tag and the bot's own
+// name next to it, so that it can't pass for a person. A post that isn't from
+// a bot, or has a persona it may not, is `Denied`.
+//
 // A thread root is only used in a later phase. The record has room for it from
 // the start, and it is zero until then.
 
-MAX_CHAT_SIZE :: 2000 // bytes of UTF-8 in a message
+// Bytes of UTF-8 in a message: as many as a Mattermost post may have (16383
+// characters of up to 4 bytes each, which it caps at 65535 bytes).
+MAX_CHAT_SIZE :: 65535
 
 // Unix_Time is the number of seconds since the epoch on the server's clock. It
 // is the unit that the UI's clock shows times in, to the minute.
@@ -133,6 +163,7 @@ Msg_Flag :: enum u8 {
 	Has_Thread,
 	Forwarded, // a copy of another message (forward.odin)
 	Has_Attachments, // files uploaded with it (attachments.odin)
+	Persona, // a bot's message under another name and picture (see Personas)
 }
 Msg_Flags :: distinct bit_set[Msg_Flag;u8]
 
@@ -156,6 +187,15 @@ Attachment :: struct {
 	width, height: int, // a picture's, or 0 (see above)
 }
 
+// The most bytes of a persona's name.
+MAX_PERSONA_NAME_SIZE :: 255
+
+// Persona is the name and picture that a bot's message is shown under.
+Persona :: struct {
+	name:   string, // points into the data that it was read from
+	avatar: Blob_Id, // 0 for none
+}
+
 // Message is one message. Its strings point into the data that it was read
 // from.
 Message :: struct {
@@ -175,6 +215,7 @@ Message :: struct {
 	reply_count:      u32, // .Has_Thread
 	last_reply:       Msg_Id,
 	forward:          Forward_Info, // .Forwarded: where the original came from
+	persona:          Persona, // .Persona
 	// .Has_Attachments: the files, of which the first `attachment_count` are used.
 	attachment_count: int,
 	attachments:      [MAX_ATTACHMENTS]Attachment,
@@ -202,17 +243,55 @@ MESSAGE_MAX_SIZE ::
 	8 +
 	FORWARD_INFO_SIZE +
 	1 +
+	MAX_PERSONA_NAME_SIZE +
+	8 +
+	1 +
 	MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
 
 MAX_HISTORY_LIMIT :: 50
 
+// What a system message about a channel or the server says happened (see
+// above). Mattermost's system posts are imported as these, which is where
+// the kinds that yap itself never posts come from.
+Conv_System :: enum u8 {
+	Joined        = 16, // the sender joined the channel
+	Left          = 17, // the sender left the channel
+	Added         = 18, // the sender added `arg` to the channel
+	Removed       = 19, // the sender took `arg` out of the channel
+	Renamed       = 20, // text: the old name and the new one
+	Topic_Changed = 21, // text: the old topic and the new one
+	Made_Private  = 22, // imported only: yap channels don't change that
+	Made_Public   = 23, // imported only
+	Archived      = 24,
+	Unarchived    = 25, // imported only: yap doesn't unarchive
+	Joined_Server = 26, // in the home channel: the sender's account was made
+	Left_Server   = 27, // in the home channel: the sender's account was deleted
+}
+
+// The first value of Conv_System. System messages from here on count as
+// neither unread nor a mention.
+CONV_SYSTEM_FIRST :: 16
+
+// system_counts_unread says whether a system message of this kind counts as
+// unread like any other message: a call's does, one about a channel doesn't.
+system_counts_unread :: proc(what: u8) -> bool {
+	return what < CONV_SYSTEM_FIRST
+}
+
+// system_change splits a system message's text into the old value and the
+// new one (see Conv_System).
+system_change :: proc(text: string) -> (old, new: string) {
+	old, _, new = strings.partition(text, "\n")
+	return
+}
+
 // The maximum number of pinned messages in a conversation.
-MAX_PINS :: 50
+MAX_PINS :: 1000
 
 // The maximum number of different emoji that a message can have as reactions,
 // and the maximum number of bytes of one emoji (a server's own emoji, written
 // as `:name:`).
-MAX_REACTIONS :: 20
+MAX_REACTIONS :: 50 // Mattermost's default
 MAX_REACTION_EMOJI :: 2 + MAX_EMOJI_NAME
 
 History_Dir :: enum u8 {
@@ -229,8 +308,15 @@ MSG_HISTORY_SIZE :: 4 + 8 + 8 + 1 + 1
 MSG_EDIT_MAX_SIZE :: 8 + 2 + MAX_CHAT_SIZE
 MSG_ID_SIZE :: 8
 MSG_PIN_SIZE :: 8 + 1
+PINS_GET_SIZE :: 4 + 2
+PINS_PAGE :: 50
 MSG_POSTED_SIZE :: 8 + 8
-MSG_POST_MAX_SIZE :: 4 + 8 + 8 + 1 + max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8, 8 + 1 + 255)
+MSG_POST_MAX_SIZE ::
+	4 +
+	8 +
+	8 +
+	1 +
+	max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8 + 1 + MAX_PERSONA_NAME_SIZE + 8, 8 + 1 + 255)
 HISTORY_HEADER_SIZE :: 1 + 2
 BLOB_PUT_SIZE :: 1 + 4 + 32 + 2 + 2
 BLOB_PUT_ANSWER_SIZE :: 8 + 1 + 8
@@ -255,7 +341,7 @@ message_size :: proc(m: Message) -> int {
 	case .File:
 		n += 8 + 1 + len(m.file_name)
 	case .System:
-		n += 1 + 4
+		n += 1 + 4 + 2 + len(m.text)
 	}
 	if .Has_Thread in m.flags {
 		n += 4 + 8
@@ -263,10 +349,13 @@ message_size :: proc(m: Message) -> int {
 	if .Forwarded in m.flags {
 		n += FORWARD_INFO_SIZE
 	}
+	if .Persona in m.flags {
+		n += 1 + len(m.persona.name) + 8
+	}
 	return n + 1 + len(m.reactions)
 }
 
-@(private = "file")
+@(private)
 put_message :: proc(w: ^Writer, m: Message) {
 	put_u64(w, u64(m.id))
 	put_u32(w, u32(m.conv))
@@ -303,6 +392,7 @@ put_message :: proc(w: ^Writer, m: Message) {
 	case .System:
 		put_u8(w, m.system)
 		put_u32(w, m.system_arg)
+		put_str16(w, m.text)
 	}
 	if .Has_Thread in m.flags {
 		put_u32(w, m.reply_count)
@@ -313,11 +403,18 @@ put_message :: proc(w: ^Writer, m: Message) {
 		put_u32(w, u32(m.forward.conv))
 		put_u64(w, u64(m.forward.time))
 	}
+	if .Persona in m.flags {
+		if len(m.persona.name) > MAX_PERSONA_NAME_SIZE {
+			w.overflow = true
+		}
+		put_str8(w, m.persona.name)
+		put_u64(w, u64(m.persona.avatar))
+	}
 	put_u8(w, u8(m.reaction_count))
 	put_bytes(w, m.reactions)
 }
 
-@(private = "file")
+@(private)
 get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 	m.id = Msg_Id(get_u64(r))
 	m.conv = Conv_Id(get_u32(r))
@@ -352,6 +449,7 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 	case .System:
 		m.system = get_u8(r)
 		m.system_arg = get_u32(r)
+		m.text = get_str16(r)
 	case:
 		return // a kind from a newer server, whose layout isn't known
 	}
@@ -365,6 +463,10 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 			conv   = Conv_Id(get_u32(r)),
 			time   = Unix_Ms(get_u64(r)),
 		}
+	}
+	if .Persona in m.flags {
+		m.persona.name = get_str8(r)
+		m.persona.avatar = Blob_Id(get_u64(r))
 	}
 	m.reaction_count = int(get_u8(r))
 	start := r.pos
@@ -411,6 +513,8 @@ Msg_Post :: struct {
 	// `attachment_count` are used.
 	attachment_count: int,
 	uploads:          [MAX_ATTACHMENTS]u64,
+	// .Text: a bot's persona (see Personas); an empty name for none.
+	persona:          Persona,
 }
 
 encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
@@ -430,6 +534,13 @@ encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
 		put_u8(&w, u8(p.attachment_count))
 		for i in 0 ..< p.attachment_count {
 			put_u64(&w, p.uploads[i])
+		}
+		if len(p.persona.name) > MAX_PERSONA_NAME_SIZE {
+			return nil
+		}
+		put_str8(&w, p.persona.name)
+		if p.persona.name != "" {
+			put_u64(&w, u64(p.persona.avatar))
 		}
 	case .File:
 		put_u64(&w, p.file_size)
@@ -460,6 +571,10 @@ decode_msg_post :: proc(body: []u8) -> (p: Msg_Post, ok: bool) {
 		}
 		for &upload in p.uploads[:p.attachment_count] {
 			upload = get_u64(&r)
+		}
+		p.persona.name = get_str8(&r)
+		if p.persona.name != "" {
+			p.persona.avatar = Blob_Id(get_u64(&r))
 		}
 	case .File:
 		p.file_size = get_u64(&r)
@@ -711,14 +826,30 @@ decode_msg_pin :: proc(body: []u8) -> (id: Msg_Id, on: bool, ok: bool) {
 	return id, body[8] != 0, id != 0
 }
 
-// encode_message_list writes a Pins_Get response with as many of `msgs` as fit
-// in `out`.
-encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
+encode_pins_get :: proc(out: ^[PINS_GET_SIZE]u8, conv: Conv_Id, offset: int) -> []u8 {
+	endian.unchecked_put_u32le(out[0:], u32(conv))
+	endian.unchecked_put_u16le(out[4:], u16(clamp(offset, 0, int(max(u16)))))
+	return out[:]
+}
+
+decode_pins_get :: proc(body: []u8) -> (conv: Conv_Id, offset: int, ok: bool) {
+	if len(body) != PINS_GET_SIZE {
+		return
+	}
+	conv = Conv_Id(endian.unchecked_get_u32le(body[0:]))
+	offset = int(endian.unchecked_get_u16le(body[4:]))
+	return conv, offset, conv != 0
+}
+
+// encode_pins_page writes a Pins_Get response with as many of `msgs` as fit in
+// `out`. It says that there are more if not all of them fit, or if `more`.
+// `count` is how many it holds.
+encode_pins_page :: proc(out: []u8, msgs: []Message, more: bool) -> (body: []u8, count: int) {
 	w := Writer {
 		buf = out,
 	}
 	put_u16(&w, 0)
-	count := 0
+	put_u8(&w, 0)
 	for m in msgs {
 		if w.pos + message_size(m) > len(out) || count == int(max(u16)) {
 			break
@@ -727,19 +858,21 @@ encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
 		count += 1
 	}
 	if w.overflow {
-		return nil
+		return nil, 0
 	}
 	endian.unchecked_put_u16le(out[0:], u16(count))
-	return out[:w.pos]
+	out[2] = u8(more || count < len(msgs))
+	return out[:w.pos], count
 }
 
-// decode_message_list reads a list of messages into `buf`. The strings point
+// decode_pins_page reads a Pins_Get response into `buf`. The strings point
 // into `body`.
-decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok: bool) {
+decode_pins_page :: proc(body: []u8, buf: []Message) -> (msgs: []Message, more: bool, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
 	count := int(get_u16(&r))
+	more = get_u8(&r) != 0
 	if r.overflow || count > len(buf) {
 		return
 	}
@@ -749,7 +882,7 @@ decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok:
 	if r.pos != len(body) {
 		return
 	}
-	return buf[:count], true
+	return buf[:count], more, true
 }
 
 // Reaction is one emoji that a message has been reacted to with.

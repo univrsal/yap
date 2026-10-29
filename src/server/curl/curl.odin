@@ -27,6 +27,11 @@ Code :: i32
 // The options that mail.odin and webpush.odin set (the CURLOPT_* values from curl.h).
 Option :: enum i32 {
 	Timeout              = 13,
+	Follow_Location      = 52,
+	Max_Redirs           = 68,
+	User_Agent           = 10018,
+	Protocols_Str        = 10318,
+	Redir_Protocols_Str  = 10319,
 	Post_Field_Size      = 60,
 	Verbose              = 41,
 	No_Body              = 44,

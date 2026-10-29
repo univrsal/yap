@@ -175,8 +175,10 @@ CONTROL_RESEND :: 300 * time.Millisecond
 // The maximum number of channels that a server may have, and the maximum
 // length of a channel name. A client is told about the channels that it is in
 // and finds the others a page at a time (Conv_Browse).
-MAX_CHANNELS :: 1000
-MAX_CHANNEL_NAME_SIZE :: 32
+// Both as Mattermost allows by default (2000 channels in a team, names of 64
+// characters at up to 4 bytes each).
+MAX_CHANNELS :: 2000
+MAX_CHANNEL_NAME_SIZE :: 4 * 64
 
 User_Info :: struct {
 	num:     User_Num, // assigned by the server

@@ -242,17 +242,18 @@ The bot needn't be in voice itself.
 
 ### Conversations
 
-A conversation is a channel or a DM.
+A conversation is a channel, a DM, or a group (a DM of 3 to 8 people).
 
 | | |
 | --- | --- |
-| `GET /convs` | The ones you're in: channels by position, then DMs, the most recent first. → [conversation](#conversation)s |
+| `GET /convs` | The ones you're in: channels by position, then DMs and groups, the most recent first. → [conversation](#conversation)s |
 | `GET /convs/{id}` | One of them. → [conversation](#conversation) |
 | `GET /convs/browse?q=&offset=&limit=` | Channels there are to join, whose name or topic has `q` in it. → `{convs, more}` |
 | `PUT /convs/{id}/subscription` | Join a channel. → [conversation](#conversation) |
 | `DELETE /convs/{id}/subscription` | Leave it. → 204 |
 | `GET /convs/{id}/members` | Who's in it. → [account](#account)s |
-| `POST /dms` `{account}` | The DM with that account, made if need be. → [conversation](#conversation) |
+| `POST /dms` `{account}` | The DM with that account, made if need be. Your own account gives the DM with yourself, for notes only you see. → [conversation](#conversation) |
+| `POST /groups` `{accounts}` | The group of you and those 2 to 7 accounts, made if need be. Bots can't be in groups, so a bot gets 403. → [conversation](#conversation) |
 | `POST /convs/{id}/read` `{message}` | Mark it read up to and including `message`, or all of it without one. → 204 |
 | `POST /convs/{id}/typing` `{thread}` | Show that you're typing for a few seconds. Send it again every few seconds while it lasts. → 204 |
 
@@ -264,16 +265,16 @@ A conversation is a channel or a DM.
 | | |
 | --- | --- |
 | `GET /convs/{id}/messages?before=&after=&around=&limit=&thread=` | A page of history, oldest first. → [message](#message)s |
-| `POST /convs/{id}/messages` `{content, thread, nonce, attachments}` | Post. → 201 [message](#message) |
+| `POST /convs/{id}/messages` `{content, thread, nonce, attachments, persona}` | Post. → 201 [message](#message) |
 | `PATCH /messages/{id}` `{content}` | Edit one of yours. → 204 |
 | `DELETE /messages/{id}` | Delete one of yours, or anyone's with Manage_Messages. → 204 |
-| `PUT /messages/{id}/pin` | Pin it: either member of a DM, or Pin_Messages in a channel. → 204 |
+| `PUT /messages/{id}/pin` | Pin it: anyone in a DM or a group, or Pin_Messages in a channel. → 204 |
 | `DELETE /messages/{id}/pin` | Unpin it. → 204 |
 | `PUT /messages/{id}/reactions/{emoji}` | React. → 204 |
 | `DELETE /messages/{id}/reactions/{emoji}` | Take your reaction back. → 204 |
 | `GET /messages/{id}/reactions/{emoji}` | Who reacted with it. → `{total, accounts}` |
 | `POST /messages/{id}/forward` `{conv, thread, nonce}` | Copy it to another conversation. → 201 [message](#message) |
-| `GET /convs/{id}/pins` | Its pinned messages, the most recently pinned first. → [message](#message)s |
+| `GET /convs/{id}/pins?offset=` | Its pinned messages, the most recently pinned first, a page at a time: the ones after the first `offset` (default 0). An empty page means there are no more. → [message](#message)s |
 | `GET /search?q=&conv=&before=&limit=` | Search. → `{messages, searched_to, more}` |
 
 **History.** Give at most one of `before`, `after` or `around` (a
@@ -307,7 +308,26 @@ curl -H "Authorization: Bot $YAP_TOKEN" \
  "timestamp": "2026-10-12T09:07:56.201Z", "edited_timestamp": null,
  "kind": "text", "content": "Rain from 3pm.", "thread": null,
  "attachments": [], "reactions": [], "pinned": false, "deleted": false,
- "forwarded": null, "replies": null, "file": null, "system": null}
+ "forwarded": null, "persona": null, "replies": null, "file": null, "system": null}
+```
+
+**Personas.** A bot may post a message under another name and picture,
+as a bridge shows who it relays for or a CI bot the project that built.
+`persona` is `{name, avatar}`: the name is at most 255 bytes, and
+`avatar` (optional) is the `id` that `POST /avatars` returned. The
+message is still the bot's: it is its `author`, replies and mentions go
+to it, and it can edit and delete the message. Clients show the persona's
+name and picture next to the bot's tag and "via" the bot's own name, so
+that it can't pass for a person. Only bots may do this, and the name may
+not be any account's username or display name (case ignored): 403. A
+picture that no message uses is removed after an hour.
+
+```sh
+id=$(curl -s -H "Authorization: Bot $YAP_TOKEN" --data-binary @ci.jpg \
+          $YAP_URL/api/v1/avatars | jq -r .id)
+curl -H "Authorization: Bot $YAP_TOKEN" \
+     -d "{\"content\": \"Build 7 failed\", \"persona\": {\"name\": \"Build Server\", \"avatar\": \"$id\"}}" \
+     $YAP_URL/api/v1/convs/1/messages
 ```
 
 Edits, deletes, pins and reactions answer 204, not with the message.
@@ -331,6 +351,7 @@ again with `before` set to `searched_to` to go on further back.
 | | |
 | --- | --- |
 | `POST /uploads?name=` | Upload a file, the body being the file. → 201 `{id, name, size}` |
+| `POST /avatars` | Upload a picture for a persona (see Posting): a JPEG of at most 256 pixels per side and 64 KB, the body being the file. → 201 `{id}` |
 | `GET /attachments/{id}` | A file a message carries, by its attachment's `id`. → the bytes |
 | `GET /blobs/{id}` | A picture: an avatar, the server's icon, its emoji. → the bytes, as `image/jpeg` (or png, webp, gif) |
 
@@ -393,13 +414,14 @@ An [account](#account) without `deleted` and `online`, plus `owner` and
 {"id": "1", "kind": "channel", "name": "Lobby", "topic": "", "home": true, "private": false,
  "default": false, "text_only": false,
  "rights": ["see", "write", "react", "edit", "delete", "voice", "attach", "speak", "video"],
- "position": 0, "recipient": null, "member": true,
+ "position": 0, "recipient": null, "members": null, "member": true,
  "last_message_id": "272", "last_message_timestamp": "2026-10-12T08:49:49.273Z",
  "last_read_id": "268", "unread": 3, "mentions": 0, "notify": "all"}
 ```
 
-`kind` is `channel` or `dm`. A DM has `recipient` (the other account)
-and no name. `home` is the channel everyone is in. New accounts are put
+`kind` is `channel`, `dm` or `group`. A DM has `recipient` (the other
+account, or yours in the DM with yourself) and no name. A group has `members` (the other accounts, which
+never change) and no name. `home` is the channel everyone is in. New accounts are put
 in a `default` channel, and a `text_only` one has no voice room.
 `rights` are what your account may do there: `see`, `write` (post,
 reply, forward to it), `react`, `edit` and `delete` (its own messages),
@@ -419,16 +441,17 @@ counting at 100.
 | `id`, `conv_id` | |
 | `author` | `{id, username, display, bot}` |
 | `timestamp`, `edited_timestamp` | |
-| `kind` | `text`, `file` (a file offered in a DM, peer to peer, which the API can't take), `system` (a call that was missed or ended) |
+| `kind` | `text`, `file` (a file offered in a DM, peer to peer, which the API can't take), `system` (a call that was missed or ended, or something that happened in the channel or on the server) |
 | `content` | The text. |
 | `thread` | The thread's first message, if this is a reply in one. |
 | `attachments` | `[{id, name, size}]`; `id` is `null` once the server has let the file go. |
 | `reactions` | `[{emoji, count, me}]` |
 | `pinned`, `deleted` | A deleted message keeps its place but loses its content. |
 | `forwarded` | `{author_id, conv_id, timestamp}` of the original, for a copy. |
+| `persona` | `{name, avatar}` for a bot's message under another name (`avatar` is a blob id, or `null`); `null` otherwise. A deleted message has none. |
 | `replies` | `{count, last_id}` for a thread's first message. |
 | `file` | `{name, size}` for `kind` `file`. |
-| `system` | `{what, arg}` for `kind` `system`: what is 1 missed, 2 declined, 3 ended (`arg` is how many seconds the call lasted). |
+| `system` | `{what, arg, text}` for `kind` `system`. A call: `what` is 1 missed, 2 declined, 3 ended (`arg` is how many seconds the call lasted). In a channel, done by `sender`: 16 joined, 17 left, 18 added `arg` (an account), 19 removed `arg`, 20 renamed, 21 changed the topic (`text` is the old value and the new one, a line each), 22 made it private, 23 public, 24 archived, 25 unarchived; in the home channel, 26 joined the server, 27 left it. Those from 16 on are never unread. |
 
 ### server
 
@@ -536,10 +559,10 @@ process should take as "stop". Other codes:
 - **Tokens in use at once:** `max_connections` (default 64). Past that,
   503. A token stops counting 5 minutes after its last request, or 5
   minutes after its event socket closes.
-- **Bodies:** at most 64 KiB, but for uploads.
+- **Bodies:** at most 512 KiB, but for uploads.
 - **Quiet connections** close after 60 seconds between requests.
-- **The server's own limits** apply as for anyone: messages of 2000
-  bytes at most, 10 files a message, 50 pins in a conversation, 4
+- **The server's own limits** apply as for anyone: messages of 65535
+  bytes at most, 10 files a message, 1000 pins in a conversation, 4
   uploads (and 4 downloads) at a time, and the attachment size and rate
   in its config.
 

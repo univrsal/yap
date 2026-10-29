@@ -19,9 +19,15 @@ import "sqlite"
 // allowed to (see conv_requests.odin).
 //
 // A direct message is also a conversation, between two accounts `a` and `b`
-// with a < b, who both stay members permanently. There is at most one for each
+// with a <= b, who both stay members permanently. There is at most one for each
 // pair (see dm_find), and it is created the first time either of them opens it
-// (see dm_add).
+// (see dm_add). In a DM with oneself, a and b are the same account, which is
+// its only member.
+//
+// A group is like a DM between 3 to proto.MAX_GROUP_MEMBERS accounts, which are
+// its members and never change, not even when one of them is deleted (see
+// account_delete.odin). There is at most one for each set of accounts (see
+// group_find), created the first time one of them opens it (see group_add).
 //
 // This file only keeps track of conversations. What clients ask about them is
 // handled in conv_requests.odin.
@@ -57,14 +63,28 @@ Conv :: struct {
 Membership :: struct {
 	read:   proto.Msg_Id, // the newest message the member has read
 	notify: proto.Notify_Level,
+	admin:  bool, // one of a channel's admins
 }
 
 Convs :: struct {
-	db:    ^DB,
-	by_id: map[proto.Conv_Id]^Conv,
-	home:  ^Conv,
+	db:     ^DB,
+	by_id:  map[proto.Conv_Id]^Conv,
+	home:   ^Conv,
 	// The DMs, keyed by their two accounts with the lower id first.
-	dms:   map[[2]proto.Account_Id]^Conv,
+	dms:    map[[2]proto.Account_Id]^Conv,
+	// The groups, keyed by their members (see group_key).
+	groups: map[Group_Key]^Conv,
+}
+
+// Group_Key is a group's members in ascending order, followed by zeros.
+Group_Key :: [proto.MAX_GROUP_MEMBERS]proto.Account_Id
+
+// group_key returns the key of the group of `accounts`, which may be in any
+// order and must be at most proto.MAX_GROUP_MEMBERS.
+group_key :: proc(accounts: []proto.Account_Id) -> (key: Group_Key) {
+	n := copy(key[:], accounts)
+	slice.sort(key[:n])
+	return
 }
 
 // convs_load reads the conversations and their members from the database.
@@ -123,7 +143,13 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 				notify = proto.Notify_Level(
 					clamp(db_col_int(q, 3), 0, i64(max(proto.Notify_Level))),
 				),
+				admin  = conv.kind == .Channel && db_col_int(q, 4) != 0,
 			}
+		}
+	}
+	for _, conv in c.by_id {
+		if conv.kind == .Group && len(conv.members) <= proto.MAX_GROUP_MEMBERS {
+			c.groups[group_key(conv.members[:])] = conv
 		}
 	}
 
@@ -174,6 +200,7 @@ convs_destroy :: proc(c: ^Convs) {
 	}
 	delete(c.by_id)
 	delete(c.dms)
+	delete(c.groups)
 	c^ = {}
 }
 
@@ -274,17 +301,17 @@ conv_rights_role_gone :: proc(c: ^Convs, role: proto.Role_Id) -> bool {
 // account's roles there, and every right for the owner and those with
 // Manage_Channels, settled by proto.conv_rights_settle. A private channel gives
 // no rights to someone who isn't in it, whoever they are. Both accounts of a DM
-// may do everything but Voice, and nobody else anything. In the home channel,
-// everyone can always see.
+// may do everything but Voice, and nobody else anything, and so may the members
+// of a group. In the home channel, everyone can always see.
 conv_rights :: proc(conv: ^Conv, acc: ^Account) -> proto.Conv_Rights {
 	if acc == nil || .Archived in conv.flags {
 		return {}
 	}
-	if conv.kind == .DM {
+	if conv.kind != .Channel {
 		if !conv_is_member(conv, acc.id) {
 			return {}
 		}
-		return proto.conv_rights_default(.DM, conv.flags)
+		return proto.conv_rights_default(conv.kind, conv.flags)
 	}
 	if .Private in conv.flags && !conv_is_member(conv, acc.id) {
 		return {}
@@ -341,7 +368,62 @@ dm_add :: proc(c: ^Convs, x, y: proto.Account_Id, by: proto.Account_Id) -> ^Conv
 	return conv
 }
 
+// group_find returns the group of exactly `accounts`, given in any order, or nil
+// if there is none.
+group_find :: proc(c: ^Convs, accounts: []proto.Account_Id) -> ^Conv {
+	if len(accounts) > proto.MAX_GROUP_MEMBERS {
+		return nil
+	}
+	return c.groups[group_key(accounts)] or_else nil
+}
+
+// group_add creates the group of `accounts` (3 to proto.MAX_GROUP_MEMBERS of
+// them, in any order), opened by `by`, with all of them as members. It returns
+// nil if the database refuses it, in which case nothing was created. There must
+// not be a group of them already (see group_find).
+@(require_results)
+group_add :: proc(c: ^Convs, accounts: []proto.Account_Id, by: proto.Account_Id) -> ^Conv {
+	now := unix_ms()
+	db_begin(c.db)
+	if !db_exec(c.db, "SAVEPOINT group_add") {
+		return nil
+	}
+	ok := false
+	defer if !ok {
+		db_exec(c.db, "ROLLBACK TO group_add")
+		db_exec(c.db, "RELEASE group_add")
+	}
+	if !db_write(c.db, .Conv_Add_Group, now, i64(by)) {
+		return nil
+	}
+	id := proto.Conv_Id(db_last_id(c.db))
+	for account in accounts {
+		if !db_write(c.db, .Member_Add, i64(id), i64(account), now, 0) {
+			return nil
+		}
+	}
+	if !db_exec(c.db, "RELEASE group_add") {
+		return nil
+	}
+	ok = true
+
+	conv := new(Conv)
+	conv.id = id
+	conv.kind = .Group
+	conv.created = now
+	conv.created_by = by
+	for account in accounts {
+		append(&conv.members, account)
+		conv.reads[account] = {}
+	}
+	slice.sort(conv.members[:])
+	c.by_id[conv.id] = conv
+	c.groups[group_key(accounts)] = conv
+	return conv
+}
+
 // dm_other returns the other account of a DM, given one of its two accounts.
+// In a DM with oneself that is the same account.
 dm_other :: proc(conv: ^Conv, account: proto.Account_Id) -> proto.Account_Id {
 	return conv.b if account == conv.a else conv.a
 }
@@ -369,13 +451,13 @@ dm_posted :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> bool {
 
 // conv_shown returns whether an account is told about a conversation it is a
 // member of. This is the case for a channel it may see (see conv_rights). For a
-// DM it is the case once the DM has a message, or if the account is the one
-// that opened it.
+// DM or a group it is the case once it has a message, or if the account is the
+// one that opened it.
 conv_shown :: proc(conv: ^Conv, acc: ^Account) -> bool {
 	if !conv_reader(conv, acc) {
 		return false
 	}
-	return conv.kind != .DM || conv.last_msg != 0 || conv.created_by == acc.id
+	return conv.kind == .Channel || conv.last_msg != 0 || conv.created_by == acc.id
 }
 
 // conv_reader returns whether an account is a member of a conversation that it
@@ -493,6 +575,35 @@ conv_set_notify :: proc(
 	return true
 }
 
+// conv_set_admin makes a member of a channel one of its admins, or no longer
+// one. It returns false if the account isn't a member or the database failed.
+conv_set_admin :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, on: bool) -> bool {
+	m, ok := &conv.reads[account]
+	if !ok || conv.kind != .Channel {
+		return false
+	}
+	db_write(c.db, .Member_Set_Admin, i64(conv.id), i64(account), i64(on)) or_return
+	m.admin = on
+	return true
+}
+
+// conv_admin says whether an account is one of a channel's admins.
+conv_admin :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
+	m, ok := conv.reads[account]
+	return ok && m.admin
+}
+
+// conv_admins returns a channel's admins, allocated with the temp allocator.
+conv_admins :: proc(conv: ^Conv) -> []proto.Account_Id {
+	list := make([dynamic]proto.Account_Id, context.temp_allocator)
+	for a in conv.members {
+		if conv_admin(conv, a) {
+			append(&list, a)
+		}
+	}
+	return list[:]
+}
+
 // conv_unread returns the number of messages in a conversation after `read` that
 // aren't from `account`, up to proto.UNREAD_CAP. The database stops counting
 // there, so a conversation that wasn't opened for a year costs no more than one
@@ -587,10 +698,16 @@ conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.
 		name     = conv.name,
 		topic    = conv.topic,
 		member   = conv_is_member(conv, account),
+		admin    = conv_admin(conv, account),
 		last     = conv.last_msg,
-		a        = conv.a,
-		b        = conv.b,
 		position = conv.position,
+	}
+	switch conv.kind {
+	case .Channel:
+	case .DM:
+		proto.conv_set_accounts(&record, {conv.a, conv.b})
+	case .Group:
+		proto.conv_set_accounts(&record, conv.members[:])
 	}
 	if conv.last_msg != 0 {
 		record.last_time = conv.last_time

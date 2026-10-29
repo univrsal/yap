@@ -13,8 +13,8 @@ import "common:proto"
 
 
 // The inbox, or buddy screen (see buddies.odin): on the left, the buddies and
-// anyone else we have a DM with, on every server we're logged in to, in
-// two sections. On the right, the DM with whoever is picked, drawn by the
+// anyone else we have a DM with, and our groups, on every server we're logged
+// in to, in two sections. On the right, the DM with whoever is picked, drawn by the
 // same timeline as a channel's (see ui_timeline.odin). It is opened and closed
 // by the inbox's icon at the top of the rail (see ui_servers.odin).
 //
@@ -28,29 +28,39 @@ import "common:proto"
 
 UI_Buddies :: struct {
 	// Whose DM is open, 0 for nobody.
-	selected:     proto.Account_Id,
+	selected:        proto.Account_Id,
+	// The group that is open instead, 0 for none.
+	selected_group:  proto.Conv_Id,
+	// A group that was just started, to open once the server has told us about
+	// it, on that server (see ui_groups.odin).
+	group_wanted:    Group_Members,
+	group_wanted_ns: ^Net_Session,
+	// The window in which a group is started, and whether a group's members
+	// are listed under its header.
+	picker:          UI_Group_Picker,
+	members_shown:   bool,
 	// What is being written to them.
-	buf:          [proto.MAX_CHAT_SIZE]u8,
-	len:          int,
-	area:         Text_Area, // the box it is written in
+	buf:             ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
+	len:             int,
+	area:            Text_Area, // the box it is written in
 	// Something to tell the user about the conversation, and since when.
-	notice:       string,
-	notice_at:    time.Tick,
+	notice:          string,
+	notice_at:       time.Tick,
 	// The file button was pressed. After the frame, the dialog opens to pick
 	// a file to offer to `pick_to` (see ui_files_*.odin).
-	pick:         bool,
-	pick_to:      proto.Account_Id,
+	pick:            bool,
+	pick_to:         proto.Account_Id,
 	// Files to go with the next message (see ui_attachments.odin).
-	files:        [dynamic]Picked_File,
+	files:           [dynamic]Picked_File,
 	// The message of ours that is being edited (0 for none) and its conversation
 	// (see ui_message_menu.odin).
-	editing:      proto.Msg_Id,
-	editing_conv: proto.Conv_Id,
+	editing:         proto.Msg_Id,
+	editing_conv:    proto.Conv_Id,
 	// The conversation the network side was last asked to look at, and
 	// when (see keep_viewing).
-	view_asked:   proto.Conv_Id,
-	view_back:    bool,
-	view_at:      time.Tick,
+	view_asked:      proto.Conv_Id,
+	view_back:       bool,
+	view_at:         time.Tick,
 }
 
 // How often the inbox asks when the people who aren't online were last seen.
@@ -75,7 +85,7 @@ toggle_inbox :: proc(ui: ^UI) {
 	}
 	// In a narrow window it opens on the list (see buddies_screen).
 	if ui.narrow {
-		ui.buddies.selected = 0
+		ui.buddies.selected, ui.buddies.selected_group = 0, 0
 	}
 }
 
@@ -83,10 +93,32 @@ toggle_inbox :: proc(ui: ^UI) {
 // shown server.
 open_conversation :: proc(ui: ^UI, account: proto.Account_Id) {
 	ui.page = .Buddies
-	if ui.buddies.selected != account {
+	if ui.buddies.selected != account || ui.buddies.selected_group != 0 {
 		ui.buddies.len = 0
 	}
-	ui.buddies.selected = account
+	ui.buddies.selected, ui.buddies.selected_group = account, 0
+}
+
+// open_group shows the inbox with a group, on the shown server.
+open_group :: proc(ui: ^UI, conv: proto.Conv_Id) {
+	ui.page = .Buddies
+	if ui.buddies.selected_group != conv {
+		ui.buddies.len = 0
+		ui.buddies.members_shown = false
+	}
+	ui.buddies.selected, ui.buddies.selected_group = 0, conv
+}
+
+// entry_open is whether an entry of the inbox is the conversation that is open.
+@(private = "file")
+entry_open :: proc(ui: ^UI, e: Buddy_Entry) -> bool {
+	if e.ns != ui.session {
+		return false
+	}
+	if e.group {
+		return e.conv == ui.buddies.selected_group
+	}
+	return ui.buddies.selected_group == 0 && e.account == ui.buddies.selected
 }
 
 // open_entry opens the DM with someone in the inbox: straight away on
@@ -94,11 +126,19 @@ open_conversation :: proc(ui: ^UI, account: proto.Account_Id) {
 @(private = "file")
 open_entry :: proc(ui: ^UI, e: Buddy_Entry) {
 	if e.ns == ui.session {
-		open_conversation(ui, e.account)
+		if e.group {
+			open_group(ui, e.conv)
+		} else {
+			open_conversation(ui, e.account)
+		}
 		return
 	}
 	ui.switch_to, ui.switching = e.ns, true
-	ui.inbox_open = e.account
+	if e.group {
+		ui.inbox_open, ui.inbox_open_group = 0, e.conv
+	} else {
+		ui.inbox_open, ui.inbox_open_group = e.account, 0
+	}
 }
 
 // keep_viewing makes the network side look at `conv` (with `back`, the
@@ -125,14 +165,14 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 }
 
 // back_from_dms is the session screen making sure that what it shows is a
-// channel's: after coming back from the buddy screen, or after having been sent
-// there by something else. Call with the View locked.
+// channel's, or our notes: after coming back from the buddy screen, or after
+// having been sent there by something else. Call with the View locked.
 back_from_dms :: proc(ui: ^UI) {
 	v := ui.view
 	if v.viewing == 0 && v.channel == 0 {
 		return // none reported yet
 	}
-	if v.viewing == 0 || viewed_channel(v) == nil {
+	if v.viewing == 0 || (viewed_channel(v) == nil && !viewing_notes(v)) {
 		keep_viewing(ui, 0, back = true)
 	}
 }
@@ -165,16 +205,28 @@ buddies_screen :: proc(ui: ^UI) {
 		session_header(ui)
 	}
 	list := ui.inbox
+	group_wanted_check(ui)
 	// Somebody who has left the list (removed from it, or no longer a buddy
 	// and with no DM) takes the conversation along.
 	entry: Buddy_Entry
 	found := false
 	for e in list {
-		if e.ns == ui.session && e.account == ui.buddies.selected {
+		if entry_open(ui, e) {
 			entry, found = e, true
 		}
 	}
-	if !found && ui.buddies.selected != 0 {
+	if !found && ui.buddies.selected_group != 0 {
+		// A group that is hidden from the list, opened again.
+		for &dm in ui.view.dms {
+			if dm.id == ui.buddies.selected_group && dm.count > 0 {
+				entry, found = group_entry(ui.view, &dm), true
+				entry.ns = ui.session
+			}
+		}
+		if !found {
+			ui.buddies.selected_group = 0
+		}
+	} else if !found && ui.buddies.selected != 0 {
 		if ui.buddies.selected in ui.view.accounts && ui.buddies.selected != ui.view.me {
 			// Picked from somewhere else (a channel's member list).
 			entry, found = buddy_entry(ui.view, ui.buddies.selected, false), true
@@ -253,7 +305,7 @@ conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow:
 @(private = "file")
 back_to_list :: proc(ui: ^UI) {
 	if .SUBMIT in icon_button(ui, "to inbox list", .Back, "Conversations") {
-		ui.buddies.selected = 0
+		ui.buddies.selected, ui.buddies.selected_group = 0, 0
 	}
 }
 
@@ -264,6 +316,12 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	mu.begin_panel(ctx, "buddies", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 
+	if ui.session != nil {
+		mu.layout_row(ctx, {-1})
+		if .SUBMIT in stable_button(ctx, "new group", "New group...") {
+			open_group_picker(ui)
+		}
+	}
 	if len(list) == 0 {
 		mu.layout_row(ctx, {-1}, -1)
 		with_text_color(
@@ -312,21 +370,29 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	mu.layout_row(ctx, {pic + 4, -1})
 	cell := mu.layout_next(ctx)
 	pic_r := mu.Rect{cell.x, cell.y + (cell.h - pic) / 2, pic, pic}
-	if here {
+	b := b
+	switch {
+	case b.group:
+		// The members' icon, the same on every server: the others'
+		// pictures are only known on the shown one.
+		color := ctx.style.colors[.TEXT] if b.online else theme.dim
+		mu.draw_icon(ctx, render.icon_id(.Buddies), pic_r, color)
+	case here:
 		avatar(ui, b.account, pic_r)
-	} else {
+	case:
 		// Pictures are known by the shown server's blob ids.
 		letter_disc(ui, b.account, b.name, pic_r)
 	}
 
 	mu.push_id(ctx, uintptr(rawptr(b.ns)))
 	defer mu.pop_id(ctx)
-	mu.push_id(ctx, uintptr(b.account))
+	// A group and an account can have the same number, so they are told apart.
+	mu.push_id(ctx, fmt.tprintf("g%d", b.conv) if b.group else fmt.tprintf("a%d", b.account))
 	defer mu.pop_id(ctx)
 	id := mu.get_id(ctx, "buddy")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	selected := here && ui.buddies.selected == b.account
+	selected := entry_open(ui, b)
 	keyed := nav_control(ctx, id, r, list = true, current = selected)
 	// The open one in the accent color, like the open channel (list_row).
 	switch {
@@ -378,7 +444,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	switch {
 	case ctx.mouse_pressed_bits == {.LEFT}:
 		open_entry(ui, b)
-	case .RIGHT in ctx.mouse_pressed_bits && here:
+	case .RIGHT in ctx.mouse_pressed_bits && here && !b.group:
 		open_user_menu(ui, 0, b.account)
 	}
 }
@@ -400,6 +466,10 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		dim_label(ctx, "Pick a buddy to start talking.")
 		return
 	}
+	if entry.group {
+		group_conversation(ui, entry, back)
+		return
+	}
 	account := entry.account
 
 	// Their name, and the button that removes a DM from the list (for somebody
@@ -408,11 +478,16 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	// The name, then its buttons: up to five (a video call beside the call
 	// where we can send our camera).
 	video := camera_available(v)
+	deleted := .Deleted in (v.accounts[account] or_else {}).flags
 	icons := 1 if entry.conv == 0 else 4 if can_hide else 3
 	if video {
 		icons += 1
 	}
-	buf: [6]i32
+	group_ok := !deleted && .Bot not_in (v.accounts[account] or_else {}).flags
+	if group_ok {
+		icons += 1
+	}
+	buf: [7]i32
 	widths := buf[:icons + 1]
 	widths[0] = -(icon_button_w(ctx) * i32(icons) + ctx.style.spacing * i32(icons + 1))
 	for &w in widths[1:] {
@@ -430,7 +505,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	} else {
 		mu.layout_row(ctx, widths)
 	}
-	deleted := .Deleted in (v.accounts[account] or_else {}).flags
 	title := entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)
 	if rail_count(ui) > 1 {
 		// Which of the inbox's servers it is on.
@@ -475,6 +549,10 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		if video {
 			mu.label(ctx, "")
 		}
+	}
+	if group_ok &&
+	   .SUBMIT in icon_button(ui, "dm add people", .Plus, "Start a group with them and others") {
+		open_group_picker(ui, account)
 	}
 	if entry.conv != 0 {
 		pins_button(ui)
@@ -545,6 +623,140 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	composer_bar(ui, composer, bar)
 }
 
+// group_conversation is conversation for a group: the others' names, who of
+// them is typing, the messages and the box to write in. There are no calls or
+// files to offer in a group; instead the header can list who is in it, each
+// with the same menu as in a channel's member list.
+@(private = "file")
+group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
+	ctx := &ui.ctx
+	v := ui.view
+	dm: ^conn.View_DM
+	for &d in v.dms {
+		if d.id == entry.conv {
+			dm = &d
+		}
+	}
+	if dm == nil {
+		mu.layout_row(ctx, {-1})
+		dim_label(ctx, "Pick a buddy to start talking.")
+		return
+	}
+	closed := dm_closed(v, dm)
+
+	// The names, then the members, pins, search and hide buttons.
+	icons :: 4
+	widths: [icons + 1]i32
+	widths[0] = -(icon_button_w(ctx) * icons + ctx.style.spacing * (icons + 1))
+	for &w in widths[1:] {
+		w = icon_button_w(ctx)
+	}
+	header_pad(ui)
+	layout := mu.get_layout(ctx)
+	layout.indent += CONV_HEADER_PAD
+	if back {
+		row: [icons + 2]i32
+		row[0] = 40
+		copy(row[1:], widths[:])
+		mu.layout_row(ctx, row[:])
+		back_to_list(ui)
+	} else {
+		mu.layout_row(ctx, widths[:])
+	}
+	title := entry.name
+	if rail_count(ui) > 1 {
+		title = fmt.tprintf(
+			"%s  ·  %s",
+			title,
+			v.server_name if v.server_name != "" else v.server,
+		)
+	}
+	status := entry.status
+	status_color := theme.dim
+	if typing := typing_text(v); typing != "" && v.viewing == entry.conv {
+		status, status_color = typing, theme.speaking
+	}
+	if ui.paste != nil {
+		status = "reading the clipboard..."
+	}
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status, status_color = editing, theme.dim
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
+		status, status_color = notice, theme.off
+	}
+	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
+	if .SUBMIT in icon_button(ui, "group members", .Buddies, "Who is in it") {
+		ui.buddies.members_shown = !ui.buddies.members_shown
+	}
+	pins_button(ui)
+	search_button(ui)
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "group hide",
+		   .Trash,
+		   "Remove this group from the list until something new is said in it",
+		   theme.off,
+	   ) {
+		settings.hide_dm(&ui.settings, v.server_key, entry.conv, max(dm.last, 1))
+		shared_hidden_changed(ui.session, entry.conv, max(dm.last, 1))
+		ui.settings_dirty = true
+		ui.buddies.selected_group = 0
+		log.debug("ui: hid a group")
+		return
+	}
+	layout.indent -= CONV_HEADER_PAD
+	header_line_below(ui)
+	if ui.buddies.members_shown {
+		// Everyone else in it, with the menu they have in a channel's list.
+		for id in conn.group_members(dm) {
+			mu.push_id(ctx, uintptr(id))
+			pic := ctx.text_height(ctx.style.font) + 2
+			mu.layout_row(ctx, {pic + 4, -1})
+			cell := mu.layout_next(ctx)
+			avatar(ui, id, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
+			if .SUBMIT in stable_button(ctx, "member", person_label(v, id)) {
+				open_user_menu(ui, 0, id)
+			}
+			mu.pop_id(ctx)
+		}
+	}
+	if closed {
+		mu.layout_row(ctx, {-1})
+		dim_label(
+			ctx,
+			"Everyone else in this group has deleted their account. You can still read it, but not write to it.",
+		)
+		mu.layout_row(ctx, {-1}, -1)
+		if v.viewing == entry.conv {
+			timeline(ui, &ui.timeline, {entry.conv, 0}, readonly = true)
+		}
+		return
+	}
+
+	input_h := composer_height(ui, composer_of_page(ui))
+	files_h := composer_files_height(ui, composer_of_page(ui), panel_width(ctx))
+	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
+	if v.viewing == entry.conv {
+		timeline(ui, &ui.timeline, {entry.conv, 0})
+	} else {
+		mu.begin_panel(ctx, "no conversation", {.NO_FRAME})
+		spinner_row(ui) // its messages, on their way
+		mu.end_panel(ctx)
+	}
+	composer := composer_of_page(ui)
+	composer_files(ui, composer, panel_width(ctx))
+	bar := Composer_Bar {
+		send_id = "dm send",
+		verb    = "Send",
+	}
+	if v.viewing == entry.conv {
+		bar.typing = conn.Typing_Command{}
+	}
+	composer_bar(ui, composer, bar)
+}
+
 // Who a DM's file button sends a file to, and whether they are here to take it.
 @(private = "file")
 Dm_File_Button :: struct {
@@ -599,6 +811,9 @@ ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 	cmd: conn.Last_Seen_Command
 	online := 0
 	for b in list {
+		if b.group {
+			continue
+		}
 		if b.online {
 			online += 1
 		} else if cmd.count < len(cmd.accounts) {

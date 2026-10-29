@@ -63,7 +63,7 @@ chat_send :: proc(
 	dm_to: proto.Account_Id = 0,
 	thread := Timeline_Key{},
 ) {
-	buf: [proto.MAX_CHAT_SIZE]u8
+	buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	text := proto.sanitize_message(raw, buf[:])
 	conv, state, ok := post_target(c, dm_to)
 	thread := thread
@@ -112,9 +112,6 @@ post_target :: proc(
 	if dm_to == 0 {
 		conv = c.convs.viewing
 		return conv, first, conv != 0
-	}
-	if dm_to == c.auth.me {
-		return
 	}
 	conv = dm_with(c, dm_to)
 	return conv, first if conv != 0 else .Open, true
@@ -179,7 +176,7 @@ drive_outbox :: proc(c: ^Server_Conn) {
 	case .Post:
 		if !p.asking {
 			p.asking = true
-			buf: [proto.MSG_POST_MAX_SIZE]u8
+			buf := new([proto.MSG_POST_MAX_SIZE]u8, context.temp_allocator)
 			post := proto.Msg_Post {
 				conv        = p.conv,
 				nonce       = p.nonce,

@@ -10,7 +10,9 @@ import "core:unicode/utf8"
 // Display names are not unique, but usernames are. Clients show the
 // username next to a display name that appears more than once.
 
-MAX_NAME_SIZE :: 32 // bytes of UTF-8
+// Bytes of UTF-8: a Mattermost first and last name (64 characters each) and
+// the space between them, at up to 4 bytes per character.
+MAX_NAME_SIZE :: 4 * (64 + 1 + 64)
 
 // sanitize_name returns `name` as valid UTF-8 without control characters or
 // invisible formatting characters (which could hide or reorder text).

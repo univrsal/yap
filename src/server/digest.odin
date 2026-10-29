@@ -163,8 +163,8 @@ digest_account :: proc(s: ^Server, acc: ^Account, newest: proto.Msg_Id, now: i64
 }
 
 // digest_query adds to `items` what one of the digest statements finds for
-// `acc`, at most DIGEST_MOST of it, as `kind` (but anything in a DM is always
-// Direct). It notes in `more` whether there was more. A message that is already
+// `acc`, at most DIGEST_MOST of it, as `kind` (but anything in a DM or a group
+// is always Direct). It notes in `more` whether there was more. A message that is already
 // in `items` stays there once, in the part that comes first.
 @(private = "file")
 digest_query :: proc(
@@ -191,7 +191,7 @@ digest_query :: proc(
 			kind   = kind,
 		}
 		conv := s.convs.by_id[item.conv] or_else nil
-		if conv != nil && conv.kind == .DM {
+		if conv != nil && conv.kind != .Channel {
 			item.kind = .Direct
 		}
 		// Not from a channel that the account may no longer see.
@@ -268,6 +268,7 @@ digest_compose :: proc(
 	section :: proc(
 		b: ^strings.Builder,
 		s: ^Server,
+		to: proto.Account_Id,
 		title: string,
 		items: []Digest_Item,
 		kind: Digest_Kind,
@@ -287,8 +288,16 @@ digest_compose :: proc(
 				from = sender.display
 			}
 			place := ""
-			if conv := s.convs.by_id[item.conv] or_else nil; conv != nil && kind != .Direct {
-				place = fmt.tprintf(" in #%s", conv.name)
+			if conv := s.convs.by_id[item.conv] or_else nil; conv != nil {
+				switch conv.kind {
+				case .Channel:
+					if kind != .Direct {
+						place = fmt.tprintf(" in #%s", conv.name)
+					}
+				case .DM:
+				case .Group:
+					place = fmt.tprintf(" to you, %s", group_names(s, conv, item.sender, to))
+				}
 			}
 			fmt.sbprintf(
 				b,
@@ -303,9 +312,9 @@ digest_compose :: proc(
 			strings.write_string(b, "  ... and more.\n")
 		}
 	}
-	section(&b, s, "Direct messages", items, .Direct, more[.Direct])
-	section(&b, s, "Mentions", items, .Mention, more[.Mention])
-	section(&b, s, "In your channels", items, .Channel, more[.Channel])
+	section(&b, s, acc.id, "Direct messages", items, .Direct, more[.Direct])
+	section(&b, s, acc.id, "Mentions", items, .Mention, more[.Mention])
+	section(&b, s, acc.id, "In your channels", items, .Channel, more[.Channel])
 	strings.write_string(&b, "\nOpen yap to read and reply to them.\n\n-- \n")
 	fmt.sbprintf(
 		&b,
@@ -339,6 +348,8 @@ digest_quote :: proc(s: ^Server, item: Digest_Item) -> string {
 		switch {
 		case m.everyone:
 			strings.write_string(&b, "@" + proto.MENTION_EVERYONE)
+		case m.here:
+			strings.write_string(&b, "@" + proto.MENTION_HERE)
 		case m.role != 0:
 			r := s.accounts.roles[m.role] or_else nil
 			fmt.sbprintf(&b, "@%s", r.name if r != nil else "role")

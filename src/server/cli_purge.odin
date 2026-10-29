@@ -25,7 +25,7 @@ import "sqlite"
 // Then it removes the messages, the stored files that are no longer used, and
 // the free space in the database, and reports the result.
 
-PURGE_USAGE :: `usage: yap-server purge <all|channel|alice+bob> <YYYY-MM-DD|<days>d> [files] [-y] [config.json]`
+PURGE_USAGE :: `usage: yap-server purge <all|channel|alice+bob|alice+bob+carol> <YYYY-MM-DD|<days>d> [files] [-y] [config.json]`
 
 run_purge_command :: proc(args: []string) -> int {
 	positional := make([dynamic]string, context.temp_allocator)
@@ -92,8 +92,14 @@ run_purge_command :: proc(args: []string) -> int {
 		if conv == nil {
 			return 1
 		}
-		place =
-			fmt.tprintf("#%s", conv.name) if conv.kind == .Channel else fmt.tprintf("the DM %s", target)
+		switch conv.kind {
+		case .Channel:
+			place = fmt.tprintf("#%s", conv.name)
+		case .DM:
+			place = fmt.tprintf("the DM %s", target)
+		case .Group:
+			place = fmt.tprintf("the group %s", target)
+		}
 	}
 
 	r: Retention
@@ -168,27 +174,43 @@ run_purge_command :: proc(args: []string) -> int {
 }
 
 // purge_target returns the conversation named on the command line, which is
-// either a channel or a DM written as alice+bob.
+// either a channel, a DM written as alice+bob or a group written as
+// alice+bob+carol.
 @(private = "file")
 purge_target :: proc(convs: ^Convs, a: ^Accounts, name: string) -> ^Conv {
-	if plus := strings.index_byte(name, '+'); plus > 0 {
-		x := account_find(a, name[:plus])
-		y := account_find(a, name[plus + 1:])
-		if x == nil || y == nil {
-			fmt.eprintfln("%s: no such account", name[:plus] if x == nil else name[plus + 1:])
+	if strings.index_byte(name, '+') > 0 {
+		names := strings.split(name, "+", context.temp_allocator)
+		if len(names) > proto.MAX_GROUP_MEMBERS {
+			fmt.eprintfln("%s: a group has at most %d people", name, proto.MAX_GROUP_MEMBERS)
 			return nil
 		}
-		pair := [2]proto.Account_Id{min(x.id, y.id), max(x.id, y.id)}
-		conv := convs.dms[pair] or_else nil
+		ids := make([]proto.Account_Id, len(names), context.temp_allocator)
+		for n, i in names {
+			acc := account_find(a, n)
+			if acc == nil {
+				fmt.eprintfln("%s: no such account", n)
+				return nil
+			}
+			ids[i] = acc.id
+		}
+		if len(ids) == 2 {
+			pair := [2]proto.Account_Id{min(ids[0], ids[1]), max(ids[0], ids[1])}
+			conv := convs.dms[pair] or_else nil
+			if conv == nil {
+				fmt.eprintfln("%s and %s have no DM with each other", names[0], names[1])
+			}
+			return conv
+		}
+		conv := group_find(convs, ids)
 		if conv == nil {
-			fmt.eprintfln("%s and %s have no DM with each other", x.username, y.username)
+			fmt.eprintfln("%s have no group of just them", name)
 		}
 		return conv
 	}
 	conv := conv_by_name(convs, strings.trim_prefix(name, "#"))
 	if conv == nil {
 		fmt.eprintfln(
-			"there is no channel called %s (use \"all\" for everything, or alice+bob for a DM)",
+			"there is no channel called %s (use \"all\" for everything, alice+bob for a DM or alice+bob+carol for a group)",
 			name,
 		)
 	}
@@ -226,7 +248,6 @@ format_day :: proc(ms: i64) -> string {
 }
 
 // confirm asks a yes/no question on the terminal. Anything but "y" or "yes" counts as no.
-@(private = "file")
 confirm :: proc(question: string) -> bool {
 	fmt.printf("%s [y/N] ", question)
 	r: bufio.Reader

@@ -150,7 +150,6 @@ profile_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 
 // avatar_ok checks whether a blob can be used as somebody's picture, i.e.
 // it is a stored JPEG that is small enough.
-@(private = "file")
 avatar_ok :: proc(s: ^Server, blob: proto.Blob_Id) -> proto.Status {
 	b, found := blob_get(&s.blobs, blob)
 	switch {

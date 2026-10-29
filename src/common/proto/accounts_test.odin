@@ -1,6 +1,7 @@
 #+build !wasi
 package proto
 
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -12,13 +13,15 @@ test_username_clean :: proc(t: ^testing.T) {
 	name, ok = username_clean("a.b_c-9", &buf)
 	testing.expect(t, ok)
 	testing.expect_value(t, name, "a.b_c-9")
-	name, ok = username_clean("ab", &buf)
+	name, ok = username_clean("a", &buf)
 	testing.expect(t, ok)
-	name, ok = username_clean("abcdefghijklmnopqrstuvwxyz012345", &buf)
+	longest := strings.repeat("a", MAX_USERNAME_SIZE, context.temp_allocator)
+	name, ok = username_clean(longest, &buf)
 	testing.expect(t, ok)
 	testing.expect_value(t, len(name), MAX_USERNAME_SIZE)
 
-	for bad in ([]string{"", "a", "abcdefghijklmnopqrstuvwxyz0123456", "has space", "ümlaut", "semi;colon", "a\x00b"}) {
+	too_long := strings.repeat("a", MAX_USERNAME_SIZE + 1, context.temp_allocator)
+	for bad in ([]string{"", too_long, "has space", "ümlaut", "semi;colon", "a\x00b"}) {
 		_, ok = username_clean(bad, &buf)
 		testing.expectf(t, !ok, "%q should not be a username", bad)
 	}
@@ -176,9 +179,9 @@ test_account_record :: proc(t: ^testing.T) {
 	a := Account {
 		id           = 42,
 		flags        = {.Owner},
-		username     = "abcdefghijklmnopqrstuvwxyz012345",
-		display      = "0123456789012345678901234567890!",
-		status       = "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
+		username     = strings.repeat("u", MAX_USERNAME_SIZE, context.temp_allocator),
+		display      = strings.repeat("d", MAX_NAME_SIZE, context.temp_allocator),
+		status       = strings.repeat("s", MAX_STATUS_SIZE, context.temp_allocator),
 		status_until = 77,
 		avatar       = 5,
 		roles        = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17},
@@ -211,8 +214,8 @@ test_account_record :: proc(t: ^testing.T) {
 	// additional unknown fields after them: the known fields are still read.
 	later := make([dynamic]u8, context.temp_allocator)
 	append(&later, 7, 0, 0, 0, 0) // id, flags
-	append(&later, 1, 'x', 1, 'X') // username, display
-	append(&later, 4, 'a', 'w', 'a', 'y') // status
+	append(&later, 1, 'x', 1, 0, 'X') // username, display
+	append(&later, 4, 0, 'a', 'w', 'a', 'y') // status
 	append(&later, 1, 2, 3, 4, 5, 6, 7, 8) // until
 	append(&later, 9, 0, 0, 0, 0, 0, 0, 0) // avatar
 	append(&later, 2, 1, 0, 0, 0, 2, 0, 0, 0) // roles

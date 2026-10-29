@@ -18,6 +18,8 @@ import "common:proto"
 // and its place in everyone else's), settings and pending mentions.
 // Its messages, reactions and pins stay. The other side of a DM with it
 // can still read the conversation but can't write to it (see dm_closed).
+// It stays a member of its groups, because their members are what a group
+// is; a group goes on until fewer than two of its members are left.
 //
 // The blob of its picture is left for retention's garbage collection
 // (retention.odin), which removes unused blobs within the hour. The blob
@@ -55,7 +57,7 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 		i64(transmute(u8)proto.Account_Flags{.Deleted}),
 	)
 	db_run(db, q) or_return
-	for stmt in ([]Stmt{.Device_Erase, .Buddy_Erase, .Setting_Erase, .Mention_Erase, .Member_Erase, .Account_Roles_Clear, .Invite_Erase}) {
+	for stmt in ([]Stmt{.Device_Erase, .Buddy_Erase, .Setting_Erase, .Mention_Erase, .Member_Erase, .Account_Roles_Clear, .Invite_Erase, .Bookmark_Erase}) {
 		q = db_query(db, stmt, i64(id))
 		db_run(db, q) or_return
 	}
@@ -72,8 +74,14 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 @(require_results)
 account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 	a := &s.accounts
+	// Everyone saw it join, except for a bot or an account that never got
+	// verified, so everyone sees it go.
+	said := acc.flags & {.Bot, .Unverified} == {}
 	if !account_erase_rows(&s.db, acc.id) {
 		return false
+	}
+	if said && s.convs.home != nil {
+		system_post(s, s.convs.home, acc.id, .Left_Server)
 	}
 	username := strings.clone(acc.username, context.temp_allocator)
 
@@ -90,6 +98,9 @@ account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 		}
 	}
 	for _, conv in s.convs.by_id {
+		if conv.kind == .Group {
+			continue
+		}
 		if i, found := slice.linear_search(conv.members[:], acc.id); found {
 			ordered_remove(&conv.members, i)
 			delete_key(&conv.reads, acc.id)
@@ -132,15 +143,25 @@ account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 }
 
 // dm_closed is whether a conversation is a DM with an account that has
-// been deleted. Such a conversation can still be read but not written to.
+// been deleted, or a group with fewer than two members that haven't been.
+// Such a conversation can still be read but not written to.
 dm_closed :: proc(s: ^Server, conv: ^Conv) -> bool {
-	if conv.kind != .DM {
-		return false
+	gone :: proc(s: ^Server, id: proto.Account_Id) -> bool {
+		acc := account_by_id(&s.accounts, id)
+		return acc == nil || .Deleted in acc.flags
 	}
-	for id in ([]proto.Account_Id{conv.a, conv.b}) {
-		if acc := account_by_id(&s.accounts, id); acc == nil || .Deleted in acc.flags {
-			return true
+	switch conv.kind {
+	case .Channel:
+	case .DM:
+		return gone(s, conv.a) || gone(s, conv.b)
+	case .Group:
+		live := 0
+		for id in conv.members {
+			if !gone(s, id) {
+				live += 1
+			}
 		}
+		return live < 2
 	}
 	return false
 }

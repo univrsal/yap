@@ -1,2 +1,5 @@
 # cmd needs CRLF: with bare LF it can miss the labels build.bat calls.
 *.bat text eol=crlf
+
+# The Mattermost sample export is test data: keep its bytes as exported.
+tools/mattermost/sample/** -text

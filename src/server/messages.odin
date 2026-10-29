@@ -62,6 +62,10 @@ message_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, bod
 		reactors_get(s, u, id, body)
 	case .Pins_Get:
 		pins_get(s, u, id, body)
+	case .Bookmark_Set:
+		bookmark_set(s, u, id, body)
+	case .Bookmarks_Get:
+		bookmarks_get(s, u, id, body)
 	case .Blob_Put:
 		blob_put_request(s, u, id, body)
 	case .Blob_Get:
@@ -127,15 +131,18 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		kind        = p.kind,
 		thread_root = root.id,
 	}
-	text_buf: [proto.MAX_CHAT_SIZE]u8
+	text_buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	name_buf: [proto.MAX_FILE_NAME]u8
+	persona_buf: [proto.MAX_NAME_SIZE]u8
 	mentioned: []proto.Account_Id
 	#partial switch p.kind {
 	case .File:
-		// Files can only be offered in a DM, and only allowed file types.
+		// Files can only be offered in a DM with someone else, and only
+		// allowed file types.
 		m.file_name = proto.sanitize_file_name(p.text, &name_buf)
 		m.file_size = p.file_size
 		if conv.kind != .DM ||
+		   conv.a == conv.b ||
 		   m.file_size == 0 ||
 		   m.file_size > proto.MAX_FILE_SIZE ||
 		   m.file_name == "" ||
@@ -145,6 +152,15 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 	case .Text:
 		m.text = proto.sanitize_message(p.text, text_buf[:])
+		if p.persona.name != "" {
+			persona, persona_status := persona_check(s, u.account, p.persona, &persona_buf)
+			if persona_status != .Ok {
+				respond(u, id, persona_status)
+				return
+			}
+			m.persona = persona
+			m.flags += {.Persona}
+		}
 		// The files that the message carries must be uploads of the poster,
 		// and each upload may only be used once.
 		for i in 0 ..< p.attachment_count {
@@ -197,8 +213,18 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	// The message content is only logged when debugging.
-	place :=
-		conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
+	place: string
+	switch conv.kind {
+	case .Channel:
+		place = conv.name
+	case .DM:
+		place = fmt.tprintf("a DM with account %d", dm_other(conv, sender))
+		if conv.a == conv.b {
+			place = "a DM with oneself"
+		}
+	case .Group:
+		place = fmt.tprintf("a group of accounts %v", conv.members[:])
+	}
 	#partial switch m.kind {
 	case .Text:
 		log.debugf("%s in %q: %s (%d files)", conn_label(u), place, m.text, m.attachment_count)
@@ -268,15 +294,18 @@ msg_published :: proc(
 ) {
 	posted: [proto.MSG_POSTED_SIZE]u8
 	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
-	if first && conv.kind == .DM {
-		// The conversation is new to the other account, so it is told about
-		// the conversation before the message arrives. It is told about the
-		// conversation as it was before the message, so that the message
-		// then counts as unread like any other.
-		other := dm_other(conv, u.account.id)
+	if first && conv.kind != .Channel {
+		// The conversation is new to the other members of a DM or a group, so
+		// they are told about the conversation before the message arrives.
+		// They are told about the conversation as it was before the message,
+		// so that the message then counts as unread like any other.
 		last := conv.last_msg
 		conv.last_msg = 0
-		send_conv_to_account(s, other, conv)
+		for other in conv.members {
+			if other != u.account.id {
+				send_conv_to_account(s, other, conv)
+			}
+		}
 		conv.last_msg = last
 	}
 	msg_deliver(s, conv, m)
@@ -290,8 +319,8 @@ msg_published :: proc(
 	}
 }
 
-// links_restrict keeps links to the messages of a DM (see proto/forward.odin)
-// inside that DM. Only the two members of the DM could follow such a link
+// links_restrict keeps links to the messages of a DM or a group (see
+// proto/forward.odin) inside it. Only its members could follow such a link
 // anywhere else, so there it is replaced with plain text. The result is
 // allocated with the temp allocator, or is `text` itself if nothing had to
 // be changed.
@@ -305,10 +334,10 @@ links_restrict :: proc(s: ^Server, conv: ^Conv, text: string) -> string {
 		}
 		at = l.end
 		linked := conv_by_id(&s.convs, l.conv)
-		if l.conv == conv.id || linked == nil || linked.kind != .DM {
+		if l.conv == conv.id || linked == nil || linked.kind == .Channel {
 			continue
 		}
-		plain := "(a message in a DM)"
+		plain := "(a message in a DM)" if linked.kind == .DM else "(a message in a group)"
 		out = strings.concatenate({out[:l.start], plain, out[l.end:]}, context.temp_allocator)
 		at = l.start + len(plain)
 	}
@@ -395,17 +424,40 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // makes it the last message of its conversation. `m` must already contain
 // the conversation, sender, kind and content.
 msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> bool {
+	m.conv = conv.id
 	m.time = proto.Unix_Ms(unix_ms())
-	q := db_query(&s.db, .Msg_Add, i64(conv.id), i64(m.sender), i64(m.time), i64(m.kind))
+	msg_insert(&s.db, m, nonce) or_return
+	attachments_store(&s.db, m^) or_return
+	if conv.kind == .DM {
+		conv.posted[0 if m.sender == conv.a else 1] = true
+	}
+
+	q := db_query(&s.db, .Conv_Set_Last, i64(conv.id), i64(m.id))
+	db_run(&s.db, q) or_return
+	conv.last_msg, conv.last_time = m.id, m.time
+	return true
+}
+
+// msg_insert writes a message's row, filling in its id. The message keeps its
+// time (msg_store sets it to now; the importer's messages have their own). It
+// doesn't touch what depends on the message: its files, the conversation's last
+// message, who has posted in a DM.
+msg_insert :: proc(db: ^DB, m: ^proto.Message, nonce: u64) -> bool {
+	q := db_query(db, .Msg_Add, i64(m.conv), i64(m.sender), i64(m.time), i64(m.kind))
 	#partial switch m.kind {
 	case .Text:
 		db_bind_text(q, 5, m.text)
 	case .File:
 		db_bind_text(q, 5, m.file_name)
 	case .System:
-		// What happened, as a number. Its argument is stored in the column
-		// that holds the size of a file.
-		db_bind_text(q, 5, fmt.tprint(m.system))
+		// What happened, as a number, followed by its text on the next line
+		// if it has one. Its argument is stored in the column that holds
+		// the size of a file.
+		if m.text != "" {
+			db_bind_text(q, 5, fmt.tprintf("%d\n%s", m.system, m.text))
+		} else {
+			db_bind_text(q, 5, fmt.tprint(m.system))
+		}
 	case:
 		db_bind_null(q, 5)
 	}
@@ -420,16 +472,20 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	db_bind_int(q, 10, i64(m.forward.sender))
 	db_bind_int(q, 11, i64(m.forward.conv))
 	db_bind_int(q, 12, i64(m.forward.time))
-	db_run(&s.db, q) or_return
-	m.id = proto.Msg_Id(db_last_id(&s.db))
-	attachments_store(s, m^) or_return
-	if conv.kind == .DM {
-		conv.posted[0 if m.sender == conv.a else 1] = true
+	if .Persona in m.flags {
+		db_bind_text(q, 13, m.persona.name)
+		if m.persona.avatar != 0 {
+			db_bind_int(q, 14, i64(m.persona.avatar))
+		} else {
+			db_bind_null(q, 14)
+		}
+	} else {
+		db_bind_null(q, 13)
+		db_bind_null(q, 14)
 	}
-
-	q = db_query(&s.db, .Conv_Set_Last, i64(conv.id), i64(m.id))
-	db_run(&s.db, q) or_return
-	conv.last_msg, conv.last_time = m.id, m.time
+	db_bind_int(q, 15, i64(m.edited))
+	db_run(db, q) or_return
+	m.id = proto.Msg_Id(db_last_id(db))
 	return true
 }
 
@@ -459,7 +515,7 @@ msg_by_nonce :: proc(
 // conversation. It is either a new message or, if `op` is Msg_Changed, a
 // message in its current state.
 msg_deliver :: proc(s: ^Server, conv: ^Conv, m: proto.Message, op := proto.Event_Op.Msg_New) {
-	buf: [proto.MESSAGE_MAX_SIZE]u8
+	buf := new([proto.MESSAGE_MAX_SIZE]u8, context.temp_allocator)
 	body := proto.encode_message(buf[:], m)
 	if body == nil {
 		log.errorf("message %d doesn't fit in a record", m.id)
@@ -715,6 +771,12 @@ msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 			time   = proto.Unix_Ms(db_col_int(q, 14)),
 		}
 	}
+	if .Persona in m.flags {
+		m.persona = {
+			name   = db_col_text(q, 15),
+			avatar = proto.Blob_Id(db_col_int(q, 16)),
+		}
+	}
 	#partial switch m.kind {
 	case .Text:
 		m.text = db_col_text(q, 8)
@@ -722,9 +784,11 @@ msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 		m.file_name = db_col_text(q, 8)
 		m.file_size = u64(db_col_int(q, 11))
 	case .System:
-		what, _ := strconv.parse_uint(db_col_text(q, 8))
+		number, _, text := strings.partition(db_col_text(q, 8), "\n")
+		what, _ := strconv.parse_uint(number)
 		m.system = u8(what)
 		m.system_arg = u32(db_col_int(q, 11))
+		m.text = text
 	}
 	return m
 }
