@@ -432,6 +432,8 @@ unix_ms :: proc() -> i64 {
 @(require_results)
 db_open :: proc(db: ^DB, path: string) -> bool {
 	db^ = {}
+	// Only the first call can take effect, which is all that is needed.
+	_ = sqlite.count_memory()
 	cpath := strings.clone_to_cstring(path, context.temp_allocator)
 	if sqlite.open_v2(cpath, &db.conn, sqlite.OPEN_READWRITE | sqlite.OPEN_CREATE, nil) !=
 	   sqlite.OK {

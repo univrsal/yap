@@ -46,6 +46,37 @@ counts_by_line :: proc(t: ^testing.T) {
 	delete(small, a)
 	testing.expect_value(t, totals().live, before.live)
 
+	// Memory from a C library is counted under its own site: handed over
+	// with track, or taken from c_alloc.
+	site := runtime.Source_Code_Location {
+		file_path = "libtest",
+		procedure = "C library",
+	}
+	block := make([]u8, 300, runtime.heap_allocator())
+	track(&site, raw_data(block), len(block))
+	testing.expect_value(t, totals().live - before.live, 300)
+	untrack(raw_data(block))
+	delete(block, runtime.heap_allocator())
+	testing.expect_value(t, totals().live, before.live)
+
+	c := c_alloc(&site, 100)
+	testing.expect_value(t, c_size(c), 100)
+	testing.expect_value(t, totals().live - before.live, 100)
+	c = c_realloc(&site, c, 1000)
+	testing.expect_value(t, c_size(c), 1000)
+	testing.expect_value(t, totals().live - before.live, 1000)
+	listed := false
+	for s in sites() {
+		if s.loc.file_path == "libtest" {
+			listed = true
+			testing.expect_value(t, s.live, 1000)
+			testing.expect_value(t, site_string(s), "libtest (C library)")
+		}
+	}
+	testing.expect(t, listed)
+	c_free(c)
+	testing.expect_value(t, totals().live, before.live)
+
 	text := report()
 	defer delete(text)
 	testing.expect(t, strings.contains(text, "# Live, by file"))

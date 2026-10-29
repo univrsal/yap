@@ -16,8 +16,9 @@ import "core:sync"
 // is handed that context.
 //
 // It can't see memory that doesn't go through it: the malloc of C libraries
-// (stb_image's decoded pictures, SQLite, libwebp, miniaudio, the GPU
-// driver), thread stacks and the program's code. It also doesn't see
+// (libwebp, miniaudio, FFmpeg, the GPU driver), thread stacks and the
+// program's code. SQLite and stb_image's decoded pictures are the exceptions,
+// which external.odin counts under a site of their own. It also doesn't see
 // core:os's scratch space, which is two arenas per thread that core:os takes
 // from the heap itself (4 MB each once a thread has used it, although little
 // of that is ever touched, so it shows up in "heap in use" more than in

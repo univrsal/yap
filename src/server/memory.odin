@@ -14,8 +14,9 @@ import "common:proto"
 // common/memtrack, which main installs as the allocator. Every memory_log
 // interval (the config's memory_log_minutes) a summary line is logged so
 // trends can be seen over a long run, and the owner can request the full
-// report from a client (Server_Memory). Memory that SQLite allocates
-// for itself is not seen by memtrack, so it is reported separately.
+// report from a client (Server_Memory). SQLite takes its memory from
+// memtrack's counting malloc (sqlite.count_memory), so it is in the lists as
+// "SQLite"; the connection's own figures are reported besides.
 
 Memory_Log :: struct {
 	every:  time.Duration, // 0 disables logging
