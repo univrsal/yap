@@ -8,7 +8,10 @@
 // wrappers are in src/server/db.odin.
 package sqlite
 
+import "base:runtime"
 import "core:c"
+
+import "common:memtrack"
 
 when ODIN_OS == .Windows {
 	@(private)
@@ -95,6 +98,10 @@ foreign lib {
 	column_blob :: proc(stmt: ^Stmt, column: c.int) -> rawptr ---
 	column_bytes :: proc(stmt: ^Stmt, column: c.int) -> c.int ---
 
+	// Sets an option for the whole library. It fails with MISUSE once the
+	// library has been used.
+	config :: proc(op: c.int, #c_vararg args: ..any) -> c.int ---
+
 	// Reports how much a connection uses (DBSTATUS_*). This works without
 	// MEMSTATUS.
 	db_status :: proc(db: ^Connection, op: c.int, current: ^c.int, highwater: ^c.int, reset: c.int) -> c.int ---
@@ -105,3 +112,59 @@ foreign lib {
 DBSTATUS_CACHE_USED :: 1
 DBSTATUS_SCHEMA_USED :: 2
 DBSTATUS_STMT_USED :: 3
+
+CONFIG_MALLOC :: 4
+
+Mem_Methods :: struct {
+	malloc:    proc "c" (size: c.int) -> rawptr,
+	free:      proc "c" (p: rawptr),
+	realloc:   proc "c" (p: rawptr, size: c.int) -> rawptr,
+	size:      proc "c" (p: rawptr) -> c.int,
+	roundup:   proc "c" (size: c.int) -> c.int,
+	init:      proc "c" (app_data: rawptr) -> c.int,
+	shutdown:  proc "c" (app_data: rawptr),
+	app_data:  rawptr,
+}
+
+@(private)
+MEMORY_SITE := runtime.Source_Code_Location {
+	file_path = "SQLite",
+	procedure = "C library",
+}
+
+@(private)
+memory_methods := Mem_Methods {
+	malloc = proc "c" (size: c.int) -> rawptr {
+		context = runtime.default_context()
+		return memtrack.c_alloc(&MEMORY_SITE, int(size))
+	},
+	free = proc "c" (p: rawptr) {
+		context = runtime.default_context()
+		memtrack.c_free(p)
+	},
+	realloc = proc "c" (p: rawptr, size: c.int) -> rawptr {
+		context = runtime.default_context()
+		return memtrack.c_realloc(&MEMORY_SITE, p, int(size))
+	},
+	size = proc "c" (p: rawptr) -> c.int {
+		return c.int(memtrack.c_size(p))
+	},
+	roundup = proc "c" (size: c.int) -> c.int {
+		return (size + 7) &~ 7
+	},
+	init = proc "c" (app_data: rawptr) -> c.int {
+		return OK
+	},
+	shutdown = proc "c" (app_data: rawptr) {},
+}
+
+// count_memory makes SQLite take its memory from memtrack's counting
+// malloc, so that all of it is in the memory reports as "SQLite". It has to
+// run before the library is first used, and does nothing after (SQLite then
+// refuses, and keeps its own allocator) or when memtrack isn't counting.
+count_memory :: proc() -> bool {
+	when !memtrack.ENABLED {
+		return false
+	}
+	return config(CONFIG_MALLOC, &memory_methods) == OK
+}

@@ -15,10 +15,10 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import stbi "vendor:stb/image"
 
 import "common:gif"
 import "common:proto"
+import "common:stbtrack"
 import "common:webp"
 
 // The server's own emoji (src/common/proto/emoji.odin). They come from a
@@ -567,17 +567,17 @@ read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok:
 	}
 	if !all {
 		w, h, comp: i32
-		pixels := stbi.load_from_memory(raw_data(data), i32(len(data)), &w, &h, &comp, 4)
+		pixels := stbtrack.load_from_memory(raw_data(data), i32(len(data)), &w, &h, &comp, 4)
 		if pixels == nil {
 			log.warnf("%s isn't a readable GIF, skipping it", path)
 			return
 		}
-		defer stbi.image_free(pixels)
+		defer stbtrack.image_free(pixels)
 		return scale_cell(pixels[:int(w) * int(h) * 4], int(w), int(h)), {}, true
 	}
 	delays: [^]i32
 	x, y, z, comp: i32
-	pixels := stbi.load_gif_from_memory(
+	pixels := stbtrack.load_gif_from_memory(
 		raw_data(data),
 		i32(len(data)),
 		&delays,
@@ -591,8 +591,8 @@ read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok:
 		log.warnf("%s isn't a readable GIF, skipping it", path)
 		return
 	}
-	defer stbi.image_free(pixels)
-	defer stbi.image_free(rawptr(delays))
+	defer stbtrack.image_free(pixels)
+	defer stbtrack.image_free(rawptr(delays))
 	thin := Thinning {
 		frames = int(z),
 	}

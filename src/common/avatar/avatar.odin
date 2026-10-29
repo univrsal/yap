@@ -5,6 +5,7 @@ import "base:runtime"
 import stbi "vendor:stb/image"
 
 import "common:proto"
+import "common:stbtrack"
 import log "common:wlog"
 
 // Profile pictures: any picture made into the one that yap keeps, the largest
@@ -14,13 +15,13 @@ import log "common:wlog"
 
 // decode reads a picture (JPEG, PNG, GIF or BMP: what stb_image reads) into
 // RGBA pixels. The pixels belong to stb_image: free them with
-// stbi.image_free.
+// stbtrack.image_free.
 decode :: proc(data: []u8) -> (width, height: int, pixels: []u8, ok: bool) {
 	if len(data) == 0 || len(data) > 1 << 30 {
 		return
 	}
 	w, h, channels: i32
-	raw := stbi.load_from_memory(raw_data(data), i32(len(data)), &w, &h, &channels, 4)
+	raw := stbtrack.load_from_memory(raw_data(data), i32(len(data)), &w, &h, &channels, 4)
 	if raw == nil || w <= 0 || h <= 0 {
 		return
 	}
@@ -159,7 +160,7 @@ from_bytes :: proc(
 	if !decoded {
 		return
 	}
-	defer stbi.image_free(raw_data(pixels))
+	defer stbtrack.image_free(raw_data(pixels))
 	return prepare(width, height, pixels, allocator)
 }
 
@@ -171,7 +172,7 @@ to_png :: proc(data: []u8, allocator := context.allocator) -> (png: []u8, ok: bo
 	if !decoded {
 		return
 	}
-	defer stbi.image_free(raw_data(pixels))
+	defer stbtrack.image_free(raw_data(pixels))
 	writer := Jpeg_Writer {
 		ctx = context,
 		buf = make([dynamic]u8, 0, 16 * 1024, allocator),

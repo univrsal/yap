@@ -10,13 +10,13 @@
 // same on both.
 package wstbi
 
-import stbi "vendor:stb/image"
+import "common:stbtrack"
 
-info_from_memory :: stbi.info_from_memory
-load_from_memory :: stbi.load_from_memory
+info_from_memory :: stbtrack.info_from_memory
+load_from_memory :: stbtrack.load_from_memory
 // Decodes every frame of a GIF, and each frame's delay in milliseconds (both
 // are freed with image_free). Native only: the web client leaves GIFs to the
 // page.
-load_gif_from_memory :: stbi.load_gif_from_memory
-image_free :: stbi.image_free
-failure_reason :: stbi.failure_reason
+load_gif_from_memory :: stbtrack.load_gif_from_memory
+image_free :: stbtrack.image_free
+failure_reason :: stbtrack.failure_reason
