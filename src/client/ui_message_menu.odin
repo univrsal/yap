@@ -220,10 +220,10 @@ Composer :: struct {
 composer_of_page :: proc(ui: ^UI) -> Composer {
 	if ui.page == .Buddies {
 		b := &ui.buddies
-		return {b.buf[:], &b.len, &b.editing, &b.editing_conv, 0, &b.files, &b.area}
+		return {composer_buffer(&b.buf), &b.len, &b.editing, &b.editing_conv, 0, &b.files, &b.area}
 	}
 	ch := &ui.chat
-	return {ch.buf[:], &ch.len, &ch.editing, &ch.editing_conv, 0, &ch.files, &ch.area}
+	return {composer_buffer(&ch.buf), &ch.len, &ch.editing, &ch.editing_conv, 0, &ch.files, &ch.area}
 }
 
 // composer_of is the page's composer (0) or a thread window's.
@@ -232,7 +232,21 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 		return composer_of_page(ui)
 	}
 	t := &ui.threads[thread - 1]
-	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread, &t.files, &t.area}
+	return {composer_buffer(&t.buf), &t.len, &t.editing, &t.editing_conv, thread, &t.files, &t.area}
+}
+
+// composer_buffer returns the room that a message is written in, made the first
+// time it is asked for. They are on the heap, not in the structs of the UI that
+// have them, because a message can be 64 KB long now and those structs are
+// copied whole when another server is shown (show_session): with three of
+// these (and one for each thread) in them the compiler's optimizer never
+// finished with that, and each server's tab took half a megabyte more than it
+// needed to.
+composer_buffer :: proc(buf: ^^[proto.MAX_CHAT_SIZE]u8) -> []u8 {
+	if buf^ == nil {
+		buf^ = new([proto.MAX_CHAT_SIZE]u8)
+	}
+	return buf^[:]
 }
 
 // composer_input takes a composer's keys before its box is laid out: in a web

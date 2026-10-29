@@ -29,7 +29,7 @@ import "common:proto"
 UI_Thread :: struct {
 	key:          conn.Timeline_Key, // {} for a free slot
 	timeline:     UI_Timeline,
-	buf:          [proto.MAX_CHAT_SIZE]u8,
+	buf:          ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
 	len:          int,
 	area:         Text_Area, // the box it is written in
 	// The reply of ours being edited in it, and its conversation (Composer).
@@ -110,7 +110,10 @@ close_thread :: proc(ui: ^UI, slot: int) {
 	}
 	timeline_destroy(&t.timeline)
 	picked_files_destroy(&t.files)
+	// The slot keeps its text buffer for the next thread that is opened in it.
+	buf := t.buf
 	t^ = {}
+	t.buf = buf
 	if ui.select.panel == timeline_select_panel(slot) {
 		ui.select.panel = .None
 	}
@@ -140,7 +143,9 @@ thread_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 		case t.key == {}:
 		case ui.session == nil:
 			timeline_destroy(&t.timeline)
+			buf := t.buf
 			t = {}
+			t.buf = buf
 		case t.key.conv != v.viewing || v.status != .Connected:
 			close_thread(ui, i + 1)
 		}

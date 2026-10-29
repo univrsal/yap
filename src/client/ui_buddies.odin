@@ -40,7 +40,7 @@ UI_Buddies :: struct {
 	picker:          UI_Group_Picker,
 	members_shown:   bool,
 	// What is being written to them.
-	buf:             [proto.MAX_CHAT_SIZE]u8,
+	buf:             ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
 	len:             int,
 	area:            Text_Area, // the box it is written in
 	// Something to tell the user about the conversation, and since when.

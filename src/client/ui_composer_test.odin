@@ -6,6 +6,7 @@ import "core:testing"
 import "core:time"
 import mu "vendor:microui"
 
+import "client:conn"
 import "common:proto"
 
 @(private = "file")
@@ -359,4 +360,81 @@ test_choice_dropdowns :: proc(t: ^testing.T) {
 	got, ok = pick(ui, int(Theme_Choice.Light), .Dark)
 	testing.expect(t, ok)
 	testing.expect_value(t, got, Theme_Choice.Light)
+}
+
+// The text of a message is written in a buffer of the heap that the composer
+// makes the first time it is asked for: a message can be 64 KB long, and the
+// structs that hold the buffers are copied whole when another server is shown, so
+// the buffers are not in them.
+@(test)
+test_composer_buffers :: proc(t: ^testing.T) {
+	ui := new(UI)
+	defer free(ui)
+	ui.view = &ui.no_view
+
+	// Made on the first use, the same one after, and room for the longest message.
+	testing.expect(t, ui.chat.buf == nil && ui.buddies.buf == nil)
+	chat := composer_of_page(ui)
+	testing.expect(t, ui.chat.buf != nil)
+	testing.expect_value(t, len(chat.buf), proto.MAX_CHAT_SIZE)
+	again := composer_of_page(ui)
+	testing.expect(t, raw_data(again.buf) == raw_data(chat.buf))
+	ui.page = .Buddies
+	buddies := composer_of_page(ui)
+	testing.expect(t, ui.buddies.buf != nil)
+	testing.expect_value(t, len(buddies.buf), proto.MAX_CHAT_SIZE)
+	testing.expect(t, raw_data(buddies.buf) != raw_data(chat.buf))
+	ui.page = .Main
+
+	// What is written is where the composer says it is.
+	chat.len^ = copy(chat.buf, "hello")
+	testing.expect_value(t, string(ui.chat.buf[:ui.chat.len]), "hello")
+
+	// A thread slot has its own, and keeps it when the thread is closed, so
+	// that the slot's next thread has it without making another.
+	ui.threads[1].key = {
+		conv = 3,
+		root = 9,
+	}
+	thread := composer_of(ui, 2)
+	buf := ui.threads[1].buf
+	testing.expect(t, buf != nil)
+	thread.len^ = copy(thread.buf, "a reply")
+	close_thread(ui, 2)
+	testing.expect_value(t, ui.threads[1].key, ui_thread_free_key)
+	testing.expect_value(t, ui.threads[1].len, 0)
+	testing.expect(t, ui.threads[1].buf == buf)
+	testing.expect(t, raw_data(composer_of(ui, 2).buf) == raw_data(thread.buf))
+
+	// Destroying what the UI has for a server frees all of them: the test's
+	// allocator says so if one is left.
+	server_ui_destroy(ui)
+	testing.expect(t, ui.chat.buf == nil && ui.buddies.buf == nil && ui.threads[1].buf == nil)
+}
+
+@(private = "file")
+ui_thread_free_key :: conn.Timeline_Key{}
+
+// A Server_UI (and the Net_Session that keeps one aside) is copied whole when
+// another server is shown. Once it held three 64 KB buffers for messages, and the
+// compiler's optimizer never finished the function that copies it, so the web
+// client and the image that builds it couldn't be built (it is 25 KB now).
+// A big buffer belongs on the heap (composer_buffer), not in it.
+@(test)
+test_server_ui_is_small :: proc(t: ^testing.T) {
+	LIMIT :: 64 * 1024
+	testing.expectf(
+		t,
+		size_of(Server_UI) <= LIMIT,
+		"Server_UI is %d bytes, over %d",
+		size_of(Server_UI),
+		LIMIT,
+	)
+	testing.expectf(
+		t,
+		size_of(Net_Session) <= 2 * LIMIT,
+		"Net_Session is %d bytes, over %d",
+		size_of(Net_Session),
+		2 * LIMIT,
+	)
 }

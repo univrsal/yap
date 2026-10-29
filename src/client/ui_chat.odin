@@ -30,7 +30,7 @@ Side_Tab :: enum {
 
 UI_Chat :: struct {
 	tab:          Side_Tab,
-	buf:          [proto.MAX_CHAT_SIZE]u8,
+	buf:          ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
 	len:          int,
 	area:         Text_Area, // the box it is written in
 

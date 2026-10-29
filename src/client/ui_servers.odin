@@ -232,7 +232,10 @@ server_ui_destroy :: proc(ui: ^UI) {
 	picked_files_destroy(&ui.buddies.files)
 	for &t in ui.threads {
 		picked_files_destroy(&t.files)
+		free(t.buf)
 	}
+	free(ui.chat.buf)
+	free(ui.buddies.buf)
 	delete(ui.reactors_asked.emoji)
 	ui.srv = {}
 }
