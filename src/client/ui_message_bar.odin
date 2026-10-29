@@ -94,6 +94,7 @@ message_bar_track :: proc(
 	case .Deleted in m.flags || message_menu_open(ui):
 	case b.tapped != {}:
 		want = b.tapped == t
+	case ui.touch_scrolling:
 	case b.shown && mu.rect_overlaps_vec2(b.rect, ctx.mouse_pos):
 		// On the bar, whose message below doesn't see the pointer.
 		want = b.shown_target == t

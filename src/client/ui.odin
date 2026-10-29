@@ -296,6 +296,8 @@ UI :: struct {
 	// which shows the message's bar.
 	msg_bar:             UI_Message_Bar,
 	touch_tap:           bool,
+	// A finger is scrolling, with the pointer under it: nothing is hovered.
+	touch_scrolling:     bool,
 	settings_saved:      time.Tick,
 	page:                Page,
 	settings:            settings.Settings,

@@ -135,11 +135,32 @@ channel_list :: proc(ui: ^UI) {
 	}
 	channel_rows(ui)
 	mu.end_panel(ctx)
-	mu.layout_set_next(
-		ctx,
-		{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h},
-		false,
-	)
+	// Our notes and bookmarks are buttons with an icon, left of the one for
+	// the other channels.
+	foot := mu.Rect{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h}
+	icon_w := max(button_h, icon_button_w(ctx))
+	if len(v.channels) > 0 {
+		viewing := viewing_notes(v) && !ui.narrow
+		mu.layout_set_next(ctx, {foot.x, foot.y, icon_w, foot.h}, false)
+		if .SUBMIT in
+		   icon_button(ui, "notes", .Text_File, NOTES_NAME, theme.accent if viewing else {}) {
+			view_notes(ui, v)
+		}
+		mu.layout_set_next(ctx, {foot.x + icon_w + pad, foot.y, icon_w, foot.h}, false)
+		if .SUBMIT in
+		   icon_button(
+			   ui,
+			   "bookmarks",
+			   .Bookmark,
+			   BOOKMARKS_NAME,
+			   theme.accent if ui.bookmarks.open else {},
+		   ) {
+			toggle_bookmarks(ui)
+		}
+		foot.x += 2 * (icon_w + pad)
+		foot.w -= 2 * (icon_w + pad)
+	}
+	mu.layout_set_next(ctx, foot, false)
 	if .SUBMIT in button(ctx, "Join a channel...") {
 		open_channels(ui)
 	}
@@ -150,10 +171,11 @@ channel_list :: proc(ui: ^UI) {
 }
 
 // channel_rows is a row for each of our channels in the list, each followed
-// by the people in its voice room, under the rows for our notes (the DM with
-// ourselves on this server, which only we see; it is opened the first time it
-// is clicked) and our bookmarks (whose window the row opens and closes,
-// ui_bookmarks.odin). Call with the View locked.
+// by the people in its voice room. Our notes (the DM with ourselves on this
+// server, which only we see; it is opened the first time it is clicked) and
+// our bookmarks (whose window the button opens and closes, ui_bookmarks.odin)
+// are buttons at the foot of the list (channel_list). Call with the View
+// locked.
 @(private = "file")
 channel_rows :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -168,22 +190,6 @@ channel_rows :: proc(ui: ^UI) {
 		ctx.text_height(render.LIST_FONT) + 2 * CHANNEL_ROW_PADDING,
 		ctx.style.size.y + 2 * ctx.style.padding,
 	)
-	if len(v.channels) > 0 {
-		mu.layout_row(ctx, {-1}, row_h)
-		saved_font := ctx.style.font
-		ctx.style.font = render.LIST_FONT
-		viewing := viewing_notes(v) && !ui.narrow
-		clicked := .SUBMIT in list_row(ctx, "notes", NOTES_NAME, viewing, accent = true)
-		mu.layout_row(ctx, {-1}, row_h)
-		bookmarks := .SUBMIT in list_row(ctx, "bookmarks", BOOKMARKS_NAME, false, accent = true)
-		ctx.style.font = saved_font
-		if clicked {
-			view_notes(ui, v)
-		}
-		if bookmarks {
-			toggle_bookmarks(ui)
-		}
-	}
 	for ch in v.channels {
 		mu.push_id(ctx, uintptr(ch.id))
 		defer mu.pop_id(ctx)

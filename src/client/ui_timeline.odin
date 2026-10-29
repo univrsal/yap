@@ -715,9 +715,9 @@ message_flags :: proc(
 		m.edited == 0 &&
 		m.flags & {.Deleted, .Pinned, .Forwarded} == {} &&
 		!ui.view.bookmarks.ids[m.id] &&
-		m.sender == prev.sender &&// so that its header says so
-		m.persona == prev.persona &&
-		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000))// a bot's other persona has its own header
+		m.sender == prev.sender &&
+		m.persona == prev.persona &&// so that its header says so
+		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000)) // a bot's other persona has its own header
 	return
 }
 
@@ -976,7 +976,7 @@ timeline_message :: proc(
 	}
 	defer ui.header_time = {}
 	header :=
-		"" if merged else fmt.tprintf("%s%s%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", "  - bookmarked" if v.bookmarks.ids[m.id] else "", forward_note(ui, m), fmt.tprintf("  - via %s", via) if persona else "")
+		"" if merged else fmt.tprintf("%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", forward_note(ui, m), fmt.tprintf("  - via %s", via) if persona else "")
 	header_color := theme.chat_name if persona else author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
@@ -1394,6 +1394,7 @@ message_mouse :: proc(
 			st.lit, st.lit_mentions = 0, false
 		}
 	}
+	message_marks(ui, m, block)
 	if !readonly {
 		message_bar_track(ui, st.key.conv, st.slot, m, block)
 		if .RIGHT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, block) {
@@ -1401,6 +1402,33 @@ message_mouse :: proc(
 		}
 	}
 }
+
+// message_marks draws a pin and a bookmark at the top right of a message that
+// is pinned or bookmarked. The hover bar covers them while it is shown.
+@(private = "file")
+message_marks :: proc(ui: ^UI, m: conn.View_Message, block: mu.Rect) {
+	ctx := &ui.ctx
+	if .Deleted in m.flags {
+		return
+	}
+	size := ctx.text_height(ctx.style.font)
+	x := block.x + block.w - MARK_INSET - size
+	y := block.y + MARK_INSET / 2
+	if mu.check_clip(ctx, {x - size, y, 2 * size, size}) == .ALL {
+		return
+	}
+	if ui.view.bookmarks.ids[m.id] {
+		mu.draw_icon(ctx, render.icon_id(.Bookmark), {x, y, size, size}, theme.accent)
+		x -= size
+	}
+	if .Pinned in m.flags {
+		mu.draw_icon(ctx, render.icon_id(.Pin), {x, y, size, size}, theme.pinned)
+	}
+}
+
+// How far in from the message's right edge its marks sit.
+@(private = "file")
+MARK_INSET :: 8
 
 // day_line is the line above the first message of a day.
 @(private = "file")
