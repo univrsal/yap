@@ -17,7 +17,7 @@ import "mattermost"
 
 // What an import doesn't bring yet, which the report says. It goes when steps
 // 8 to 10 are done.
-IMPORT_NOT_YET :: `Not imported yet: the links and mentions in messages (@name, ~channel), and the cards of bots and webhooks.`
+IMPORT_NOT_YET :: `Not imported yet: the cards of bots and webhooks.`
 
 @(private = "file")
 Reader :: struct {
@@ -79,6 +79,35 @@ import_read_state :: proc(im: ^Importer) -> bool {
 	}
 	progress.done = i64(len(all))
 	progress_finish(&progress)
+	return import_mentions_finish(im)
+}
+
+// import_mentions_finish settles the mentions once it is known what has been
+// read. A mention only counts for a message that is after what its member has
+// read (Mention_Count), so rows for messages that were read are of no use and
+// are taken out, and @channel and @all, which mention everyone in a
+// conversation, are only written for the members who haven't read the message,
+// not for each of the thousands who have. @here, which is for who was online
+// then, mentions nobody.
+@(private = "file")
+import_mentions_finish :: proc(im: ^Importer) -> bool {
+	for e in im.everyone {
+		q := db_query(im.db, .Mention_Everyone, i64(e.conv), i64(e.sender), i64(e.message))
+		if !db_run(im.db, q) {
+			log.error("could not write the mentions of @channel")
+			return false
+		}
+	}
+	ok := db_exec(
+		im.db,
+		"DELETE FROM mentions WHERE message <= coalesce((SELECT read_id FROM members m WHERE m.conv = mentions.conv AND m.account = mentions.account), 0)",
+	)
+	if !ok {
+		log.error("could not take out the mentions of what was read")
+		return false
+	}
+	n, _ := db_pragma_int(im.db, "SELECT count(*) FROM mentions")
+	im.mentions = int(n)
 	return true
 }
 
@@ -180,6 +209,10 @@ import_verify :: proc(im: ^Importer) -> []string {
 		{
 			"files of messages that aren't in the store, or messages marked as having files that have none",
 			"SELECT (SELECT count(*) FROM attachments WHERE blob IS NOT NULL AND blob NOT IN (SELECT id FROM blobs)) + (SELECT count(*) FROM attachments WHERE msg NOT IN (SELECT id FROM messages)) + (SELECT count(*) FROM messages m WHERE m.flags & 16 != 0 AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.msg = m.id)) + (SELECT count(*) FROM messages m WHERE m.flags & 16 = 0 AND EXISTS (SELECT 1 FROM attachments a WHERE a.msg = m.id))",
+		},
+		{
+			"mentions of a message that isn't there, of someone who isn't a member, or of what was read",
+			"SELECT (SELECT count(*) FROM mentions WHERE message NOT IN (SELECT id FROM messages)) + (SELECT count(*) FROM mentions n WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.conv = n.conv AND m.account = n.account)) + (SELECT count(*) FROM mentions n JOIN members m ON m.conv = n.conv AND m.account = n.account WHERE n.message <= m.read_id)",
 		},
 		{
 			"messages whose id is out of the order of their times",
@@ -295,11 +328,12 @@ import_write_report :: proc(im: ^Importer, path: string) -> (err: string) {
 	io.write_string(
 		w,
 		fmt.tprintf(
-			"  %d messages, %d reactions, %d pins, %d saved posts\n",
+			"  %d messages, %d reactions, %d pins, %d saved posts, %d unread mentions\n",
 			im.messages,
 			im.reactions,
 			im.pins,
 			im.bookmarks,
+			im.mentions,
 		),
 	)
 	if im.csv != "" {

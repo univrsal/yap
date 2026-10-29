@@ -22,7 +22,7 @@ says about the export comes from reading Mattermost's source (master,
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
 | 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | built (2026-10-28), see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | built (2026-10-28) |
-| 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
+| 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | built (2026-10-29) |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
 | 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | built (2026-10-28) |
 | 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | built (2026-10-28) |
@@ -404,21 +404,58 @@ is what holds after that.
 
 ### Text: mentions, channel links, Markdown (step 9)
 
-- `@username` → `<@id>` for accounts that exist. Not inside code.
-- `@channel` and `@all` → `<@everyone>`. `@here` → `<@here>` (step 5,
-  D12): everyone in the conversation who is online. Who was online when an
-  imported message was posted isn't known, so an imported `<@here>`
-  mentions nobody (no `mentions` rows), while it still reads as `@here`.
-- `@groupname`: user groups aren't in the export, so plain text.
-- `~channel-name` → a channel link, if yap has one; else the channel's
-  name as text.
-- Markdown: Mattermost's is CommonMark with tables, headings, task lists,
-  LaTeX and inline images. Check each against
-  `client/richtext/markdown.odin`; what isn't rendered stays readable as
-  text, so this only needs a look, not code.
+Built (2026-10-29): `mattermost/rewrite.odin` (a pure function on a text) and
+`import_mentions` in import_messages.odin.
 
-The `mentions` rows for imported messages are written by the importer,
-the same as posting would.
+- `@username` → `<@id>` for the accounts that were made (the team's members,
+  bots and those who left it), however it is capitalised. A name is the longest
+  start of what follows the `@` that is one, so `@bob.` ends a sentence and
+  `@bob.smith` is the other person. Not a mention: after a word character, `/`,
+  `@`, `\` or `.` (an address, a path, a URL), and anyone who wasn't imported
+  (`@erin` of the other team stays as typed).
+- `@channel` and `@all` → `<@everyone>`, `@here` → `<@here>`; they come before
+  any person of that name.
+- `@groupname`: user groups aren't in the export, so plain text, as are
+  `@all-hands` and the like.
+- `~channel-name` → `#Channel Name`, the channel's name in yap, as yap has no
+  link to a channel (it has one to a message, `<msg:...>`, which Mattermost's
+  permalinks can't become as the export doesn't say what a post's id was).
+  `~~struck~~`, a name after a word character and a channel of another team stay.
+- `:name:` → the emoji character for yap's emoji (a skin tone is left off),
+  `:name:` under the name it got in yap for the server's own emoji, and nothing
+  for a name that isn't one (so `12:30:45` and `std::vector::size` are safe).
+- **Code is left alone**: a fenced block (a line that starts with ``` or ~~~, to
+  the next one or the end) and a span between backticks, closed by as many again.
+- The text is rewritten after it is cleaned and may then be longer, so it is cut
+  to the limit after, and said if it was.
+- **Mentions** (the `mentions` rows) are written as posting would: for the
+  people named in a message who are in its conversation and aren't its author. A
+  mention of a channel's non-member only reads as a mention, since an import
+  doesn't subscribe anyone (posting a mention does, in a public channel).
+  `@channel` and `@all` mention every member who hasn't read the message, which
+  is worked out after the read state (7g), as a row for each of the thousands
+  who had read it would never be counted. For the same reason the rows of
+  messages that were read are taken out. `@here` mentions nobody, as who was
+  online then isn't known; it still reads as `@here`.
+- **Markdown.** yap shows bold, italic, underline, strike, code and code blocks,
+  quotes, bullets and numbers, and `[text](url)` links (its header in
+  `client/richtext/markdown.odin` is the list). Mattermost's headings, tables,
+  task lists, inline images and LaTeX aren't drawn but stay readable as the
+  text they were written as (the sample's table is `| a | b |`). Nothing is
+  converted: the text is as typed.
+
+Tested: 25 cases of the rewriter, from the sample's own posts and from what
+makes a rule go wrong (names with punctuation and a dot in them, an address, a
+URL, a path, strikethrough, a time, an emoji after a word, code of three kinds,
+a fence that never closes); the sample's eight posts written as they now read;
+the number of mention rows against a rule written in SQL (every member after
+what they have read whose token the text has, or who is told by `@channel`);
+and a made-up export with a mention of someone who isn't in the channel, of
+oneself, in code, of someone unknown, `@channel` where one member has read it
+and one hasn't, and `@here`. 2 new tests in the server package and 1 in
+`mattermost` (188 and 25). Looked at in the client as an imported user: the
+mention badge on the channel, `@Bobby` and `@everyone` as mentions, `#Secret`,
+the emoji, and the other team's person and channel left as typed.
 
 ### Bot and webhook posts (step 10)
 

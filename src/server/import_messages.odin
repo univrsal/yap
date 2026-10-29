@@ -34,6 +34,20 @@ import_messages :: proc(im: ^Importer) -> bool {
 		return x.reply < y.reply
 	})
 
+	// The rules for what a text says about people, channels and emoji: who
+	// there is, by the name they had in Mattermost, in lower case.
+	im.rewriter = {
+		users    = make(map[string]u32, a),
+		channels = make(map[string]string, a),
+		emoji    = &s.plan.emoji,
+	}
+	for acc in s.plan.accounts {
+		im.rewriter.users[strings.to_lower(acc.mm_name, a)] = u32(im.ids[acc.mm_name])
+	}
+	for c, i in s.channels {
+		im.rewriter.channels[strings.to_lower(c.name, a)] = s.plan.channels[i].name
+	}
+
 	reader: mattermost.Post_Reader
 	if err := mattermost.post_reader_open(&reader, s, a); err != "" {
 		log.error(err)
@@ -111,6 +125,7 @@ import_message :: proc(
 		mattermost.note(s, .Post_Failed, body.user, a)
 		return true
 	}
+	mentioned: mattermost.Rewritten
 	m := proto.Message {
 		conv   = conv.id,
 		sender = sender,
@@ -173,11 +188,15 @@ import_message :: proc(
 		}
 	case .Not_System:
 		text, cut := mattermost.clean_message(body.message)
-		if cut {
+		// What it says about people, channels and emoji, in yap's words, which
+		// can make it longer.
+		mentioned = mattermost.rewrite_text(&im.rewriter, text)
+		kept, cut_more := mattermost.cut_text(mentioned.text, proto.MAX_CHAT_SIZE)
+		if cut || cut_more {
 			mattermost.note(s, .Text_Cut, body.user, a)
 		}
 		m.kind = .Text
-		m.text = text
+		m.text = kept
 		import_attachments(im, body.attachments, sender, &m) or_return
 		if body.is_pinned {
 			m.flags += {.Pinned}
@@ -203,6 +222,9 @@ import_message :: proc(
 		return false
 	}
 	im.files += m.attachment_count
+	if m.kind == .Text {
+		import_mentions(im, conv, m, sender, mentioned) or_return
+	}
 	if ref.reply < 0 && body.replies > 0 {
 		im.roots[ref.offset] = m.id
 	}
@@ -348,4 +370,33 @@ import_limits :: proc(im: ^Importer) -> bool {
 		log.error("could not keep pins and saved posts to the limits")
 	}
 	return ok
+}
+
+// import_mentions records who a message mentions, as posting it would have: the
+// people named in it who are in its conversation, other than its author. @here
+// mentions nobody (who was online isn't known), and @channel and @all are
+// worked out at the end, when it is known who has read what.
+@(private = "file")
+import_mentions :: proc(
+	im: ^Importer,
+	conv: ^Conv,
+	m: proto.Message,
+	sender: proto.Account_Id,
+	mentioned: mattermost.Rewritten,
+) -> bool {
+	for id in mentioned.accounts {
+		account := proto.Account_Id(id)
+		if account == sender || !conv_is_member(conv, account) {
+			continue
+		}
+		q := db_query(im.db, .Mention_Add, i64(account), i64(conv.id), i64(m.id))
+		if !db_run(im.db, q) {
+			log.error("could not write a mention")
+			return false
+		}
+	}
+	if mentioned.everyone {
+		append(&im.everyone, Everyone_Mention{conv.id, m.id, sender})
+	}
+	return true
 }

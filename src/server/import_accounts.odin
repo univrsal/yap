@@ -56,8 +56,16 @@ Importer :: struct {
 	// upload (0 for none), which the files of an import are measured against.
 	emoji_dir:      string,
 	max_attachment: u64,
+	// The rules for the text of a message (mattermost/rewrite.odin), set up when
+	// the messages are written.
+	rewriter:       mattermost.Rewriter,
+	// The messages that say @channel or @all, which mention the members of their
+	// conversation who haven't read them, worked out when it is known who has
+	// (import_read_state).
+	everyone:       [dynamic]Everyone_Mention,
 	// What import_emoji and import_messages made.
 	emoji:          int,
+	mentions:       int,
 	files:          int,
 	messages:       int,
 	reactions:      int,
@@ -69,6 +77,12 @@ Importer :: struct {
 	csv:            string,
 	// What the steps keep their strings in; freed by importer_destroy.
 	arena:          virtual.Arena,
+}
+
+Everyone_Mention :: struct {
+	conv:    proto.Conv_Id,
+	message: proto.Msg_Id,
+	sender:  proto.Account_Id,
 }
 
 Generated :: struct {
@@ -83,6 +97,7 @@ importer_init :: proc(im: ^Importer) {
 	im.ids = make(map[string]proto.Account_Id, a)
 	im.directs = make(map[string]^Conv, a)
 	im.roots = make(map[i64]proto.Msg_Id, a)
+	im.everyone.allocator = a
 	im.passwords.allocator = a
 	im.written.allocator = a
 	if im.hash_params == 0 && im.threads == 0 {

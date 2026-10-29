@@ -248,7 +248,7 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	report_err := import_write_report(&im, report)
 	made := len(scan.plan.accounts) + len(scan.authors_gone)
 	fmt.printfln(
-		"\nmade %d accounts, %d channels, %d direct conversations and %d messages, with %d files, %d reactions, %d pins and %d saved posts, and %d custom emoji. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
+		"\nmade %d accounts, %d channels, %d direct conversations and %d messages, with %d files, %d reactions, %d pins, %d saved posts and %d unread mentions, and %d custom emoji. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
 		made,
 		len(scan.channels),
 		len(scan.directs),
@@ -257,6 +257,7 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		im.reactions,
 		im.pins,
 		im.bookmarks,
+		im.mentions,
 		im.emoji,
 		csv,
 	)
