@@ -178,7 +178,9 @@ looks empty.
 		finger = null;
 		clearTimeout(done.timer);
 		if (!ready()) return;
-		if (done.mode === "drag") {
+		if (done.mode === "scroll") {
+			Module._web_touch_scroll_end();
+		} else if (done.mode === "drag") {
 			Module._web_touch_drag_end();
 		} else if (done.mode === "tap" && !cancelled) {
 			const [x, y] = where(t);

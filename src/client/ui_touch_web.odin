@@ -67,6 +67,7 @@ touch_step :: proc(ui: ^UI) {
 		return
 	}
 	e := pop_front(&g_touch)
+	ui.touch_scrolling = false
 	ui_redraw(ui) // and with more events queued, draw the frames to handle them
 	ctx := &ui.ctx
 	switch e.kind {
@@ -241,7 +242,19 @@ web_touch_scroll :: proc "c" (x, y, dy: f64) {
 		mu.input_mouse_move(&g_ui.ctx, lx, ly)
 	}
 	mu.input_scroll(&g_ui.ctx, 0, i32(dy * f64(g_ui.input_scale)))
+	g_ui.touch_scrolling = true
 	ui_wake()
+}
+
+// The scrolling finger has lifted: the pointer leaves, so what it was over
+// isn't hovered once the scrolling is over.
+@(export)
+web_touch_scroll_end :: proc "c" () {
+	context = platform.callback_context()
+	if g_ui == nil {
+		return
+	}
+	queue_lift()
 }
 
 // Typing from the phone's keyboard: one character, a backspace, or Enter (in a

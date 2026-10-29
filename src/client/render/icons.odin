@@ -36,6 +36,7 @@ Icon :: enum {
 	Search, // a magnifying glass: searching messages
 	Attach, // a paperclip: attach files to a message
 	Download, // an arrow pointing down onto a line: save a file
+	Bookmark, // a ribbon with a notch in its foot: a bookmarked message, our bookmarks
 	// Kinds of file, shown next to the file names in a message (File is used
 	// for all other kinds and App_Audio's notes for sound).
 	Archive, // a sheet with a zip down it
@@ -236,6 +237,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return paperclip(p)
 	case .Download:
 		return download(p)
+	case .Bookmark:
+		return ribbon(p)
 	case .Archive:
 		return archive(p)
 	case .Picture:
@@ -295,6 +298,20 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 
 @(private = "file")
 CHECK_STROKE :: 0.12
+
+// ribbon is an outlined strip with a V cut into its lower end.
+@(private = "file")
+ribbon :: proc(p: Point) -> f32 {
+	STROKE :: 0.1
+	tl, tr := Point{0.28, 0.14}, Point{0.72, 0.14}
+	br, bl := Point{0.72, 0.86}, Point{0.28, 0.86}
+	notch := Point{0.5, 0.64}
+	d := capsule(p, tl, tr, STROKE)
+	d = nearer(d, capsule(p, tr, br, STROKE))
+	d = nearer(d, capsule(p, br, notch, STROKE))
+	d = nearer(d, capsule(p, notch, bl, STROKE))
+	return nearer(d, capsule(p, bl, tl, STROKE))
+}
 
 // spinner is a ring with a quarter of it missing, turned `step` steps of a
 // whole turn (SPINNER_STEPS) clockwise, with round ends.
@@ -401,6 +418,7 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Search,
 	     .Attach,
 	     .Download,
+	     .Bookmark,
 	     .Archive,
 	     .Picture,
 	     .Video,

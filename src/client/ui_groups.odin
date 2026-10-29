@@ -119,7 +119,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	mu.layout_row(ctx, {-1})
 	dim_label(ctx, "You and 2 to 7 others. Who is in a group can't be changed later.")
-	mu.label(ctx, "")
+	gap(ctx)
 	if len(servers) > 1 {
 		mu.layout_row(ctx, {80, -1})
 		mu.label(ctx, "Server")
@@ -133,9 +133,9 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		); picked && i != current && !ui.switching {
 			ui.switch_to, ui.switching, ui.switch_stay = server_of[i], true, true
 		}
-		mu.layout_row(ctx, {-1})
-		mu.label(ctx, "")
+		gap(ctx)
 	}
+	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "In it besides you")
 	if p.count == 0 {
 		mu.layout_row(ctx, {-1})
@@ -147,8 +147,8 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 
+	gap(ctx)
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "")
 	if p.count < len(p.chosen) {
 		mu.label(ctx, "Add someone")
 		others := make([dynamic]proto.Account_Id, context.temp_allocator)
@@ -166,8 +166,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		dim_label(ctx, "That's as many as a group can have.")
 	}
 
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "")
+	gap(ctx)
 	mu.layout_row(ctx, {-(100 + ctx.style.spacing + 1), 100})
 	mu.label(ctx, "")
 	if p.count < 2 {
@@ -189,6 +188,13 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.get_current_container(ctx).open = false
 		p.open = false
 	}
+}
+
+// gap is a little space between the window's parts, instead of a blank line.
+@(private = "file")
+gap :: proc(ctx: ^mu.Context) {
+	mu.layout_row(ctx, {-1}, 2)
+	mu.layout_next(ctx)
 }
 
 // may_be_in_group is whether an account can be picked for a group: somebody

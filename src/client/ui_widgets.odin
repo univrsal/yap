@@ -173,11 +173,12 @@ hint_emoji_of :: proc(ui: ^UI, emoji: string) {
 
 icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
-	if ui.hint == "" {
-		return
-	}
 	emoji := ui.hint_emoji
 	defer ui.hint, ui.hint_emoji = "", {}
+	// The pointer under a scrolling finger describes nothing.
+	if ui.hint == "" || ui.touch_scrolling {
+		return
+	}
 
 	pad := ctx.style.padding
 	line_h := ctx.text_height(ctx.style.font)
