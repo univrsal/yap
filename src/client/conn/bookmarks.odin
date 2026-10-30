@@ -75,7 +75,11 @@ bookmark_set :: proc(c: ^Server_Conn, id: proto.Msg_Id, on: bool) {
 			case .Invalid:
 				notify(c, false, "A deleted message can't be bookmarked.")
 			case:
-				notify(c, false, fmt.tprintf("The server failed to change the bookmark (%v).", status))
+				notify(
+					c,
+					false,
+					fmt.tprintf("The server failed to change the bookmark (%v).", status),
+				)
 			}
 		},
 	)
@@ -119,7 +123,11 @@ bookmarks_fetch :: proc(c: ^Server_Conn, fresh: bool) {
 			}
 			if status != .Ok {
 				if status != .Reset {
-					notify(c, false, fmt.tprintf("The server failed to list the bookmarks (%v).", status))
+					notify(
+						c,
+						false,
+						fmt.tprintf("The server failed to list the bookmarks (%v).", status),
+					)
 				}
 				publish_bookmarks(c, nil, false, b.next == 0)
 				return

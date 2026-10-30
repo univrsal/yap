@@ -1,8 +1,8 @@
 package client
 
 import "core:strings"
-import "core:time"
 import textedit "core:text/edit"
+import "core:time"
 import mu "vendor:microui"
 
 import "client:platform"

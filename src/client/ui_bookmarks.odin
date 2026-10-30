@@ -88,7 +88,10 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if len(bm.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Nothing is bookmarked yet. Bookmark a message from its menu (right-click it).")
+		dim_label(
+			ctx,
+			"Nothing is bookmarked yet. Bookmark a message from its menu (right-click it).",
+		)
 		return
 	}
 	for e, i in bm.list {
@@ -137,7 +140,8 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 @(private = "file")
 bookmark_place :: proc(v: ^conn.View, conv: proto.Conv_Id, m: conn.View_Message) -> string {
 	name := conversation_name(v, conv)
-	place := fmt.tprintf("in %s", name) if strings.has_prefix(name, "#") else fmt.tprintf("with %s", name)
+	place :=
+		fmt.tprintf("in %s", name) if strings.has_prefix(name, "#") else fmt.tprintf("with %s", name)
 	if m.thread_root != 0 {
 		return fmt.tprintf("a reply %s", place)
 	}

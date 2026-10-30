@@ -245,7 +245,10 @@ test_conv_bodies :: proc(t: ^testing.T) {
 		// Without room for the admins, they are left out.
 		admins_buf: [8]Account_Id
 		admins: []Account_Id
-		admins, ok = decode_conv_admins(encode_conv_members(out[:2 + 3 * 4], accounts, {4}), admins_buf[:])
+		admins, ok = decode_conv_admins(
+			encode_conv_members(out[:2 + 3 * 4], accounts, {4}),
+			admins_buf[:],
+		)
 		testing.expect(t, ok && len(admins) == 0)
 		big: [2 + 5 * 4 + 2 + 2 * 4]u8
 		body := encode_conv_members(big[:], accounts, {4, 5})

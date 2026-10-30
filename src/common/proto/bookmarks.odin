@@ -85,7 +85,14 @@ decode_bookmarks_get :: proc(body: []u8) -> (before_time: Unix_Ms, before: Msg_I
 // encode_bookmarks_page writes a Bookmarks_Get response with as many of
 // `list` as fit in `out`. It says that there are more if not all of them fit,
 // or if `more`. `count` is how many it holds.
-encode_bookmarks_page :: proc(out: []u8, list: []Bookmark, more: bool) -> (body: []u8, count: int) {
+encode_bookmarks_page :: proc(
+	out: []u8,
+	list: []Bookmark,
+	more: bool,
+) -> (
+	body: []u8,
+	count: int,
+) {
 	w := Writer {
 		buf = out,
 	}

@@ -17,7 +17,7 @@ test_from_bytes :: proc(t: ^testing.T) {
 	for entry in dir {
 		data, read_err := os.read_entire_file(
 			os.join_path(
-				{SAMPLE_PICTURES, entry.name, "profile.png"},// users/<id>/profile.png
+				{SAMPLE_PICTURES, entry.name, "profile.png"}, // users/<id>/profile.png
 				context.temp_allocator,
 			) or_else "",
 			context.temp_allocator,

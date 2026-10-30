@@ -126,6 +126,25 @@ KEY_X :: glfw.KEY_X
 KEY_Y :: glfw.KEY_Y
 KEY_Z :: glfw.KEY_Z
 
+// LayoutKey is the letter that a key types in the keyboard's layout, as a
+// key code, so shortcuts follow the letters on the keys (Ctrl+Z is the key
+// that says Z, wherever a layout puts it) instead of where a US keyboard has
+// them. A key that types no Latin letter (another script's, say) keeps its
+// own code, so its shortcuts still work.
+LayoutKey :: proc "contextless" (key, scancode: i32) -> i32 {
+	if key < KEY_A || key > KEY_Z {
+		return key
+	}
+	name := glfw.GetKeyName(key, scancode)
+	if len(name) == 1 && name[0] >= 'a' && name[0] <= 'z' {
+		return i32(name[0] - 'a' + 'A')
+	}
+	if len(name) == 1 && name[0] >= 'A' && name[0] <= 'Z' {
+		return i32(name[0])
+	}
+	return key
+}
+
 // WindowFocused reports whether the window has the keyboard focus.
 WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
 	return glfw.GetWindowAttrib(window, glfw.FOCUSED) != 0

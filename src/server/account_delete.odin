@@ -57,7 +57,16 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 		i64(transmute(u8)proto.Account_Flags{.Deleted}),
 	)
 	db_run(db, q) or_return
-	for stmt in ([]Stmt{.Device_Erase, .Buddy_Erase, .Setting_Erase, .Mention_Erase, .Member_Erase, .Account_Roles_Clear, .Invite_Erase, .Bookmark_Erase}) {
+	for stmt in ([]Stmt {
+			.Device_Erase,
+			.Buddy_Erase,
+			.Setting_Erase,
+			.Mention_Erase,
+			.Member_Erase,
+			.Account_Roles_Clear,
+			.Invite_Erase,
+			.Bookmark_Erase,
+		}) {
 		q = db_query(db, stmt, i64(id))
 		db_run(db, q) or_return
 	}

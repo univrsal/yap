@@ -311,7 +311,35 @@ test_attachments :: proc(t: ^testing.T) {
 	// A picture's message states its size, from its header.
 	{
 		png := test_file(3000, 5)
-		copy(png, []u8{0x89, 'P', 'N', 'G', 13, 10, 0x1a, 10, 0, 0, 0, 13, 'I', 'H', 'D', 'R', 0, 0, 0x07, 0x80, 0, 0, 0x04, 0x38})
+		copy(
+			png,
+			[]u8 {
+				0x89,
+				'P',
+				'N',
+				'G',
+				13,
+				10,
+				0x1a,
+				10,
+				0,
+				0,
+				0,
+				13,
+				'I',
+				'H',
+				'D',
+				'R',
+				0,
+				0,
+				0x07,
+				0x80,
+				0,
+				0,
+				0x04,
+				0x38,
+			},
+		)
 		_, pic_upload := put(t, &ts, alice, len(png), "shot.png")
 		testing.expect(t, send_file(t, &ts, alice, pic_upload, png) != 0)
 		_, pic := post_files(t, &ts, alice, gaming.id, "", 50, pic_upload)
@@ -561,7 +589,11 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	testing.expect_value(t, messages, 2)
 	m, found := msg_by_id(s, first)
 	testing.expect(t, found && .Has_Attachments in m.flags)
-	testing.expect_value(t, m.attachments[0], proto.Attachment{size = 2 * 1024 * 1024, name = "one.zip"})
+	testing.expect_value(
+		t,
+		m.attachments[0],
+		proto.Attachment{size = 2 * 1024 * 1024, name = "one.zip"},
+	)
 	told := false
 	for e in ts_events(t, &ts, alice) {
 		if e.op == .Msgs_Purged {
