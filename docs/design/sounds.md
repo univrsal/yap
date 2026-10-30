@@ -24,7 +24,13 @@ Branch `sound-settings`, off `notifications`. Sizes as in `docs/design/next.md`.
   ringback, muted, unmuted), `aim` (join, leave, msg, mail, done,
   welcome, goodbye), `skype` (msg, done, ring, ringback, login, logout,
   hangup, busy, incoming_file, reconnect, reconnect_loop, and `old_`
-  versions of msg, ring, ringback, hangup), `icq` (message, notify,
+  versions of msg, ring, ringback, hangup; then sounds nothing plays by
+  default: call_error_1/2, call_init, forwarded, file_failed, hold,
+  resume, im_acc, im_sent, incoming_auth, incoming_contacts,
+  incoming_voicemail, online, offline, user_added, user_left,
+  user_left_org, vc_beep, and `old_` versions of busy, call_init, hold,
+  resume, online. Made from the 16 kHz stereo MP3s: mono, peak at -12 dB
+  like the rest, 32 kb/s), `icq` (message, notify,
   bell, file, file_done, online, ring, old_ring, knock, startup; from the
   original WAVs, turned down to about the AIM pack's loudness, knock
   padded to 1.2 s so its loop pauses). All 48 kHz mono Opus.
