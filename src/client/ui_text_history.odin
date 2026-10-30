@@ -68,6 +68,10 @@ history_note :: proc(h: ^Text_History, text: string, sel: [2]int, at: time.Tick)
 	h.grew, h.at, h.new_step = grew, at, false
 }
 
+history_note_now :: proc(h: ^Text_History, text: string, sel: [2]int) {
+	history_note(h, text, sel, time.tick_now())
+}
+
 // history_undo steps back. It returns the text to put back and the selection
 // that goes with it, or false when there is nothing to undo.
 history_undo :: proc(h: ^Text_History, text: string) -> (to: History_Step, ok: bool) {

@@ -2,7 +2,6 @@ package client
 
 import "core:strings"
 import textedit "core:text/edit"
-import "core:time"
 import mu "vendor:microui"
 
 import "client:platform"
@@ -401,11 +400,10 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 	text := string(buf[:textlen^])
 	when !platform.WEB {
-		history_note(
+		history_note_now(
 			&area.history,
 			text,
 			s.selection if focused else area.history.now.sel,
-			time.tick_now(),
 		)
 	}
 	lines := area_lines(ctx, font, text, width)
