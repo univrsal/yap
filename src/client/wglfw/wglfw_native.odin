@@ -123,6 +123,8 @@ KEY_RIGHT_CONTROL :: glfw.KEY_RIGHT_CONTROL
 KEY_RIGHT_SHIFT :: glfw.KEY_RIGHT_SHIFT
 KEY_V :: glfw.KEY_V
 KEY_X :: glfw.KEY_X
+KEY_Y :: glfw.KEY_Y
+KEY_Z :: glfw.KEY_Z
 
 // WindowFocused reports whether the window has the keyboard focus.
 WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {

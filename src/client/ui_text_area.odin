@@ -1,6 +1,7 @@
 package client
 
 import "core:strings"
+import "core:time"
 import textedit "core:text/edit"
 import mu "vendor:microui"
 
@@ -62,6 +63,9 @@ Text_Area :: struct {
 	footer_press: bool,
 	// In a web build, the page's own text field that stands in for it.
 	field:        Field_Sync,
+	// What Ctrl+Z and Ctrl+Y go through (ui_text_history.odin). Not in a web
+	// build, where the page's field has its own.
+	history:      Text_History,
 }
 
 // What a text area keeps about the page's text field that stands in for it in
@@ -243,6 +247,30 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	s := &ctx.textbox_state
 	focused := ctx.focus_id == id
 
+	if focused && !live {
+		for key in ([?]Extra_Key{.Undo, .Redo}) {
+			if key not_in ui.keys {
+				continue
+			}
+			ui.keys -= {key}
+			text := string(buf[:textlen^])
+			step: History_Step
+			ok: bool
+			if key == .Undo {
+				step, ok = history_undo(&area.history, text)
+			} else {
+				step, ok = history_redo(&area.history, text)
+			}
+			if !ok || len(step.text) > len(buf) {
+				continue
+			}
+			textlen^ = copy(buf, step.text)
+			s.id = u64(id)
+			s.selection = step.sel
+			res += {.CHANGE}
+		}
+	}
+
 	if focused {
 		// The same as microui's text box: a builder on our buffer, and the
 		// selection is kept while the focus stays.
@@ -372,6 +400,14 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	}
 
 	text := string(buf[:textlen^])
+	when !platform.WEB {
+		history_note(
+			&area.history,
+			text,
+			s.selection if focused else area.history.now.sel,
+			time.tick_now(),
+		)
+	}
 	lines := area_lines(ctx, font, text, width)
 	n := len(lines)
 	if live && area.field.lines > 0 {

@@ -466,6 +466,10 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 			extra = .Code
 		case key == glfw.KEY_X && shift:
 			extra = .Strike
+		case key == glfw.KEY_Z && !shift:
+			extra = .Undo
+		case key == glfw.KEY_Y || (key == glfw.KEY_Z && shift):
+			extra = .Redo
 		case (key == glfw.KEY_SPACE || key == glfw.KEY_K) && !shift:
 			if action == glfw.PRESS {
 				g_ui.keys += {.Palette}

@@ -352,6 +352,7 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	}
 	ui_redraw(ui) // so the box shrinks back to a single line
 	c.area.preview = false
+	history_clear(&c.area.history) // a sent message is not to be got back by undo
 	text = richtext.emoji_encode(
 		richtext.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
 		ui.view.emoji.names[:],
