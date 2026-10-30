@@ -716,8 +716,8 @@ message_flags :: proc(
 		m.flags & {.Deleted, .Pinned, .Forwarded} == {} &&
 		!ui.view.bookmarks.ids[m.id] &&
 		m.sender == prev.sender &&
-		m.persona == prev.persona &&// so that its header says so
-		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000)) // a bot's other persona has its own header
+		m.persona == prev.persona &&
+		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000)) // so that its header says so// a bot's other persona has its own header
 	return
 }
 

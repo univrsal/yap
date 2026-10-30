@@ -14,7 +14,13 @@ admin_set :: proc(
 	on: bool,
 ) -> proto.Status {
 	buf: [proto.CONV_MEMBER_SET_SIZE]u8
-	status, _ := ts_ask(t, ts, u, .Conv_Admin_Set, proto.encode_conv_member_set(&buf, conv, account, on))
+	status, _ := ts_ask(
+		t,
+		ts,
+		u,
+		.Conv_Admin_Set,
+		proto.encode_conv_member_set(&buf, conv, account, on),
+	)
 	return status
 }
 
@@ -28,7 +34,13 @@ member_set :: proc(
 	on: bool,
 ) -> proto.Status {
 	buf: [proto.CONV_MEMBER_SET_SIZE]u8
-	status, _ := ts_ask(t, ts, u, .Conv_Member_Set, proto.encode_conv_member_set(&buf, conv, account, on))
+	status, _ := ts_ask(
+		t,
+		ts,
+		u,
+		.Conv_Member_Set,
+		proto.encode_conv_member_set(&buf, conv, account, on),
+	)
 	return status
 }
 
@@ -116,7 +128,11 @@ test_channel_admins :: proc(t: ^testing.T) {
 	// Alice may neither add people (she lacks Invite) nor rename it, until she
 	// is one of its admins, which she is told.
 	testing.expect_value(t, member_set(t, &ts, alice, team, bob_acc.id, true), proto.Status.Denied)
-	testing.expect_value(t, admin_set(t, &ts, alice, team, alice_acc.id, true), proto.Status.Denied)
+	testing.expect_value(
+		t,
+		admin_set(t, &ts, alice, team, alice_acc.id, true),
+		proto.Status.Denied,
+	)
 	testing.expect_value(t, admin_set(t, &ts, owner, team, alice_acc.id, true), proto.Status.Ok)
 	admin, told = told_admin(t, &ts, alice, team)
 	testing.expect(t, told && admin)
@@ -128,14 +144,23 @@ test_channel_admins :: proc(t: ^testing.T) {
 	testing.expect_value(t, member_set(t, &ts, alice, team, bob_acc.id, true), proto.Status.Ok)
 	testing.expect_value(t, member_set(t, &ts, alice, team, carol_acc.id, true), proto.Status.Ok)
 	testing.expect_value(t, member_set(t, &ts, alice, team, carol_acc.id, false), proto.Status.Ok)
-	testing.expect_value(t, member_set(t, &ts, alice, team, owner_acc.id, false), proto.Status.Denied)
+	testing.expect_value(
+		t,
+		member_set(t, &ts, alice, team, owner_acc.id, false),
+		proto.Status.Denied,
+	)
 	testing.expect_value(
 		t,
 		update(
 			t,
 			&ts,
 			alice,
-			{conv = team, mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC, name = "crew", topic = "us"},
+			{
+				conv = team,
+				mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC,
+				name = "crew",
+				topic = "us",
+			},
 		),
 		proto.Status.Ok,
 	)
@@ -163,8 +188,16 @@ test_channel_admins :: proc(t: ^testing.T) {
 	admin, told = told_admin(t, &ts, bob, team)
 	testing.expect(t, told && !admin)
 	// Only members, and only in channels.
-	testing.expect_value(t, admin_set(t, &ts, alice, team, carol_acc.id, true), proto.Status.Not_Found)
-	testing.expect_value(t, admin_set(t, &ts, carol, team, carol_acc.id, true), proto.Status.Not_Found)
+	testing.expect_value(
+		t,
+		admin_set(t, &ts, alice, team, carol_acc.id, true),
+		proto.Status.Not_Found,
+	)
+	testing.expect_value(
+		t,
+		admin_set(t, &ts, carol, team, carol_acc.id, true),
+		proto.Status.Not_Found,
+	)
 	dm_buf: [4]u8
 	_, dm_body := ts_ask(t, &ts, alice, .DM_Open, proto.encode_account_id(&dm_buf, bob_acc.id))
 	dm, _ := proto.decode_conv_id(dm_body)

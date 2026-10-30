@@ -2,6 +2,7 @@
 package client
 
 import "core:testing"
+import "core:time"
 import mu "vendor:microui"
 
 // Every character is 8 pixels wide, and lines are five characters long.
@@ -91,4 +92,74 @@ test_area_vertical :: proc(t: ^testing.T) {
 	// Past the first line, the start; past the last, the end.
 	testing.expect_value(t, area_vertical(ctx, nil, text, lines, 2, 16, false), 0)
 	testing.expect_value(t, area_vertical(ctx, nil, text, lines, 10, 16, true), len(text))
+}
+
+@(test)
+test_history_groups_typing :: proc(t: ^testing.T) {
+	h: Text_History
+	defer history_clear(&h)
+	at := time.tick_now()
+	history_note(&h, "", {0, 0}, at)
+	// Typed quickly: one step.
+	history_note(&h, "a", {1, 1}, at)
+	history_note(&h, "ab", {2, 2}, at)
+	history_note(&h, "abc", {3, 3}, at)
+	// After a pause, another.
+	later := time.tick_add(at, 2 * time.Second)
+	history_note(&h, "abcd", {4, 4}, later)
+	// Deleting is not typing.
+	history_note(&h, "abc", {3, 3}, later)
+
+	// Typing "abc", the pause before "d" and the deleting are three steps.
+	step, ok := history_undo(&h, "abc")
+	testing.expect(t, ok)
+	testing.expect_value(t, step.text, "abcd")
+	step, ok = history_undo(&h, "abcd")
+	testing.expect_value(t, step.text, "abc")
+	step, ok = history_undo(&h, "abc")
+	testing.expect_value(t, step.text, "")
+	_, ok = history_undo(&h, "")
+	testing.expect(t, !ok)
+
+	step, ok = history_redo(&h, "")
+	testing.expect_value(t, step.text, "abc")
+	step, ok = history_redo(&h, "abc")
+	testing.expect_value(t, step.text, "abcd")
+	step, ok = history_redo(&h, "abcd")
+	testing.expect_value(t, step.text, "abc")
+	_, ok = history_redo(&h, "abc")
+	testing.expect(t, !ok)
+}
+
+@(test)
+test_history_new_edit_drops_redo :: proc(t: ^testing.T) {
+	h: Text_History
+	defer history_clear(&h)
+	at := time.tick_now()
+	history_note(&h, "", {0, 0}, at)
+	history_note(&h, "a", {1, 1}, at)
+	_, ok := history_undo(&h, "a")
+	testing.expect(t, ok)
+	// Typing after an undo starts a step and drops what could be redone.
+	history_note(&h, "x", {1, 1}, at)
+	_, ok = history_redo(&h, "x")
+	testing.expect(t, !ok)
+	step: History_Step
+	step, ok = history_undo(&h, "x")
+	testing.expect(t, ok)
+	testing.expect_value(t, step.text, "")
+}
+
+@(test)
+test_history_pasted_text_is_a_step :: proc(t: ^testing.T) {
+	h: Text_History
+	defer history_clear(&h)
+	at := time.tick_now()
+	history_note(&h, "hi", {2, 2}, at)
+	history_note(&h, "hi", {2, 2}, at)
+	history_note(&h, "hi, a long pasted piece of text", {31, 31}, at)
+	step, ok := history_undo(&h, "hi, a long pasted piece of text")
+	testing.expect(t, ok)
+	testing.expect_value(t, step.text, "hi")
+	testing.expect_value(t, step.sel, [2]int{2, 2})
 }

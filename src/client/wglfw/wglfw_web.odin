@@ -224,6 +224,14 @@ KEY_U :: 85
 KEY_C :: 67
 KEY_V :: 86
 KEY_X :: 88
+KEY_Y :: 89
+KEY_Z :: 90
+
+// LayoutKey is the key itself: the browser's key codes already follow the
+// keyboard's layout.
+LayoutKey :: proc "contextless" (key, scancode: i32) -> i32 {
+	return key
+}
 KEY_ESCAPE :: 256
 KEY_ENTER :: 257
 KEY_BACKSPACE :: 259

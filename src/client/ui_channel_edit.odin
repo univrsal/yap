@@ -91,7 +91,8 @@ channel_edit_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	name := strings.trim_space(field_text(&e.name))
 	changed := name != ch.name || field_text(&e.topic) != ch.topic
 	field_row(ui, EDIT_LABEL, "", {100})
-	submit |= .SUBMIT in stable_button(ctx, "save", "Save" if changed else "Saved", {.ALIGN_CENTER})
+	submit |=
+		.SUBMIT in stable_button(ctx, "save", "Save" if changed else "Saved", {.ALIGN_CENTER})
 	if submit && changed && name != "" {
 		command(
 			ui,
@@ -140,7 +141,11 @@ channel_member_items :: proc(ui: ^UI, account: proto.Account_Id, menu_width: i32
 	dim_label(ctx, ch.name)
 	if toggle &&
 	   .SUBMIT in
-		   stable_button(ctx, "channel admin", "No longer its admin" if admin else "Make channel admin") {
+		   stable_button(
+			   ctx,
+			   "channel admin",
+			   "No longer its admin" if admin else "Make channel admin",
+		   ) {
 		command(ui, conn.Conv_Admin_Command{conv = ch.id, account = account, on = !admin})
 		mu.get_current_container(ctx).open = false
 	}

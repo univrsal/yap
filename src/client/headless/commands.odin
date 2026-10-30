@@ -832,7 +832,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			if n, ok := strconv.parse_u64(strings.trim_space(id)); ok {
 				conn.push_command(
 					q,
-					conn.Bookmark_Command{id = proto.Msg_Id(n), on = strings.has_prefix(line, "/bookmark ")},
+					conn.Bookmark_Command {
+						id = proto.Msg_Id(n),
+						on = strings.has_prefix(line, "/bookmark "),
+					},
 				)
 			}
 		case line == "/bookmarks":

@@ -18,11 +18,11 @@
 # NVENC_API_* and NVENC_DRIVER in src/video/src/encoders.cpp too, and
 # checking the versions src/video/src/ffmpeg.cpp takes (on Linux and
 # macOS it falls back to the system's FFmpeg 8 or 9).
-ffmpeg_release=autobuild-2026-10-12-13-12
+ffmpeg_release=autobuild-2026-10-20-13-08
 ffmpeg_win=ffmpeg-n8.1.3-18-g46d899d7a0-win64-lgpl-shared-8.1
-ffmpeg_win_sha256=fa628b9de20254fe7c80605a4c6af54d0bffdda0807363ee7557131c2b78e051
+ffmpeg_win_sha256=453a30a5019676e805a85d4845e3aad31234dfed4ae0ea2b1d4e97254dc44b0a
 ffmpeg_linux=ffmpeg-n8.1.3-18-g46d899d7a0-linux64-lgpl-shared-8.1
-ffmpeg_linux_sha256=650b22180f416eed5c700a0701c77a95ad191c8dc5f133653c93dd476d61a231
+ffmpeg_linux_sha256=9d92a7fcea7a9a34f0f9ea48c5e408019eefd809c741b79f011cd07b661dc246
 ffmpeg_source=ffmpeg-8.1.3
 ffmpeg_source_sha256=7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
 dav1d_source=dav1d-1.5.4

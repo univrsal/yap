@@ -436,8 +436,11 @@ char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 }
 
 @(private = "file")
-key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
+key_callback :: proc "c" (window: glfw.WindowHandle, key_code, scancode, action, mods: i32) {
 	context = platform.callback_context()
+	// The shortcuts go by the letters on the keys, not where a US keyboard
+	// has them (Colemak's Ctrl+Z is not the QWERTY Z's key).
+	key := glfw.LayoutKey(key_code, scancode)
 	ui_redraw(g_ui)
 	g_ui.drop_space = false
 	// The command palette: Cmd+K on macOS, where Ctrl+Space usually switches
@@ -466,6 +469,10 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 			extra = .Code
 		case key == glfw.KEY_X && shift:
 			extra = .Strike
+		case key == glfw.KEY_Z && !shift:
+			extra = .Undo
+		case key == glfw.KEY_Y || (key == glfw.KEY_Z && shift):
+			extra = .Redo
 		case (key == glfw.KEY_SPACE || key == glfw.KEY_K) && !shift:
 			if action == glfw.PRESS {
 				g_ui.keys += {.Palette}

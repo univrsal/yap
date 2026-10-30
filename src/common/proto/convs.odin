@@ -656,7 +656,11 @@ decode_group_open :: proc(
 // encode_conv_members writes a Conv_Members response with as many of
 // `accounts` as fit in `out`, followed by the `admins` among them if there is
 // room for all of them.
-encode_conv_members :: proc(out: []u8, accounts: []Account_Id, admins: []Account_Id = nil) -> []u8 {
+encode_conv_members :: proc(
+	out: []u8,
+	accounts: []Account_Id,
+	admins: []Account_Id = nil,
+) -> []u8 {
 	w := Writer {
 		buf = out,
 	}

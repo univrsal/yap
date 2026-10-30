@@ -223,7 +223,15 @@ composer_of_page :: proc(ui: ^UI) -> Composer {
 		return {composer_buffer(&b.buf), &b.len, &b.editing, &b.editing_conv, 0, &b.files, &b.area}
 	}
 	ch := &ui.chat
-	return {composer_buffer(&ch.buf), &ch.len, &ch.editing, &ch.editing_conv, 0, &ch.files, &ch.area}
+	return {
+		composer_buffer(&ch.buf),
+		&ch.len,
+		&ch.editing,
+		&ch.editing_conv,
+		0,
+		&ch.files,
+		&ch.area,
+	}
 }
 
 // composer_of is the page's composer (0) or a thread window's.
@@ -232,7 +240,15 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 		return composer_of_page(ui)
 	}
 	t := &ui.threads[thread - 1]
-	return {composer_buffer(&t.buf), &t.len, &t.editing, &t.editing_conv, thread, &t.files, &t.area}
+	return {
+		composer_buffer(&t.buf),
+		&t.len,
+		&t.editing,
+		&t.editing_conv,
+		thread,
+		&t.files,
+		&t.area,
+	}
 }
 
 // composer_buffer returns the room that a message is written in, made the first
@@ -352,6 +368,7 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	}
 	ui_redraw(ui) // so the box shrinks back to a single line
 	c.area.preview = false
+	history_clear(&c.area.history) // a sent message is not to be got back by undo
 	text = richtext.emoji_encode(
 		richtext.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
 		ui.view.emoji.names[:],

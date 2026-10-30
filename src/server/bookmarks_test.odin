@@ -126,7 +126,13 @@ test_bookmarks :: proc(t: ^testing.T) {
 		acc: proto.Account_Id,
 		on: bool,
 	) {
-		status, _ := ts_ask(t, ts, u, .Conv_Member_Set, proto.encode_conv_member_set(buf, conv, acc, on))
+		status, _ := ts_ask(
+			t,
+			ts,
+			u,
+			.Conv_Member_Set,
+			proto.encode_conv_member_set(buf, conv, acc, on),
+		)
 		testing.expect_value(t, status, proto.Status.Ok)
 	}
 	member_set(t, &ts, admin, &member_buf, secret, alice_acc.id, true)

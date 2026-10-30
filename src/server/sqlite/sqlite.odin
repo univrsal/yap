@@ -116,14 +116,14 @@ DBSTATUS_STMT_USED :: 3
 CONFIG_MALLOC :: 4
 
 Mem_Methods :: struct {
-	malloc:    proc "c" (size: c.int) -> rawptr,
-	free:      proc "c" (p: rawptr),
-	realloc:   proc "c" (p: rawptr, size: c.int) -> rawptr,
-	size:      proc "c" (p: rawptr) -> c.int,
-	roundup:   proc "c" (size: c.int) -> c.int,
-	init:      proc "c" (app_data: rawptr) -> c.int,
-	shutdown:  proc "c" (app_data: rawptr),
-	app_data:  rawptr,
+	malloc:   proc "c" (size: c.int) -> rawptr,
+	free:     proc "c" (p: rawptr),
+	realloc:  proc "c" (p: rawptr, size: c.int) -> rawptr,
+	size:     proc "c" (p: rawptr) -> c.int,
+	roundup:  proc "c" (size: c.int) -> c.int,
+	init:     proc "c" (app_data: rawptr) -> c.int,
+	shutdown: proc "c" (app_data: rawptr),
+	app_data: rawptr,
 }
 
 @(private)
