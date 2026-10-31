@@ -50,6 +50,9 @@ C_NUM :: 3
 C_STR :: 4
 C_LIST :: 5
 C_MAP :: 6
+// Only in what a host function is given: a reference to a Lua function that the
+// host may keep (and then must release), see Hook.host.
+C_FUNC :: 7
 
 // What the hook of the script's state calls into: `check` every HOOK_COUNT
 // instructions of a running script (and of every coroutine it makes), which
@@ -58,7 +61,8 @@ C_MAP :: 6
 // calls one of the yap.* functions (see register): op is the position of the
 // function in the names given there. It returns 0 with the value to return in
 // `ret`, or 1 with an error message (a C_STR) in it. What `ret` points to has
-// to stay valid until the next call.
+// to stay valid until the next call. A C_FUNC among the arguments is released
+// after the call, unless the host keeps it by setting its type to C_NIL.
 Hook :: struct {
 	check: #type proc "c" (ud: rawptr, thread: State) -> c.int,
 	host:  #type proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, ret: ^C_Value) -> c.int,

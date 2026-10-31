@@ -41,10 +41,13 @@ typedef int (*yap_lua_check_fn)(void *ud, void *thread);
 #define YAP_STR 4
 #define YAP_LIST 5
 #define YAP_MAP 6
+/* Only in arguments of a host function: a Lua function, as a reference `i` in
+ * the registry. See yap_lua_host_fn. */
+#define YAP_FUNC 7
 
 typedef struct yap_value {
     int type;
-    long long i;          /* BOOL, INT */
+    long long i;          /* BOOL, INT, FUNC */
     double n;             /* NUM */
     const char *s;        /* STR */
     size_t len;           /* STR */
@@ -59,8 +62,13 @@ typedef struct yap_value {
  * passed). Returns 0 and the one value to return in `ret` (nil for none), or
  * 1 and a STR in `ret` for an error to raise in the script. What `ret` points
  * to has to stay valid until the next call.
+ *
+ * A FUNC argument is a reference the host may keep, to call later (yap_lua_spawn_ref)
+ * and to release (yap_lua_release). To keep one, the host sets that argument's
+ * type to YAP_NIL; the ones it leaves are released after the call, and all of
+ * them are if it returns an error.
  */
-typedef int (*yap_lua_host_fn)(void *ud, int op, const yap_value *args, int nargs, yap_value *ret);
+typedef int (*yap_lua_host_fn)(void *ud, int op, yap_value *args, int nargs, yap_value *ret);
 
 typedef struct yap_lua_hook {
     yap_lua_check_fn check;
@@ -112,6 +120,9 @@ int yap_lua_spawn_chunk(void *state, const char *src, size_t srclen, const char 
                         void **thread, int *ref, int *nargs, char *err, size_t errlen);
 int yap_lua_spawn_global(void *state, const char *name, const yap_value *arg,
                          void **thread, int *ref, int *nargs, char *err, size_t errlen);
+/* A call of the function that `fn` (a FUNC argument's reference) refers to. */
+int yap_lua_spawn_ref(void *state, int fn, const yap_value *arg,
+                      void **thread, int *ref, int *nargs, char *err, size_t errlen);
 
 /* Run a task until it finishes, fails or is suspended. */
 int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errlen);

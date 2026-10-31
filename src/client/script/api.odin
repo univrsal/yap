@@ -19,6 +19,8 @@ Op :: enum c.int {
 	Store_Get,
 	Store_Set,
 	Store_Delete,
+	Register_Command,
+	Unregister_Command,
 }
 
 // The names the functions get in the yap table. Op is the index.
@@ -32,6 +34,8 @@ OP_NAMES := [?]cstring {
 	int(Op.Store_Get)    = "store.get",
 	int(Op.Store_Set)    = "store.set",
 	int(Op.Store_Delete) = "store.delete",
+	int(Op.Register_Command) = "register_command",
+	int(Op.Unregister_Command) = "unregister_command",
 }
 
 // Limits on what a script may hold or ask for.
@@ -40,6 +44,9 @@ MAX_NAME :: 64
 MAX_STORE_KEY :: 128
 MAX_STORE_BYTES :: 256 * 1024
 MAX_TEXT :: 16 * 1024
+MAX_COMMANDS :: 32
+MAX_COMMAND_NAME :: 32
+MAX_HELP :: 200
 MIN_TIMER :: 50 * time.Millisecond
 // A script may send this many messages in this long.
 MAX_SENDS :: 20
@@ -68,6 +75,9 @@ host_call :: proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, re
 	if message, failed := err.?; failed {
 		ret^ = to_c(message, scratch)
 		return 1
+	}
+	if Op(op) == .Register_Command {
+		args[len(values) - 1].type = C_NIL // the command keeps the function
 	}
 	ret^ = to_c(result, scratch)
 	return 0
@@ -197,15 +207,76 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 		}
 		switch x in values[1] {
 		case bool, i64, f64, string:
-		case List, Map:
+		case List, Map, Function:
 			return nil, "yap.store.set: only booleans, numbers and strings can be stored"
 		}
 		store_set(s, key, values[1]) or_return
 	case .Store_Delete:
 		key := arg_string(a, 0, MAX_STORE_KEY) or_return
 		store_delete(s, key)
+	case .Register_Command:
+		// (name, fn) or (name, help, fn)
+		last := values[len(values) - 1] if len(values) > 0 else nil
+		fn, is_fn := last.(Function)
+		if len(values) < 2 || !is_fn {
+			return nil, "yap.register_command: the last argument must be the function to run"
+		}
+		name := arg_string(a, 0, MAX_COMMAND_NAME) or_return
+		help := ""
+		if len(values) > 2 {
+			help = arg_string(a, 1, MAX_HELP) or_return
+		}
+		command_register(s, name, help, c.int(fn)) or_return
+	case .Unregister_Command:
+		name := arg_string(a, 0, MAX_COMMAND_NAME) or_return
+		command_unregister(s, strings.to_lower(name, context.temp_allocator))
 	}
 	return
+}
+
+// command_name_ok says whether a name can be typed after a slash: lower case
+// letters, digits, - and _, and not empty.
+@(private = "file")
+command_name_ok :: proc(name: string) -> bool {
+	if name == "" {
+		return false
+	}
+	for r in name {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+@(private = "file")
+command_register :: proc(s: ^Script, name, help: string, fn: c.int) -> (err: Maybe(string)) {
+	lower := strings.to_lower(name, context.temp_allocator)
+	if !command_name_ok(lower) {
+		return error_of("yap.register_command: %q is not a command name (letters, digits, - and _)", name)
+	}
+	command_unregister(s, lower) // registering again replaces it
+	if len(s.commands) >= MAX_COMMANDS {
+		return error_of("yap.register_command: at most %d commands", MAX_COMMANDS)
+	}
+	append(
+		&s.commands,
+		Command{name = strings.clone(lower, s.allocator), help = strings.clone(help, s.allocator), fn = fn},
+	)
+	return nil
+}
+
+@(private = "file")
+command_unregister :: proc(s: ^Script, name: string) {
+	for cmd, i in s.commands {
+		if cmd.name == name {
+			release(s.state, cmd.fn)
+			delete(cmd.name, s.allocator)
+			delete(cmd.help, s.allocator)
+			unordered_remove(&s.commands, i)
+			return
+		}
+	}
 }
 
 @(private = "file")
@@ -215,7 +286,7 @@ truthy :: proc(v: Value) -> bool {
 		return false
 	case bool:
 		return x
-	case i64, f64, string, List, Map:
+	case i64, f64, string, List, Map, Function:
 		return true
 	}
 	return false

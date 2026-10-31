@@ -14,7 +14,12 @@ Value :: union {
 	string,
 	List,
 	Map,
+	Function,
 }
+
+// A Lua function the script handed over: a reference in its registry, kept
+// until released (release). It only comes from scripts (to_c cannot make one).
+Function :: distinct i64
 
 List :: distinct []Value
 Map :: distinct []Pair
@@ -47,6 +52,8 @@ to_c :: proc(v: Value, allocator: runtime.Allocator, depth := 0) -> (out: C_Valu
 		out.type = C_STR
 		out.s = raw_data(x)
 		out.len = c.size_t(len(x))
+	case Function:
+		out.type = C_NIL
 	case List:
 		out.type = C_LIST
 		if depth >= MAX_DEPTH {
@@ -92,6 +99,8 @@ from_c :: proc(v: C_Value, allocator: runtime.Allocator) -> Value {
 		return v.n
 	case C_STR:
 		return strings.clone(string(v.s[:v.len]), allocator) if v.len > 0 else ""
+	case C_FUNC:
+		return Function(v.i)
 	}
 	return nil
 }

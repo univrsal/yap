@@ -1,5 +1,6 @@
 package client
 
+import "core:strings"
 import "core:time"
 
 import "client:platform"
@@ -35,4 +36,24 @@ scripts_frame :: proc(ui: ^UI) {
 	if ui.scripts != nil {
 		script.runtime_step(ui.scripts, SCRIPT_BUDGET)
 	}
+}
+
+// scripts_command runs `text` if it is a /command that a script has registered
+// for the shown server. Call with the View locked.
+scripts_command :: proc(ui: ^UI, text: string) -> bool {
+	if ui.scripts == nil || ui.session == nil || !strings.has_prefix(text, "/") {
+		return false
+	}
+	return script.runtime_run_command(ui.scripts, ui.session.client, text, scripts_channel(ui))
+}
+
+// scripts_channel is the name of the channel being looked at, "" if it is a
+// conversation. Call with the View locked.
+scripts_channel :: proc(ui: ^UI) -> string {
+	for ch in ui.view.channels {
+		if ch.id == ui.view.viewing {
+			return ch.name
+		}
+	}
+	return ""
 }

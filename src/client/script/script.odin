@@ -63,6 +63,14 @@ Host :: struct {
 	server_by_key: proc(host: ^Host, s: ^Script, key: string) -> Server_Id,
 }
 
+// A /command the script registered with yap.register_command: what the user
+// types, a line of help, and the function that runs.
+Command :: struct {
+	name: string, // owned; lower case
+	help: string, // owned
+	fn:   c.int, // a reference to it in the script's Lua state
+}
+
 // A name that fires `on_timer` after a while.
 @(private)
 Timer :: struct {
@@ -79,6 +87,8 @@ Script :: struct {
 	perms:     Permissions,
 	host:      ^Host,
 	timers:    [dynamic]Timer,
+	// The /commands it registered (api.odin).
+	commands:  [dynamic]Command,
 	// What the script keeps between runs: yap.store (api.odin). Only scalars.
 	store:     map[string]Value,
 	store_size: int, // the bytes in it, as far as they are counted
@@ -183,6 +193,7 @@ create :: proc(
 		ud    = s,
 	}
 	s.timers.allocator = allocator
+	s.commands.allocator = allocator
 	s.store.allocator = allocator
 	if runtime.arena_init(&s.scratch, 64 * 1024, allocator) != nil {
 		delete(s.name, allocator)
@@ -215,6 +226,11 @@ destroy :: proc(s: ^Script) {
 		delete(t.name, s.allocator)
 	}
 	delete(s.timers)
+	for c in s.commands {
+		delete(c.name, s.allocator)
+		delete(c.help, s.allocator)
+	}
+	delete(s.commands)
 	store_clear(s)
 	delete(s.store)
 	state_close(s.state)
@@ -281,6 +297,30 @@ call :: proc(s: ^Script, handler: string, arg: Value = nil, server := Server_Id(
 		&buf[0],
 		len(buf),
 	)
+	return queue(s, &t, status, buf[:])
+}
+
+// call_command queues a run of the /command `name` (without the slash) with
+// `arg`, on behalf of `server`. `ok` is false if the script has no such command.
+call_command :: proc(s: ^Script, name: string, arg: Value, server := Server_Id(0)) -> (err: string, ok: bool) {
+	fn := c.int(-1)
+	for cmd in s.commands {
+		if cmd.name == name {
+			fn = cmd.fn
+		}
+	}
+	if fn < 0 {
+		return "", false
+	}
+	buf: [ERROR_LEN]u8
+	t := Task {
+		name   = strings.concatenate({"/", name}, context.temp_allocator),
+		server = server,
+	}
+	free_all(runtime.arena_allocator(&s.scratch))
+	defer free_all(runtime.arena_allocator(&s.scratch))
+	value := to_c(arg, runtime.arena_allocator(&s.scratch))
+	status := spawn_ref(s.state, fn, &value, &t.thread, &t.ref, &t.nargs, &buf[0], len(buf))
 	return queue(s, &t, status, buf[:])
 }
 

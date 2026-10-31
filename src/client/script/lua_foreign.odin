@@ -25,6 +25,8 @@ foreign lib {
 	// and there is nothing to release.
 	spawn_chunk :: proc(s: State, src: [^]u8, srclen: c.size_t, name: cstring, thread: ^State, ref: ^c.int, nargs: ^c.int, err: [^]u8, errlen: c.size_t) -> Lua_Status ---
 	spawn_global :: proc(s: State, name: cstring, arg: ^C_Value, thread: ^State, ref: ^c.int, nargs: ^c.int, err: [^]u8, errlen: c.size_t) -> Lua_Status ---
+	// A call of the Lua function that a C_FUNC argument referred to.
+	spawn_ref :: proc(s: State, fn: c.int, arg: ^C_Value, thread: ^State, ref: ^c.int, nargs: ^c.int, err: [^]u8, errlen: c.size_t) -> Lua_Status ---
 	// Run a task until it finishes (.Ok), fails (.Error, with the message) or
 	// is suspended (.Yield).
 	resume :: proc(s: State, thread: State, nargs: c.int, err: [^]u8, errlen: c.size_t) -> Lua_Status ---

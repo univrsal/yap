@@ -71,7 +71,7 @@ run :: proc(
 	if initial_channel != "" {
 		conn.conv_start_in(c, initial_channel)
 	}
-	start_command_reader(&c.commands)
+	start_command_reader(c, scripts)
 
 	for conn.client_step(c) {
 		if scripts != nil {
@@ -97,6 +97,7 @@ start_scripts :: proc(c: ^conn.Server_Conn) -> ^script.Runtime {
 		return nil
 	}
 	script.runtime_attach(rt, c)
+	script.runtime_inline_conns(rt)
 	return rt
 }
 

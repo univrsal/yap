@@ -3,11 +3,14 @@ package script
 import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 import "client:conn"
 import "common:."
+import "common:proto"
 import log "common:wlog"
 
 // The scripts that run in the client, and what connects them to the servers:
@@ -70,6 +73,13 @@ Runtime :: struct {
 	entries:  [dynamic]Entry,
 	next_id:  Server_Id,
 	results:  [dynamic]Result,
+	// Command lines typed on another thread (runtime_queue_command), run by
+	// the next runtime_step.
+	queue_mutex: sync.Mutex,
+	queued:   [dynamic]Queued,
+	// The connections are driven by the thread that steps the runtime, so that
+	// it may look at their state (headless mode).
+	inline_conns: bool,
 	// For what is made while stepping, which is emptied at the start of the next.
 	scratch:  runtime.Arena,
 }
@@ -93,6 +103,10 @@ runtime_destroy :: proc(rt: ^Runtime) {
 	if rt == nil {
 		return
 	}
+	for q in rt.queued {
+		delete(q.line)
+	}
+	delete(rt.queued)
 	for &e in rt.entries {
 		entry_save(&e, force = true)
 		entry_destroy(&e)
@@ -265,6 +279,7 @@ runtime_step :: proc(rt: ^Runtime, budget: time.Duration) {
 	context.temp_allocator = runtime.arena_allocator(&rt.scratch)
 	free_all(context.temp_allocator)
 
+	run_queued(rt)
 	for a in rt.attached {
 		events := conn.sink_take(&a.sink, context.temp_allocator)
 		for &ev in events {
@@ -521,7 +536,7 @@ entry_save :: proc(e: ^Entry, force := false) {
 			obj[k] = json.Float(x)
 		case string:
 			obj[k] = json.String(x)
-		case List, Map:
+		case List, Map, Function:
 		}
 	}
 	data, err := json.marshal(obj, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
@@ -535,4 +550,134 @@ entry_save :: proc(e: ^Entry, force := false) {
 // runtime_scripts is how many scripts are running.
 runtime_scripts :: proc(rt: ^Runtime) -> int {
 	return len(rt.entries)
+}
+
+// A /command a script registered, for lists and completion.
+Command_Info :: struct {
+	script: string, // the script's file name
+	name:   string, // without the slash
+	help:   string,
+}
+
+// runtime_commands lists the /commands of the scripts that run for the
+// connection, by name. The slice is in `allocator`; the strings belong to the
+// scripts and stay as they are until the next runtime_step.
+runtime_commands :: proc(
+	rt: ^Runtime,
+	c: ^conn.Server_Conn,
+	allocator := context.temp_allocator,
+) -> []Command_Info {
+	list := make([dynamic]Command_Info, allocator)
+	a := attached_for(rt, c)
+	if a == nil {
+		return list[:]
+	}
+	for &e in rt.entries {
+		if !in_scope(&e, a) {
+			continue
+		}
+		for cmd in e.script.commands {
+			append(&list, Command_Info{script = e.file, name = cmd.name, help = cmd.help})
+		}
+	}
+	slice.sort_by(list[:], proc(x, y: Command_Info) -> bool {return x.name < y.name})
+	return list[:]
+}
+
+// runtime_run_command runs the /command in `line` ("/roll 2d6") if a script
+// that runs for the connection has registered it. `channel` is the name of the
+// conversation it was typed in. It is false if there is no such command (the
+// line is then for the caller to treat as it likes). The command runs like an
+// event handler, on the next runtime_step.
+runtime_run_command :: proc(rt: ^Runtime, c: ^conn.Server_Conn, line, channel: string) -> bool {
+	text := strings.trim_space(line)
+	if !strings.has_prefix(text, "/") {
+		return false
+	}
+	a := attached_for(rt, c)
+	if a == nil {
+		return false
+	}
+	context.temp_allocator = runtime.arena_allocator(&rt.scratch)
+	free_all(context.temp_allocator)
+	name, args := text[1:], ""
+	if i := strings.index_any(name, " \t"); i >= 0 {
+		name, args = name[:i], strings.trim_space(name[i:])
+	}
+	name = strings.to_lower(name, context.temp_allocator)
+
+	words := strings.fields(args, context.temp_allocator)
+	argv := make([]Value, len(words), context.temp_allocator)
+	for w, i in words {
+		argv[i] = w
+	}
+	event := map_of(
+		{"name", name},
+		{"args", args},
+		{"argv", List(argv)},
+		{"channel", channel},
+		{"server", server_value(a)},
+	)
+	for &e in rt.entries {
+		if !in_scope(&e, a) {
+			continue
+		}
+		if err, ok := call_command(e.script, name, event, a.id); ok {
+			return true
+		} else if err != "" {
+			log.warnf("script %s: /%s: %s", e.file, name, err)
+			return true
+		}
+	}
+	return false
+}
+
+@(private = "file")
+attached_for :: proc(rt: ^Runtime, c: ^conn.Server_Conn) -> ^Attached {
+	for a in rt.attached {
+		if a.c == c {
+			return a
+		}
+	}
+	return nil
+}
+
+// A command line typed somewhere else than where the runtime is stepped.
+@(private)
+Queued :: struct {
+	c:    ^conn.Server_Conn,
+	line: string, // owned
+}
+
+// runtime_queue_command has the next runtime_step run the /command in `line`
+// for the connection, from any thread. A line that no script knows is logged.
+runtime_queue_command :: proc(rt: ^Runtime, c: ^conn.Server_Conn, line: string) {
+	sync.guard(&rt.queue_mutex)
+	append(&rt.queued, Queued{c = c, line = strings.clone(line)})
+}
+
+@(private = "file")
+run_queued :: proc(rt: ^Runtime) {
+	sync.lock(&rt.queue_mutex)
+	lines := rt.queued
+	rt.queued = nil
+	sync.unlock(&rt.queue_mutex)
+	for q in lines {
+		channel := ""
+		if rt.inline_conns {
+			channel = conn.room_name(q.c, proto.Room(q.c.convs.viewing))
+		}
+		if !runtime_run_command(rt, q.c, q.line, channel) {
+			word, _, _ := strings.partition(q.line, " ")
+			log.warnf("no command %s (no script has registered it)", word)
+		}
+		delete(q.line)
+	}
+	delete(lines)
+}
+
+// runtime_inline_conns says that the connections are driven by the thread that
+// steps the runtime (headless mode), so that it may look at their state.
+runtime_inline_conns :: proc(rt: ^Runtime) {
+	rt.inline_conns = true
 }

@@ -257,3 +257,40 @@ test_events_are_dropped_when_nobody_listens :: proc(t: ^testing.T) {
 }
 
 _ :: proto.Account_Id
+
+@(test)
+test_script_commands_run_for_their_servers :: proc(t: ^testing.T) {
+	r := rig_new()
+	defer rig_destroy(&r)
+	src := `
+		yap.register_command("roll", "Roll dice, like /roll 2d6", function(ev)
+			assert(ev.name == "roll" and ev.args == "2d6 x" and ev.argv[1] == "2d6" and #ev.argv == 2)
+			assert(ev.channel == "general" and ev.server.address)
+			yap.send(ev.channel, "rolled " .. ev.args .. " on " .. ev.server.address)
+		end)`
+	testing.expect(t, runtime_add(r.rt, "dice.lua", src, Script_Config{permissions = {"send"}, servers = {"a.example:7777"}}))
+	testing.expect(t, runtime_add(r.rt, "all.lua", `yap.register_command("hello", "Say hello", function() end)`, Script_Config{}))
+
+	list_a := runtime_commands(r.rt, r.a)
+	list_b := runtime_commands(r.rt, r.b)
+	testing.expect_value(t, len(list_a), 2)
+	testing.expect_value(t, len(list_b), 1) // not the one for the other server
+	if len(list_a) == 2 {
+		testing.expect_value(t, list_a[0].name, "hello") // by name
+		testing.expect_value(t, list_a[1].name, "roll")
+		testing.expect_value(t, list_a[1].help, "Roll dice, like /roll 2d6")
+		testing.expect_value(t, list_a[1].script, "dice.lua")
+	}
+
+	testing.expect(t, !runtime_run_command(r.rt, r.b, "/roll 2d6 x", "general")) // not its server
+	testing.expect(t, !runtime_run_command(r.rt, r.a, "/nothing", "general"))
+	testing.expect(t, !runtime_run_command(r.rt, r.a, "roll 2d6", "general")) // no slash
+	testing.expect(t, runtime_run_command(r.rt, r.a, "  /ROLL   2d6 x ", "general"))
+	runtime_step(r.rt, 10 * time.Millisecond)
+	texts := posted(r.a)
+	defer delete(texts)
+	testing.expect_value(t, len(texts), 1)
+	if len(texts) == 1 {
+		testing.expect_value(t, texts[0], "general: rolled 2d6 x on a.example:7777")
+	}
+}

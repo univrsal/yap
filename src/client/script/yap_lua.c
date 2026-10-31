@@ -233,6 +233,7 @@ typedef struct {
     const char *name;
     const yap_value *arg;
     int global;
+    int fn;     /* with global == 2: the function, a reference in the registry */
     lua_State **thread;
     int *ref;
     int *nargs;
@@ -253,7 +254,8 @@ static int spawn_f(lua_State *L) {
             return lua_error(L);
         }
     } else {
-        if (lua_getglobal(co, a->name) != LUA_TFUNCTION) {
+        int type = a->global == 2 ? lua_rawgeti(co, LUA_REGISTRYINDEX, a->fn) : lua_getglobal(co, a->name);
+        if (type != LUA_TFUNCTION) {
             a->missing = 1;
             return 0;
         }
@@ -309,6 +311,18 @@ int yap_lua_spawn_global(void *state, const char *name, const yap_value *arg,
     return spawn((lua_State *)state, &a, err, errlen);
 }
 
+int yap_lua_spawn_ref(void *state, int fn, const yap_value *arg,
+                      void **thread, int *ref, int *nargs, char *err, size_t errlen) {
+    spawn_args a = {0};
+    a.global = 2;
+    a.fn = fn;
+    a.arg = arg;
+    a.thread = (lua_State **)thread;
+    a.ref = ref;
+    a.nargs = nargs;
+    return spawn((lua_State *)state, &a, err, errlen);
+}
+
 int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errlen) {
     lua_State *co = (lua_State *)thread;
     int nres = 0;
@@ -333,6 +347,14 @@ void yap_lua_release(void *state, int ref) {
 
 #define MAX_API_ARGS 8
 
+/* Lets go of the functions among the first n arguments that the host did not keep. */
+static void release_funcs(lua_State *L, yap_value *args, int n) {
+    int k;
+    for (k = 0; k < n; k++) {
+        if (args[k].type == YAP_FUNC) luaL_unref(L, LUA_REGISTRYINDEX, (int)args[k].i);
+    }
+}
+
 /* What every yap.* function is: an upvalue says which one, and the host does it. */
 static int api_call(lua_State *L) {
     yap_lua_hook *h = hook_of(L);
@@ -353,14 +375,22 @@ static int api_call(lua_State *L) {
             else { a->type = YAP_NUM; a->n = lua_tonumber(L, k + 1); }
             break;
         case LUA_TSTRING: a->type = YAP_STR; a->s = lua_tolstring(L, k + 1, &a->len); break;
+        case LUA_TFUNCTION:
+            lua_pushvalue(L, k + 1);
+            a->type = YAP_FUNC;
+            a->i = luaL_ref(L, LUA_REGISTRYINDEX); /* may run out of memory: the ones before are released below */
+            break;
         default:
-            return luaL_argerror(L, k + 1, "only nil, booleans, numbers and strings can be passed");
+            release_funcs(L, args, k);
+            return luaL_argerror(L, k + 1, "only nil, booleans, numbers, strings and functions can be passed");
         }
     }
     memset(&ret, 0, sizeof ret);
     if (h->host(h->ud, op, args, n, &ret) != 0) {
+        release_funcs(L, args, n);
         return luaL_error(L, "%s", ret.type == YAP_STR && ret.s ? ret.s : "error");
     }
+    release_funcs(L, args, n);
     if (ret.type == YAP_NIL) return 0;
     if (!push_value(L, &ret, 0)) return luaL_error(L, "result too large");
     return 1;

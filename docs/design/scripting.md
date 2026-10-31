@@ -489,6 +489,36 @@ global function `get_info()` that returns a table:
    composer and the command palette (`ui_palette.odin`), with autocomplete
    from the registered help text. This is also the step that defines the
    command registration shape the bot slash commands will reuse.
+   *As built (phase 3):* `yap.register_command(name, [help,] fn)` and
+   `yap.unregister_command(name)`.
+   - Names are lower case letters, digits, `-` and `_` (up to 32), what is
+     typed is matched ignoring case, registering a name again replaces it,
+     32 per script. `fn(ev)` gets `ev = {name, args (the rest of the line),
+     argv (split at spaces), channel, server}` and runs like an event handler
+     (time-sliced, killed when it runs too long), for the server it was typed in.
+   - Functions can now be passed to the host: the C trampoline keeps a registry
+     reference (`YAP_FUNC`) that the host owns if it takes it (`Hook.host` sets
+     the argument's type to nil) and that is released otherwise, also when the
+     call fails. A command's reference is released when it is replaced or removed.
+   - Which commands exist is per server like everything else
+     (`runtime_commands`), and a command is only run for a server its script
+     runs for (`runtime_run_command`).
+   - **Composer** (`composer_send`): a line that starts with `/` and names a
+     registered command runs it instead of being posted; any other line, an
+     unknown `/word` included, is a message as before. **Completion**: while
+     the first word of a composer is being typed, the commands that start with
+     it are listed with their help (Tab or Enter completes; once the whole name
+     is typed Enter runs it). **Palette**: each command is "Run /name", with its
+     help beside it.
+   - **Headless**: a `/word` that none of its built-in commands knows goes to the
+     scripts. The command is read on the stdin thread and queued
+     (`runtime_queue_command`) for the thread that steps the runtime, which also
+     fills in `channel` from the channel being looked at; a line nobody knows is
+     logged. Built-in commands win over a script's of the same name.
+   - Not done: in a DM `channel` is `""`, since `yap.send` has no way to address a
+     DM yet; the UI itself is only checked by compiling (native and wasm) and by
+     the runtime tests, there is no display here to try the composer, the
+     completion list and the palette on.
 4. **Filters (M).** `on_incoming` / `on_send` with the time budget and the
    "applied locally only" rule. The part that touches the display path, so
    it comes after the rest is stable.

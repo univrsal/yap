@@ -612,3 +612,72 @@ test_store :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.store["s"].(string), "longer text")
 	testing.expect_value(t, s.store["b"].(bool), false)
 }
+
+@(test)
+test_register_command :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		got = {}
+		yap.register_command("Roll", "Roll dice", function(ev) got[#got + 1] = ev.name .. ":" .. ev.args .. ":" .. #ev.argv end)
+		yap.register_command("short", function(ev) got[#got + 1] = "short" end)
+		function bad()
+			assert(not pcall(yap.register_command, "x"))
+			assert(not pcall(yap.register_command, "x", "help"))
+			assert(not pcall(yap.register_command, "Bad Name", function() end))
+			assert(not pcall(yap.register_command, "", function() end))
+			assert(not pcall(yap.register_command, ("n"):rep(40), function() end))
+			assert(not pcall(yap.register_command, "x", ("h"):rep(300), function() end))
+			assert(not pcall(yap.store.set, "f", function() end))
+			assert(not pcall(yap.timer, "t", function() end))
+		end
+		function result() assert(got[1] == "roll:2d6 +1:2", got[1]) assert(got[2] == "short") assert(#got == 2) end
+		function again() yap.register_command("roll", "again", function(ev) got[#got + 1] = "second" end) end
+		function many() for i = 1, 40 do yap.register_command("c" .. i, function() end) end end
+		function gone() yap.unregister_command("short") end
+		`,
+	)
+	testing.expect_value(t, len(s.commands), 2)
+	if len(s.commands) == 2 {
+		testing.expect_value(t, s.commands[0].name, "roll") // lower case
+		testing.expect_value(t, s.commands[0].help, "Roll dice")
+		testing.expect_value(t, s.commands[1].help, "")
+	}
+	_, ok := call(s, "bad")
+	testing.expect(t, ok)
+	_, ok = call_command(s, "roll", Map([]Pair{{"name", "roll"}, {"args", "2d6 +1"}, {"argv", List([]Value{"2d6", "+1"})}}))
+	testing.expect(t, ok)
+	_, ok = call_command(s, "short", Map([]Pair{}))
+	testing.expect(t, ok)
+	_, ok = call_command(s, "nothing", Map([]Pair{}))
+	testing.expect(t, !ok)
+	results, _, _ := run_to_end(s)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	_, _ = call(s, "result")
+	results, _, _ = run_to_end(s)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+
+	// Registering a name again replaces it; there is a limit; they can go.
+	_, _ = call(s, "again")
+	_, _ = call(s, "many")
+	_, _ = call(s, "gone")
+	results, _, _ = run_to_end(s)
+	defer finish(&results)
+	testing.expect_value(t, results[0].status, Status.Finished)
+	testing.expect_value(t, results[1].status, Status.Error) // the 33rd
+	testing.expect_value(t, len(s.commands), MAX_COMMANDS - 1) // "short" is gone
+	for cmd in s.commands {
+		if cmd.name == "roll" {
+			testing.expect_value(t, cmd.help, "again")
+		}
+	}
+}
