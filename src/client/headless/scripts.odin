@@ -136,6 +136,9 @@ permissions_text :: proc(p: script.Permissions) -> string {
 	if .Notify in p {
 		append(&parts, "notify")
 	}
+	if .Net in p {
+		append(&parts, "net")
+	}
 	if len(parts) == 0 {
 		return "nothing extra"
 	}
@@ -144,6 +147,11 @@ permissions_text :: proc(p: script.Permissions) -> string {
 
 @(private = "file")
 script_list :: proc(rt: ^script.Runtime) {
+	if ok, how := script.runtime_http_status(rt); ok {
+		log.infof("web requests: available (%s)", how)
+	} else {
+		log.warnf("web requests: not available (%s)", how)
+	}
 	views := script.runtime_snapshot(rt)
 	if len(views) == 0 {
 		log.info("no scripts")

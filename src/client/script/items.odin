@@ -95,6 +95,9 @@ permission_names :: proc(p: Permissions) -> []string {
 	if .Notify in p {
 		append(&names, "notify")
 	}
+	if .Net in p {
+		append(&names, "net")
+	}
 	return names[:]
 }
 
@@ -106,6 +109,8 @@ permissions_of :: proc(names: []string, file: string) -> (p: Permissions) {
 			p += {.Send}
 		case "notify":
 			p += {.Notify}
+		case "net":
+			p += {.Net}
 		case:
 			log.warnf("script %s: no permission called %q", file, n)
 		}

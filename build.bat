@@ -87,6 +87,15 @@ rem yap_lua.c or scripts\build\lua.version.
 set SCRIPT=src\client\script
 if not exist %SCRIPT%\yap_lua.lib call :build_lua || exit /b 1
 
+rem tinyrequests, for the HTTP requests of scripts: WinHTTP (linked through
+rem the pragma in its header).
+if not exist %SCRIPT%\yap_requests.lib (
+	echo building %SCRIPT%\yap_requests.lib
+	cl /nologo /MT /O1 /Ideps\thirdparty\tinyrequests /c %SCRIPT%\yap_requests.c /Fo:%SCRIPT%\yap_requests.obj || exit /b 1
+	lib /nologo /out:%SCRIPT%\yap_requests.lib %SCRIPT%\yap_requests.obj || exit /b 1
+	del %SCRIPT%\yap_requests.obj
+)
+
 rem The version and commit (src\common\version.odin), as
 rem scripts/build/version-defines.sh finds them. The values are passed with
 rem their quotes (\" survives the command line as "), see version.odin.

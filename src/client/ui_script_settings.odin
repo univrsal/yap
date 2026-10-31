@@ -78,6 +78,14 @@ script_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		dim_note(ctx, fmt.tprintf("  Put scripts (files ending in .lua) in %s, then press Reload.", su.dir))
 	}
+	// Whether scripts can make web requests at all (on Linux that takes libcurl).
+	http_ok, http_how := script.runtime_http_status(rt)
+	mu.layout_row(ctx, {-1})
+	if http_ok {
+		dim_note(ctx, fmt.tprintf("  Web requests: available (%s).", http_how))
+	} else {
+		error_note(ctx, fmt.tprintf("  Web requests are not available: %s. Scripts that need them will not work.", http_how))
+	}
 	mu.layout_row(ctx, {120, 120, -1})
 	if .SUBMIT in button(ctx, "Reload") {
 		script.runtime_reload(rt)
@@ -248,6 +256,9 @@ script_permissions_text :: proc(p: script.Permissions) -> string {
 	}
 	if .Notify in p {
 		append(&parts, "show notices")
+	}
+	if .Net in p {
+		append(&parts, "make web requests")
 	}
 	if len(parts) == 0 {
 		return "nothing beyond reading and replying to events"

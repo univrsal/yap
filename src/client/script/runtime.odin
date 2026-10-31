@@ -69,6 +69,7 @@ Runtime :: struct {
 	host:     Host,
 	attached: [dynamic]^Attached,
 	items:    [dynamic]^Item, // the scripts it knows of (items.odin)
+	http:     Http_Transport, // web requests (http_native.odin, http_web.odin)
 	entries:  [dynamic]Entry, // those that are running
 	next_id:  Server_Id,
 	results:  [dynamic]Result,
@@ -93,7 +94,11 @@ runtime_create :: proc(dir: string) -> ^Runtime {
 		send          = host_send,
 		notify        = host_notify,
 		server_by_key = host_server_by_key,
+		http_available = host_http_available,
+		http_begin = host_http_begin,
+		http_cancel = host_http_cancel,
 	}
+	http_start(rt)
 	_ = runtime.arena_init(&rt.scratch, 256 * 1024, context.allocator)
 	return rt
 }
@@ -115,6 +120,7 @@ runtime_destroy :: proc(rt: ^Runtime) {
 		item_destroy(it)
 	}
 	delete(rt.items)
+	http_stop(rt)
 	for a in rt.attached {
 		a.c.events = nil
 		conn.sink_destroy(&a.sink)
@@ -130,6 +136,9 @@ runtime_destroy :: proc(rt: ^Runtime) {
 
 @(private)
 entry_destroy :: proc(e: ^Entry) {
+	if h := e.script.host; h != nil && h.http_cancel != nil {
+		h.http_cancel(h, e.script) // its requests are no longer wanted
+	}
 	destroy(e.script)
 	delete(e.store_path)
 }
@@ -200,6 +209,7 @@ runtime_step :: proc(rt: ^Runtime, budget: time.Duration) {
 	free_all(context.temp_allocator)
 
 	run_queued(rt)
+	http_poll(rt)
 	for a in rt.attached {
 		events := conn.sink_take(&a.sink, context.temp_allocator)
 		for &ev in events {
@@ -373,6 +383,21 @@ host_notify :: proc(host: ^Host, s: ^Script, server: Server_Id, title, text: str
 	}
 	conn.view_notice(a.c.view, true, shown)
 	return ""
+}
+
+@(private = "file")
+host_http_available :: proc(host: ^Host) -> bool {
+	return http_ready((^Runtime)(host.data))
+}
+
+@(private = "file")
+host_http_begin :: proc(host: ^Host, s: ^Script, id: u64, req: Http_Request) -> string {
+	return http_begin((^Runtime)(host.data), s, id, req)
+}
+
+@(private = "file")
+host_http_cancel :: proc(host: ^Host, s: ^Script) {
+	http_cancel_script((^Runtime)(host.data), s)
 }
 
 @(private = "file")

@@ -58,8 +58,8 @@ typedef struct yap_value {
 /*
  * The host's side of the API a script calls (yap.log and the rest, see
  * yap_lua_register). `op` is the position of the function in the names given
- * there, `args` the arguments (only nil, booleans, numbers and strings can be
- * passed). Returns 0 and the one value to return in `ret` (nil for none), or
+ * there, `args` the arguments (nil, booleans, numbers, strings, functions and
+ * tables as lists and maps). Returns 0 and the one value to return in `ret` (nil for none), or
  * 1 and a STR in `ret` for an error to raise in the script. What `ret` points
  * to has to stay valid until the next call.
  *

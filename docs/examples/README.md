@@ -32,3 +32,13 @@ The smallest bot there is, one line of curl:
 ```sh
 curl -H "Authorization: Bot $YAP_TOKEN" -d '{"content": "Backup done"}' $YAP_URL/api/v1/convs/1/messages
 ```
+
+## Scripts
+
+`scripts/` has scripts for the client (see [design/scripting.md](design/scripting.md)),
+which go in `<config folder>/yap/scripts/` or are pasted in with Settings > Scripts >
+Add a script:
+
+- `scripts/showcase.lua` uses everything the Scripts page can show: every kind of
+  setting, `/commands`, the filters, notices and a timer.
+- `scripts/webget.lua` makes web requests: `/get <address>` and `/post <address> <text>`.

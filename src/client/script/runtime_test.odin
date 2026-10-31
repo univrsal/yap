@@ -11,14 +11,14 @@ import "core:time"
 import "client:conn"
 import "common:proto"
 
-@(private = "file")
+@(private)
 Rig :: struct {
 	rt: ^Runtime,
 	a:  ^conn.Server_Conn,
 	b:  ^conn.Server_Conn,
 }
 
-@(private = "file")
+@(private)
 rig_new :: proc(dir := "") -> (r: Rig) {
 	r.rt = runtime_create(dir)
 	r.a = new(conn.Server_Conn)
@@ -32,7 +32,7 @@ rig_new :: proc(dir := "") -> (r: Rig) {
 	return
 }
 
-@(private = "file")
+@(private)
 rig_destroy :: proc(r: ^Rig) {
 	runtime_detach(r.rt, r.a)
 	runtime_detach(r.rt, r.b)
@@ -419,17 +419,17 @@ test_send_filters :: proc(t: ^testing.T) {
 }
 
 // A folder of scripts for a test, removed at its end.
-@(private = "file")
+@(private)
 File :: struct {
 	name, text: string,
 }
 
-@(private = "file")
+@(private)
 Folder :: struct {
 	dir: string,
 }
 
-@(private = "file")
+@(private)
 folder_make :: proc(files: ..File) -> (f: Folder) {
 	tmp := os.get_env("TMPDIR", context.temp_allocator)
 	f.dir = fmt.aprintf("%s/yap-script-test-%d", tmp if tmp != "" else "/tmp", time.tick_now()._nsec)
@@ -440,7 +440,7 @@ folder_make :: proc(files: ..File) -> (f: Folder) {
 	return
 }
 
-@(private = "file")
+@(private)
 folder_destroy :: proc(f: ^Folder) {
 	os.remove_all(f.dir)
 	delete(f.dir)

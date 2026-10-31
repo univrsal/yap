@@ -449,9 +449,8 @@ global function `get_info()` that returns a table:
      for every function, which converts nil/boolean/number/string arguments,
      calls `Hook.host` and pushes the result, so an Odin frame is still never
      unwound by a Lua error. Events reach handlers as value trees
-     (`Value`; maps and lists are pushed as Lua tables by C). Table
-     *arguments* from scripts are not supported yet (nothing needs them until
-     `register_command` and `http_*`).
+     (`Value`; maps and lists are pushed as Lua tables by C). Table arguments
+     were added with phase 6 (see there).
    - `yap.log(...)`, `yap.send(channel, text[, server])` (permission `send`,
      at most 20 messages per 10 s), `yap.notify(title, text)` (permission
      `notify`; a notice in the UI's notice line, or the log when headless),
@@ -632,6 +631,60 @@ global function `get_info()` that returns a table:
 6. **HTTP (M).** tinyrequests built into `libyap_requests.a`, the size cap
    patch, scheme check, the libcurl-found log line and `http_available`,
    `web/http.js` for the web, permission `net`.
+   *As built (phase 6):* `yap.http_get(url, fn[, options])`,
+   `yap.http_post(url, body, fn[, options])`, `yap.http_available()`, and the
+   `net` permission (in `get_info`'s `permissions`, the config, the page, and
+   `/script`).
+   - **The answer** comes to `fn(answer)` later, in a handler of its own (time-sliced
+     like the others, for the server the request was made for): `{ok, status, body,
+     headers}` when there was an answer (a 404 is one: `ok` is about whether the
+     server answered, `status` is its), `{ok = false, error}` when not (it timed
+     out, it couldn't connect, the answer was too large, there is no way to make
+     requests here). Header names are in lower case, a repeated one joined with
+     ", ". The function is kept as a registry reference until then
+     (`Hook.host` keeps an argument by `Script.keep_arg`), so that a call that fails
+     to start doesn't leak it.
+   - **options**: `{headers = {Name = "value"}, content_type = "...", timeout = seconds}`
+     (default 10, at most 30). Headers are checked: names are tokens, values have no
+     line breaks (so no header can be injected), at most 16, and not `Host`,
+     `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Expect`.
+   - **Limits** (`http.odin`): addresses are `http:` or `https:` (anything else is an
+     error in the script), up to 2048 bytes; a body up to 256 KiB; an answer up to
+     1 MiB, after which the transfer is stopped; four requests out at once per
+     script, 30 per minute. A script's requests are cancelled when it is switched
+     off, reloaded or the client ends. Local and private addresses are allowed (D10).
+   - **To get the table arguments** (`options`, and later more) the C trampoline now
+     reads a Lua table the way a result is read (`count_value`/`fill_value`, at most
+     8 deep and 4096 values, only names or only 1..n as keys).
+   - **Native** (`yap_requests.c`, `http_native.odin`): tinyrequests, built by
+     `build.sh`/`build.bat` into `libyap_requests.a`/`yap_requests.lib` (WinHTTP,
+     CFNetwork, or a libcurl found at run time). The library is **altered** (marked
+     in its header, as its license asks): `tr_config.max_response_size` makes it
+     stop collecting an answer that is too large, and the libcurl backend allows
+     only http and https, also after a redirect, and at most 5 redirects (the
+     other two backends, WinHTTP and CFNetwork, only speak those two). It is polled from
+     `runtime_step`; no thread is made and nothing waits. Whether it is there is
+     decided when the runtime is made: on Linux, `tr_client_create` fails without a
+     libcurl, and the client logs `script: web requests go through libcurl` or
+     `script: libcurl was not found, so scripts can't make web requests`; the
+     Scripts page and `/script` say the same, and `yap.http_available()` is false,
+     and a request is still answered, at once, with `ok = false`.
+   - **Web** (`web/http.js`, `http_web.odin`, `EM_JS` in `shell.c`): the page's
+     `fetch`, with no cookies, no referrer, redirects followed, a timeout, and the
+     size cap counted while the answer is read. An answer comes back through
+     `web_http_done` and is given to the script by the next step. As a page, only
+     servers that allow it (CORS) can be asked, and an https page can't ask for http.
+   - Checked: unit tests with a fake transport (the shape of the answer, every
+     argument error, header injection, the limits, requests that can't be made); a
+     test that makes real requests through libcurl to a server of its own (a normal
+     answer, a 404, a redirect, a POST with headers, an answer that is too large, a
+     redirect to `file://`, a refused connection, a timeout) and runs the
+     `webget.lua` example against it; the no-libcurl path; the library on its own;
+     `node tools/test_web_http.mjs` for the page's side (in CI); and live, in the
+     headless client with `webget.lua`. WinHTTP and CFNetwork are only compiled by
+     their own CI runners: they have not been run, and the size cap in them rests on
+     the one function all backends share (`tr__append_bytes`). A browser itself has
+     not been used (node's `fetch` stands in, without CORS).
 7. **Docs (S).** `docs/Scripting.md` with the API and the examples; a
    `docs/examples/scripts/` folder (highlight keywords, `/roll`, `/remind`,
    notify when a friend comes online, forward mentions to a webhook).

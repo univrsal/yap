@@ -145,6 +145,8 @@ parse_into :: proc(
 				info.permissions += {.Send}
 			case name == "notify":
 				info.permissions += {.Notify}
+			case name == "net":
+				info.permissions += {.Net}
 			case:
 				note(problems, allocator, "permissions: there is no permission called %q", name)
 			}
@@ -242,7 +244,7 @@ key_ok :: proc(key: string) -> bool {
 	return true
 }
 
-@(private = "file")
+@(private)
 number_of :: proc(v: Value) -> (f64, bool) {
 	#partial switch x in v {
 	case i64:

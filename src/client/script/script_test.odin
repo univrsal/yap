@@ -30,6 +30,7 @@ run_to_end :: proc(
 finish :: proc(results: ^[dynamic]Result) {
 	results_clear(results)
 	delete(results^)
+	results^ = nil // so that it can be used again
 }
 
 new_script :: proc(t: ^testing.T, limits := DEFAULT_LIMITS) -> ^Script {
@@ -354,6 +355,18 @@ Fake :: struct {
 	sent:     [dynamic]string,
 	notices:  [dynamic]string,
 	servers:  map[string]Server_Id,
+	// Web requests: what was asked for, whether they can be made, and what
+	// starting one says.
+	asked:        [dynamic]Asked,
+	http_off:     bool,
+	begin_error:  string,
+}
+
+Asked :: struct {
+	id:                   u64,
+	method, url, body:    string,
+	headers:              string, // "Name: value" lines
+	timeout:              time.Duration,
 }
 
 @(private = "file")
@@ -381,6 +394,32 @@ fake_init :: proc(f: ^Fake) {
 			f := (^Fake)(host.data)
 			return f.servers[key] or_else 0
 		},
+		http_available = proc(host: ^Host) -> bool {
+			return !(^Fake)(host.data).http_off
+		},
+		http_begin = proc(host: ^Host, s: ^Script, id: u64, req: Http_Request) -> string {
+			f := (^Fake)(host.data)
+			if f.begin_error != "" {
+				return f.begin_error
+			}
+			lines := make([dynamic]string, context.temp_allocator)
+			for h in req.headers {
+				append(&lines, fmt.tprintf("%s: %s", h.name, h.value))
+			}
+			append(
+				&f.asked,
+				Asked {
+					id = id,
+					method = strings.clone(req.method),
+					url = strings.clone(req.url),
+					body = strings.clone(req.body),
+					headers = strings.clone(strings.join(lines[:], "|", context.temp_allocator)),
+					timeout = req.timeout,
+				},
+			)
+			return ""
+		},
+		http_cancel = proc(host: ^Host, s: ^Script) {},
 	}
 }
 
@@ -389,6 +428,13 @@ fake_destroy :: proc(f: ^Fake) {
 	for x in f.logs {delete(x)}
 	for x in f.sent {delete(x)}
 	for x in f.notices {delete(x)}
+	for a in f.asked {
+		delete(a.method)
+		delete(a.url)
+		delete(a.body)
+		delete(a.headers)
+	}
+	delete(f.asked)
 	delete(f.logs)
 	delete(f.sent)
 	delete(f.notices)
@@ -792,4 +838,234 @@ test_a_filter_between_the_steps_of_a_handler :: proc(t: ^testing.T) {
 	for r in results {
 		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
 	}
+}
+
+@(private = "file")
+net_script :: proc(t: ^testing.T, f: ^Fake, source: string) -> ^Script {
+	s := new_script(t)
+	s.host = &f.host
+	s.perms = {.Net}
+	load(t, s, source)
+	return s
+}
+
+@(test)
+test_http_requests_and_answers :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	defer fake_destroy(&f)
+	s := net_script(
+		t,
+		&f,
+		`
+		answers = {}
+		function get() yap.http_get("http://example.com/a", function(r) answers[#answers + 1] = r end) end
+		function post()
+			yap.http_post("https://example.com/b", '{"x":1}', function(r) answers[#answers + 1] = r end,
+				{ headers = { Authorization = "Bearer t" }, content_type = "application/json", timeout = 3 })
+		end
+		function check_ok()
+			local a = answers[1]
+			assert(a.ok == true and a.status == 200 and a.body == "hello" and a.error == nil, "first")
+			assert(a.headers["content-type"] == "text/plain" and a.headers["x-multi"] == "1, 2", "headers")
+			local b = answers[2]
+			assert(b.ok == true and b.status == 404 and b.body == "gone", "second") -- a 404 is an answer
+			local c = answers[3]
+			assert(c.ok == false and c.error == "timed out" and c.status == nil and c.body == nil, "third")
+		end
+		`,
+	)
+	defer destroy(s)
+	_, _ = call(s, "get")
+	_, _ = call(s, "post")
+	_, _ = call(s, "get")
+	results, _, _ := run_to_end(s)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	testing.expect_value(t, len(f.asked), 3)
+	if len(f.asked) == 3 {
+		testing.expect_value(t, f.asked[0].method, "GET")
+		testing.expect_value(t, f.asked[1].method, "POST")
+		testing.expect_value(t, f.asked[1].body, `{"x":1}`)
+		// (in either order: a table has none)
+		testing.expect(t, strings.contains(f.asked[1].headers, "Authorization: Bearer t"))
+		testing.expect(t, strings.contains(f.asked[1].headers, "Content-Type: application/json"))
+		testing.expect_value(t, f.asked[1].timeout, 3 * time.Second)
+		testing.expect_value(t, f.asked[0].timeout, DEFAULT_REQUEST_TIME)
+		// Nothing has answered yet, so nothing has been called.
+		http_finish(s, f.asked[0].id, Http_Response{ok = true, status = 200, body = "hello", headers = []Http_Header{{"Content-Type", "text/plain"}, {"X-Multi", "1"}, {"x-multi", "2"}}})
+		http_finish(s, f.asked[1].id, Http_Response{ok = true, status = 404, body = "gone"})
+		http_finish(s, f.asked[2].id, Http_Response{error = "timed out"})
+		http_finish(s, 999, Http_Response{ok = true}) // not a request of its own: ignored
+	}
+	// The step gives the answers.
+	results = {}
+	for pending(s) > 0 || len(s.completions) > 0 {
+		step(s, 5 * time.Millisecond, &results)
+	}
+	_, _ = call(s, "check_ok")
+	for pending(s) > 0 {
+		step(s, 5 * time.Millisecond, &results)
+	}
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	testing.expect_value(t, len(s.requests), 0)
+}
+
+@(test)
+test_http_needs_permission_and_a_good_request :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	defer fake_destroy(&f)
+	s := net_script(
+		t,
+		&f,
+		`
+		local function nothing() end
+		function bad()
+			local function fails(...) local ok, err = pcall(...) assert(not ok, "should have failed") return err end
+			assert(fails(yap.http_get, "ftp://example.com/", nothing):find("http or https"))
+			assert(fails(yap.http_get, "file:///etc/passwd", nothing):find("http or https"))
+			assert(fails(yap.http_get, "http://exa mple.com/", nothing))
+			assert(fails(yap.http_get, "http:///nohost", nothing))
+			assert(fails(yap.http_get, "http://example.com/", "not a function"):find("function"))
+			assert(fails(yap.http_get, "http://example.com/"):find("function"))
+			assert(fails(yap.http_post, "http://example.com/", ("x"):rep(300 * 1024), nothing):find("too long"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { nonsense = 1 }):find("no option"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { timeout = "soon" }):find("timeout"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { headers = { ["X\r\nEvil"] = "1" } }):find("not allowed"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { headers = { X = "a\r\nEvil: 1" } }):find("not allowed"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { headers = { Host = "elsewhere" } }):find("not allowed"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { headers = { ["Content-Length"] = "0" } }):find("not allowed"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { headers = { X = 5 } }):find("not allowed"))
+			assert(fails(yap.http_get, "http://example.com/", nothing, { headers = "no" }):find("headers"))
+			-- Fine: an empty table of options, and the case of a scheme.
+			yap.http_get("HTTP://example.com/ok", nothing, {})
+			yap.http_get("https://example.com/ok", nothing, { headers = {} })
+		end
+		`,
+	)
+	defer destroy(s)
+	_, _ = call(s, "bad")
+	results, _, _ := run_to_end(s)
+	defer finish(&results)
+	testing.expectf(t, results[0].status == .Finished, "%v", results[0].message)
+	testing.expect_value(t, len(f.asked), 2) // only the two good ones were started
+
+	// Without the permission, none.
+	s.perms = {}
+	_, _ = call(s, "bad")
+	results2, _, _ := run_to_end(s)
+	defer finish(&results2)
+	testing.expect_value(t, results2[0].status, Status.Error)
+	testing.expect(t, strings.contains(results2[0].message, "'net' permission") || strings.contains(results2[0].message, "assert"))
+}
+
+@(test)
+test_http_limits :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	defer fake_destroy(&f)
+	s := net_script(
+		t,
+		&f,
+		`
+		function fn() end
+		function many() for i = 1, 6 do yap.http_get("http://example.com/" .. i, fn) end end
+		function one() yap.http_get("http://example.com/x", fn) end
+		`,
+	)
+	defer destroy(s)
+	// Only four at once.
+	_, _ = call(s, "many")
+	results, _, _ := run_to_end(s)
+	testing.expect_value(t, results[0].status, Status.Error)
+	testing.expect(t, strings.contains(results[0].message, "at most 4 requests at once"))
+	finish(&results)
+	testing.expect_value(t, len(f.asked), MAX_PENDING_REQUESTS)
+	// When they are answered there is room again, until the minute's worth is used.
+	for a in f.asked {
+		http_finish(s, a.id, Http_Response{ok = true, status = 200})
+	}
+	for a in f.asked {
+		delete(a.method)
+		delete(a.url)
+		delete(a.body)
+		delete(a.headers)
+	}
+	clear(&f.asked)
+	failed := false
+	for i in 0 ..< MAX_REQUESTS_PER_MINUTE + 3 {
+		_, _ = call(s, "one")
+		results, _, _ = run_to_end(s)
+		if results[0].status == .Error {
+			failed = true
+			testing.expect(t, strings.contains(results[0].message, "in a minute"), results[0].message)
+		} else if len(f.asked) > 0 {
+			http_finish(s, f.asked[len(f.asked) - 1].id, Http_Response{ok = true, status = 200})
+		}
+		finish(&results)
+		_ = i
+	}
+	testing.expect(t, failed)
+}
+
+@(test)
+test_http_when_requests_cannot_be_made :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	f.http_off = true
+	defer fake_destroy(&f)
+	s := net_script(
+		t,
+		&f,
+		`
+		function ask() yap.http_get("http://example.com/", function(r) got = r end) end
+		function check() assert(got and got.ok == false and got.error:find("libcurl") and got.status == nil) end
+		function avail() assert(yap.http_available() == false) end
+		function begin_fails() yap.http_get("http://example.com/", function(r) failed = r.error end) end
+		function check_failed() assert(failed == "no route") end
+		`,
+	)
+	defer destroy(s)
+	for h in ([]string{"avail", "ask"}) {
+		_, _ = call(s, h)
+	}
+	results, _, _ := run_to_end(s)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	// The function is called, not by the request itself but at the next step.
+	step(s, 5 * time.Millisecond, &results)
+	_, _ = call(s, "check")
+	for pending(s) > 0 {
+		step(s, 5 * time.Millisecond, &results)
+	}
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+
+	// Or the host can't start this one.
+	f.http_off = false
+	f.begin_error = "no route"
+	_, _ = call(s, "begin_fails")
+	for pending(s) > 0 {
+		step(s, 5 * time.Millisecond, &results)
+	}
+	step(s, 5 * time.Millisecond, &results)
+	_, _ = call(s, "check_failed")
+	for pending(s) > 0 {
+		step(s, 5 * time.Millisecond, &results)
+	}
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	testing.expect_value(t, len(s.requests), 0)
 }

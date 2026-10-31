@@ -446,11 +446,14 @@ void yap_lua_release(void *state, int ref) {
 
 #define MAX_API_ARGS 8
 
-/* Lets go of the functions among the first n arguments that the host did not keep. */
-static void release_funcs(lua_State *L, yap_value *args, int n) {
+/* Lets go of the functions among the first n arguments that the host did not
+ * keep, and of the room the tables took. */
+static void release_funcs(lua_State *L, yap_value *args, void **pools, int n) {
     int k;
     for (k = 0; k < n; k++) {
         if (args[k].type == YAP_FUNC) luaL_unref(L, LUA_REGISTRYINDEX, (int)args[k].i);
+        free(pools[k]);
+        pools[k] = NULL;
     }
 }
 
@@ -460,10 +463,12 @@ static int api_call(lua_State *L) {
     int op = (int)lua_tointeger(L, lua_upvalueindex(1));
     int n = lua_gettop(L), k;
     yap_value args[MAX_API_ARGS];
+    void *pools[MAX_API_ARGS];
     yap_value ret;
     if (!h || !h->host) return luaL_error(L, "the host does not answer");
     if (n > MAX_API_ARGS) return luaL_error(L, "too many arguments (at most %d)", MAX_API_ARGS);
     memset(args, 0, sizeof args);
+    memset(pools, 0, sizeof pools);
     for (k = 0; k < n; k++) {
         yap_value *a = &args[k];
         switch (lua_type(L, k + 1)) {
@@ -479,17 +484,31 @@ static int api_call(lua_State *L) {
             a->type = YAP_FUNC;
             a->i = luaL_ref(L, LUA_REGISTRYINDEX); /* may run out of memory: the ones before are released below */
             break;
+        case LUA_TTABLE: {
+            /* A list or a map of such values, read the way a result is. */
+            size_t nodes = 0, pos = 0;
+            if (!count_value(L, k + 1, 0, &nodes)) {
+                release_funcs(L, args, pools, k);
+                return luaL_argerror(L, k + 1, "a table must have only names or only 1..n as keys, and be at most 8 levels and 4096 values");
+            }
+            if (nodes > 0) {
+                pools[k] = malloc(nodes * sizeof(yap_value));
+                if (!pools[k]) { release_funcs(L, args, pools, k); return luaL_error(L, "out of memory"); }
+            }
+            fill_value(L, k + 1, a, (yap_value *)pools[k], &pos);
+            break;
+        }
         default:
-            release_funcs(L, args, k);
-            return luaL_argerror(L, k + 1, "only nil, booleans, numbers, strings and functions can be passed");
+            release_funcs(L, args, pools, k);
+            return luaL_argerror(L, k + 1, "only nil, booleans, numbers, strings, functions and tables can be passed");
         }
     }
     memset(&ret, 0, sizeof ret);
     if (h->host(h->ud, op, args, n, &ret) != 0) {
-        release_funcs(L, args, n);
+        release_funcs(L, args, pools, n);
         return luaL_error(L, "%s", ret.type == YAP_STR && ret.s ? ret.s : "error");
     }
-    release_funcs(L, args, n);
+    release_funcs(L, args, pools, n);
     /* Always one result, so that yap.setting("x") is nil and not nothing (tostring would fail). */
     if (ret.type == YAP_NIL) { lua_pushnil(L); return 1; }
     if (!push_value(L, &ret, 0)) return luaL_error(L, "result too large");

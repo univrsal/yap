@@ -22,6 +22,9 @@ Op :: enum c.int {
 	Register_Command,
 	Unregister_Command,
 	Setting,
+	Http_Available,
+	Http_Get,
+	Http_Post,
 }
 
 // The names the functions get in the yap table. Op is the index.
@@ -38,6 +41,9 @@ OP_NAMES := [?]cstring {
 	int(Op.Register_Command) = "register_command",
 	int(Op.Unregister_Command) = "unregister_command",
 	int(Op.Setting) = "setting",
+	int(Op.Http_Available) = "http_available",
+	int(Op.Http_Get) = "http_get",
+	int(Op.Http_Post) = "http_post",
 }
 
 // Limits on what a script may hold or ask for.
@@ -68,6 +74,7 @@ host_call :: proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, re
 	scratch := runtime.arena_allocator(&s.scratch)
 	context.temp_allocator = scratch
 	free_all(scratch)
+	s.keep_arg = -1
 
 	values := make([]Value, nargs, scratch)
 	for i in 0 ..< int(nargs) {
@@ -78,8 +85,8 @@ host_call :: proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, re
 		ret^ = to_c(message, scratch)
 		return 1
 	}
-	if Op(op) == .Register_Command && !s.meta {
-		args[len(values) - 1].type = C_NIL // the command keeps the function
+	if s.keep_arg >= 0 && s.keep_arg < len(values) {
+		args[s.keep_arg].type = C_NIL // the host keeps that function
 	}
 	ret^ = to_c(result, scratch)
 	return 0
@@ -88,13 +95,13 @@ host_call :: proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, re
 // What the parts of the arguments a function takes look like when they are
 // not what it takes. In the message the Lua call is named the way the script
 // wrote it.
-@(private = "file")
+@(private)
 Args :: struct {
 	name:   string,
 	values: []Value,
 }
 
-@(private = "file")
+@(private)
 arg_string :: proc(a: Args, i: int, max: int, optional := false) -> (text: string, err: Maybe(string)) {
 	if i >= len(a.values) || a.values[i] == nil {
 		if optional {
@@ -112,7 +119,7 @@ arg_string :: proc(a: Args, i: int, max: int, optional := false) -> (text: strin
 	return text, nil
 }
 
-@(private = "file")
+@(private)
 error_of :: proc(format: string, args: ..any) -> string {
 	return fmt.tprintf(format, ..args)
 }
@@ -232,6 +239,16 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 			help = arg_string(a, 1, MAX_HELP) or_return
 		}
 		command_register(s, name, help, c.int(fn)) or_return
+		s.keep_arg = len(values) - 1
+	case .Http_Available:
+		result = s.host != nil && s.host.http_available != nil && s.host.http_available(s.host)
+	case .Http_Get, .Http_Post:
+		if .Net not_in s.perms {
+			return nil, "yap.http_get and yap.http_post need the 'net' permission"
+		}
+		req, fn, fn_index := request_make(s, a, op == .Http_Post) or_return
+		request_start(s, req, fn, server) or_return
+		s.keep_arg = fn_index
 	case .Setting:
 		key := arg_string(a, 0, MAX_SETTING_KEY) or_return
 		result = s.settings[key] or_else nil

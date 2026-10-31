@@ -62,6 +62,9 @@ jobs:
         run: |
           python3 tools/gen_foreign.py
           git diff --exit-code -- src/client/audio
+      - name: The web client's requests for scripts work
+        # web/http.js, against a server of its own (node has fetch).
+        run: node tools/test_web_http.mjs
       - name: Cache libopus for wasm
         uses: actions/cache@v6
         with:

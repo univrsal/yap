@@ -43,6 +43,7 @@ ERROR_LEN :: 512
 Permission :: enum {
 	Send, // post messages as the user
 	Notify, // show notices
+	Net, // make web requests (yap.http_get, yap.http_post)
 }
 
 Permissions :: bit_set[Permission]
@@ -62,6 +63,12 @@ Host :: struct {
 	// The server with this key, 0 if the script has no such server (it isn't
 	// one it runs for, or there is none).
 	server_by_key: proc(host: ^Host, s: ^Script, key: string) -> Server_Id,
+	// Web requests (http.odin). `http_begin` starts one, an error message if it
+	// can't, and the host reports the outcome with http_finish; `http_cancel` is for
+	// when the script is going, with requests still out.
+	http_available: proc(host: ^Host) -> bool,
+	http_begin:     proc(host: ^Host, s: ^Script, id: u64, req: Http_Request) -> string,
+	http_cancel:    proc(host: ^Host, s: ^Script),
 }
 
 // A /command the script registered with yap.register_command: what the user
@@ -96,6 +103,16 @@ Script :: struct {
 	timers:    [dynamic]Timer,
 	// The /commands it registered (api.odin).
 	commands:  [dynamic]Command,
+	// Web requests that are out, answers waiting to be given (http.odin), and the
+	// requests started in the current minute.
+	requests:    [dynamic]Pending_Request,
+	completions: [dynamic]Completion,
+	next_request: u64,
+	http_window:  time.Tick,
+	http_count:   int,
+	// The argument of the host call being made that the host keeps (a function),
+	// -1 for none.
+	keep_arg:    int,
 	// What the script keeps between runs: yap.store (api.odin). Only scalars.
 	store:     map[string]Value,
 	store_size: int, // the bytes in it, as far as they are counted
@@ -209,6 +226,9 @@ create :: proc(
 	}
 	s.timers.allocator = allocator
 	s.commands.allocator = allocator
+	s.requests.allocator = allocator
+	s.completions.allocator = allocator
+	s.keep_arg = -1
 	s.store.allocator = allocator
 	s.settings.allocator = allocator
 	if runtime.arena_init(&s.scratch, 64 * 1024, allocator) != nil {
@@ -247,6 +267,11 @@ destroy :: proc(s: ^Script) {
 		delete(c.help, s.allocator)
 	}
 	delete(s.commands)
+	delete(s.requests)
+	for &c in s.completions {
+		response_destroy(&c.response, s.allocator)
+	}
+	delete(s.completions)
 	store_clear(s)
 	delete(s.store)
 	settings_clear(s)
@@ -490,6 +515,7 @@ message_of :: proc(buf: []u8) -> string {
 step :: proc(s: ^Script, budget: time.Duration, results: ^[dynamic]Result) {
 	frame_end := time.tick_add(time.tick_now(), budget)
 	fire_timers(s)
+	completions_deliver(s)
 	for len(s.tasks) > 0 {
 		for i := 0; i < len(s.tasks); {
 			now := time.tick_now()

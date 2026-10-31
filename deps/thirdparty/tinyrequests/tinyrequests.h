@@ -1,6 +1,14 @@
 /*
  * tinyrequests.h - Single-header C HTTP(S) request library
  *
+ * ALTERED by the yap project (this is not the original; see the license, term 2).
+ * What was changed, and nothing else:
+ *   - tr_config.max_response_size: a response bigger than this (0: no limit) stops
+ *     the transfer as if memory had run out (TR_ERROR_NOMEM), instead of being
+ *     collected whole (tr__append_bytes).
+ *   - libcurl backend: only http and https, also after a redirect, and at most 5
+ *     redirects (CURLOPT_PROTOCOLS, CURLOPT_REDIR_PROTOCOLS, CURLOPT_MAXREDIRS).
+ *
  * Features:
  *   - Synchronous HTTP(S) requests
  *   - Poll-driven async HTTP(S) requests with no library-managed threads
@@ -161,6 +169,7 @@ typedef struct tr_config {
     const char *curl_library_path;
     void *curl_library_handle;
     const tr_curl_vtable *curl_vtable;
+    size_t max_response_size; /* yap: 0 for no limit */
 } tr_config;
 
 typedef struct tr_client tr_client;
@@ -208,6 +217,7 @@ struct tr_client {
     tr_alloc_fn alloc_fn;
     tr_free_fn free_fn;
     void *allocator_user;
+    size_t max_response_size; /* yap */
     const char *backend_name;
     int backend_kind;
     tr_async *async_head;
@@ -361,6 +371,10 @@ static int tr__append_bytes(tr_client *client, tr_response *response, const void
     if (!data_size) {
         return TR_OK;
     }
+    /* yap: a response that is too large is refused, as if memory had run out */
+    if (client->max_response_size && response->body_size + data_size > client->max_response_size) {
+        return TR_ERROR_NOMEM;
+    }
     new_body = (unsigned char *) tr__alloc(client, response->body_size + data_size + 1);
     if (!new_body) {
         return TR_ERROR_NOMEM;
@@ -478,6 +492,9 @@ enum {
     TR__CURLOPT_CUSTOMREQUEST = 10036,
     TR__CURLOPT_WRITEFUNCTION = 20011,
     TR__CURLOPT_FOLLOWLOCATION = 52,
+    TR__CURLOPT_MAXREDIRS = 68,
+    TR__CURLOPT_PROTOCOLS = 181,
+    TR__CURLOPT_REDIR_PROTOCOLS = 182,
     TR__CURLOPT_POSTFIELDS = 10015,
     TR__CURLOPT_TIMEOUT_MS = 155,
     TR__CURLOPT_NOSIGNAL = 99,
@@ -585,6 +602,10 @@ static int tr__curl_apply_request(tr_client *client, void *easy, tr_async *async
     if (client->curl.easy_setopt(easy, TR__CURLOPT_HEADERFUNCTION, tr__curl_header_cb) != 0) return TR_ERROR_BACKEND;
     if (client->curl.easy_setopt(easy, TR__CURLOPT_HEADERDATA, async_request) != 0) return TR_ERROR_BACKEND;
     if (client->curl.easy_setopt(easy, TR__CURLOPT_FOLLOWLOCATION, 1L) != 0) return TR_ERROR_BACKEND;
+    /* yap: http and https only (CURLPROTO_HTTP | CURLPROTO_HTTPS), also after a redirect */
+    if (client->curl.easy_setopt(easy, TR__CURLOPT_PROTOCOLS, 3L) != 0) return TR_ERROR_BACKEND;
+    if (client->curl.easy_setopt(easy, TR__CURLOPT_REDIR_PROTOCOLS, 3L) != 0) return TR_ERROR_BACKEND;
+    if (client->curl.easy_setopt(easy, TR__CURLOPT_MAXREDIRS, 5L) != 0) return TR_ERROR_BACKEND;
     if (client->curl.easy_setopt(easy, TR__CURLOPT_NOSIGNAL, 1L) != 0) return TR_ERROR_BACKEND;
     if (request->timeout_ms > 0 && client->curl.easy_setopt(easy, TR__CURLOPT_TIMEOUT_MS, request->timeout_ms) != 0) return TR_ERROR_BACKEND;
     if (client->curl.easy_setopt(easy, TR__CURLOPT_PRIVATE, async_request) != 0) return TR_ERROR_BACKEND;
@@ -1434,6 +1455,7 @@ tr_client *tr_client_create(const tr_config *config) {
     client->alloc_fn = bootstrap.alloc_fn;
     client->free_fn = bootstrap.free_fn;
     client->allocator_user = bootstrap.allocator_user;
+    client->max_response_size = config ? config->max_response_size : 0; /* yap */
 
 #ifdef _WIN32
     client->backend_kind = 1;

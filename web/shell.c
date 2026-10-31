@@ -826,6 +826,16 @@ EM_JS(void, yap_sound_remove, (const char *name), {
 	Module.yapSounds.remove(UTF8ToString(name));
 });
 
+/* Web requests for scripts (web/http.js, src/client/script/http_web.odin). */
+EM_JS(void, yap_http_fetch, (int id, const char *method, const char *url, const unsigned char *body, int body_len, const char *headers, int timeout_ms, int max_response), {
+	Module.yapHttp.start(id, UTF8ToString(method), UTF8ToString(url), HEAPU8.slice(body, body + body_len),
+		UTF8ToString(headers), timeout_ms, max_response);
+});
+
+EM_JS(void, yap_http_abort, (int id), {
+	Module.yapHttp.abort(id);
+});
+
 /* Files in DMs (web/files.js, src/client/files_io_web.odin). */
 EM_JS(void, yap_file_pick, (const char *accept, int multiple), {
 	Module.yapFiles.pick(UTF8ToString(accept), multiple);
