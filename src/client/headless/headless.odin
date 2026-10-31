@@ -3,11 +3,14 @@ package headless
 
 import "client:audio"
 import "client:conn"
+import "client:platform"
+import "client:script"
 import "client:settings"
 import log "common:wlog"
 import "core:os"
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 
 // run is the command-line client, which reads commands from stdin.
@@ -58,6 +61,8 @@ run :: proc(
 	}
 	defer audio.fake_audio_stop(&fake)
 	defer conn.client_close(c)
+	scripts := start_scripts(c)
+	defer stop_scripts(scripts, c)
 	conn.auth_credentials(c, user, user_password, device)
 	if !conn.client_open(c, key_path, server_addr, known_servers, password) {
 		return false
@@ -68,6 +73,37 @@ run :: proc(
 	}
 	start_command_reader(&c.commands)
 
-	for conn.client_step(c) {}
+	for conn.client_step(c) {
+		if scripts != nil {
+			script.runtime_step(scripts, 2 * time.Millisecond)
+		}
+	}
 	return false
+}
+
+// start_scripts starts the scripts in the config folder, if there are any, for
+// the connection (see client/script).
+@(private = "file")
+start_scripts :: proc(c: ^conn.Server_Conn) -> ^script.Runtime {
+	dir := platform.default_config_path("scripts")
+	defer delete(dir)
+	if dir == "" {
+		return nil
+	}
+	rt := script.runtime_create(dir)
+	script.runtime_load(rt)
+	if script.runtime_scripts(rt) == 0 {
+		script.runtime_destroy(rt)
+		return nil
+	}
+	script.runtime_attach(rt, c)
+	return rt
+}
+
+@(private = "file")
+stop_scripts :: proc(rt: ^script.Runtime, c: ^conn.Server_Conn) {
+	if rt != nil {
+		script.runtime_detach(rt, c)
+		script.runtime_destroy(rt)
+	}
 }

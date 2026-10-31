@@ -7,6 +7,9 @@
 // used up; the next frame it goes on. A handler that is still running after
 // `limits.total` of running time (an endless loop, say) is killed. Nothing
 // here waits for anything. See docs/design/scripting.md.
+//
+// What a script can do to the outside is the yap.* functions (api.odin), which
+// ask the Host (the runtime, runtime.odin) to do it.
 package script
 
 import "base:runtime"
@@ -35,10 +38,57 @@ TASK_SLICE :: 500 * time.Microsecond
 // The longest message (and so error) we keep.
 ERROR_LEN :: 512
 
+// Which of the things that reach out of the script it may do (api.odin).
+Permission :: enum {
+	Send, // post messages as the user
+	Notify, // show notices
+}
+
+Permissions :: bit_set[Permission]
+
+// Which server an event, and what a script does about it, is about. 0 is none
+// (the script's own code runs on no server's behalf).
+Server_Id :: distinct u64
+
+// What a script's yap.* functions do, apart from those that only concern the
+// script (timers and its store). Each returns an error message, "" if it went
+// well. The runtime provides them; a test provides its own.
+Host :: struct {
+	data:          rawptr,
+	log:           proc(host: ^Host, s: ^Script, text: string),
+	send:          proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: string) -> string,
+	notify:        proc(host: ^Host, s: ^Script, server: Server_Id, title, text: string) -> string,
+	// The server with this key, 0 if the script has no such server (it isn't
+	// one it runs for, or there is none).
+	server_by_key: proc(host: ^Host, s: ^Script, key: string) -> Server_Id,
+}
+
+// A name that fires `on_timer` after a while.
+@(private)
+Timer :: struct {
+	name:     string, // owned
+	due:      time.Tick,
+	interval: time.Duration, // 0 for once
+	server:   Server_Id,
+}
+
 Script :: struct {
 	name:      string, // owned
 	state:     State,
 	limits:    Limits,
+	perms:     Permissions,
+	host:      ^Host,
+	timers:    [dynamic]Timer,
+	// What the script keeps between runs: yap.store (api.odin). Only scalars.
+	store:     map[string]Value,
+	store_size: int, // the bytes in it, as far as they are counted
+	store_dirty: bool, // it changed since the runtime last saved it
+	// How many messages it has sent in the current SEND_WINDOW (api.odin).
+	send_window: time.Tick,
+	sent: int,
+	// Memory for the values passed to a host function and back; emptied at the
+	// start of every call of one.
+	scratch:   runtime.Arena,
 	// The tasks that haven't finished, in the order they get their turn.
 	tasks:     [dynamic]Task,
 	// What the hook needs to know, and the allocator. Their addresses are
@@ -47,6 +97,9 @@ Script :: struct {
 	mem:       Memory,
 	run:       Run,
 	allocator: runtime.Allocator,
+	// The context it was made in: what the callbacks from C run in, so they log
+	// like everything else.
+	ctx:       runtime.Context,
 }
 
 @(private)
@@ -60,6 +113,7 @@ Memory :: struct {
 @(private)
 Run :: struct {
 	thread:    State, // the coroutine being resumed; nil if none is
+	server:    Server_Id, // on whose behalf
 	began:     time.Tick, // when it was
 	slice_end: time.Tick,
 	spent:     time.Duration, // of its earlier slices
@@ -72,6 +126,7 @@ Task :: struct {
 	thread: State,
 	ref:    c.int,
 	nargs:  c.int, // for the first resume
+	server: Server_Id,
 	spent:  time.Duration, // running time so far
 	slices: int,
 }
@@ -114,6 +169,7 @@ create :: proc(
 ) {
 	s = new(Script, allocator)
 	s.allocator = allocator
+	s.ctx = context
 	s.name = strings.clone(name, allocator)
 	s.limits = limits
 	s.tasks.allocator = allocator
@@ -123,10 +179,22 @@ create :: proc(
 	}
 	s.hook = {
 		check = hook_check,
+		host  = host_call,
 		ud    = s,
 	}
+	s.timers.allocator = allocator
+	s.store.allocator = allocator
+	if runtime.arena_init(&s.scratch, 64 * 1024, allocator) != nil {
+		delete(s.name, allocator)
+		free(s, allocator)
+		return nil
+	}
 	s.state = state_new(lua_alloc, &s.mem, &s.hook)
-	if s.state == nil {
+	if s.state == nil || !register_api(s) {
+		if s.state != nil {
+			state_close(s.state)
+		}
+		runtime.arena_destroy(&s.scratch)
 		delete(s.name, allocator)
 		free(s, allocator)
 		return nil
@@ -143,7 +211,14 @@ destroy :: proc(s: ^Script) {
 		delete(t.name, s.allocator)
 	}
 	delete(s.tasks)
+	for &t in s.timers {
+		delete(t.name, s.allocator)
+	}
+	delete(s.timers)
+	store_clear(s)
+	delete(s.store)
 	state_close(s.state)
+	runtime.arena_destroy(&s.scratch)
 	allocator := s.allocator
 	delete(s.name, allocator)
 	free(s, allocator)
@@ -179,24 +254,33 @@ run_source :: proc(s: ^Script, source: string) -> (err: string, ok: bool) {
 }
 
 // call queues a call of the global function `handler`, with `arg` as its
-// argument if there is one. A script that has no such function (it doesn't
-// care about that event) is not an error: `ok` is false and `err` empty.
-call :: proc(s: ^Script, handler: string, arg: Maybe(string) = nil) -> (err: string, ok: bool) {
+// argument if it isn't nil, on behalf of `server`. A script that has no such
+// function (it doesn't care about that event) is not an error: `ok` is false
+// and `err` empty.
+call :: proc(s: ^Script, handler: string, arg: Value = nil, server := Server_Id(0)) -> (err: string, ok: bool) {
 	cname, _ := strings.clone_to_cstring(handler, context.temp_allocator)
 	buf: [ERROR_LEN]u8
 	t := Task {
-		name = handler,
+		name   = handler,
+		server = server,
 	}
-	a: [^]u8
-	n: c.size_t
-	if text, has := arg.?; has {
-		a = raw_data(text)
-		n = c.size_t(len(text))
-		if a == nil {
-			a = raw_data(buf[:]) // an empty string still is an argument
-		}
+	free_all(runtime.arena_allocator(&s.scratch))
+	defer free_all(runtime.arena_allocator(&s.scratch))
+	value: C_Value
+	has_arg := arg != nil
+	if has_arg {
+		value = to_c(arg, runtime.arena_allocator(&s.scratch))
 	}
-	status := spawn_global(s.state, cname, a, n, &t.thread, &t.ref, &t.nargs, &buf[0], len(buf))
+	status := spawn_global(
+		s.state,
+		cname,
+		&value if has_arg else nil,
+		&t.thread,
+		&t.ref,
+		&t.nargs,
+		&buf[0],
+		len(buf),
+	)
 	return queue(s, &t, status, buf[:])
 }
 
@@ -228,6 +312,7 @@ message_of :: proc(buf: []u8) -> string {
 // finished is added to `results`, which the caller clears (results_clear).
 step :: proc(s: ^Script, budget: time.Duration, results: ^[dynamic]Result) {
 	frame_end := time.tick_add(time.tick_now(), budget)
+	fire_timers(s)
 	for len(s.tasks) > 0 {
 		for i := 0; i < len(s.tasks); {
 			now := time.tick_now()
@@ -259,6 +344,7 @@ resume_task :: proc(
 ) {
 	s.run = {
 		thread    = t.thread,
+		server    = t.server,
 		began     = now,
 		slice_end = slice_end,
 		spent     = t.spent,

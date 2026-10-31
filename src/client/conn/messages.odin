@@ -767,6 +767,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 		}
 	}
 	report_message(c, m)
+	event_message(c, m, mention)
 }
 
 // cache_has_newer reports whether a window ends at or past `id`, which means

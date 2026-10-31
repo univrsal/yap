@@ -436,6 +436,55 @@ global function `get_info()` that returns a table:
    `yap.send`, `yap.notify`, `yap.log`, `yap.timer`, `yap.store`.
    Loading from the scripts folder; headless runs scripts. Example:
    an away auto-responder.
+   *As built:* what the plan lists, with these differences and details:
+   - **conn side** (`conn/events.odin`): `Server_Conn.events` is an optional
+     `Event_Sink`; `event_message`, `event_presence`, `event_connected` (when
+     the login is done, `set_state`) and `event_disconnected` are called where
+     the UI is told (`message_arrived`, the account update in `auth.odin`,
+     `publish_status`). The events are copies the net thread queues under a
+     mutex (at most 1000, the oldest dropped), and the runtime drains them on
+     its own thread. `Chat_Command` got a `channel` (by name) so that a script
+     can post somewhere other than the channel being looked at.
+   - **The yap API** (`api.odin`): one C trampoline (`api_call` in `yap_lua.c`)
+     for every function, which converts nil/boolean/number/string arguments,
+     calls `Hook.host` and pushes the result, so an Odin frame is still never
+     unwound by a Lua error. Events reach handlers as value trees
+     (`Value`; maps and lists are pushed as Lua tables by C). Table
+     *arguments* from scripts are not supported yet (nothing needs them until
+     `register_command` and `http_*`).
+   - `yap.log(...)`, `yap.send(channel, text[, server])` (permission `send`,
+     at most 20 messages per 10 s), `yap.notify(title, text)` (permission
+     `notify`; a notice in the UI's notice line, or the log when headless),
+     `yap.timer(name, seconds[, repeat])` / `yap.cancel(name)` (`on_timer`,
+     64 per script, at least 50 ms), `yap.store.get/set/delete` (scalars, 256
+     KiB, kept in `<dir>/data/<script>.json` every 5 s and on exit, also on the
+     web through `common.store_*`).
+   - **Events**: `on_connect`, `on_disconnect`, `on_message`, `on_presence`,
+     `on_timer`. Every event has `server = {key, address}`; ids are strings. A
+     handler's actions are for the server of its event, or the one that set the
+     timer, or one named by key or address.
+   - **Which scripts run** (until phase 5 has its page): `<config>/yap/scripts/config.json`
+     lists them, and nothing else runs:
+
+         { "scripts": { "away.lua": { "enabled": true,
+                                      "permissions": ["send", "notify"],
+                                      "servers": ["chat.example.com:7777"] } } }
+
+     `servers` (addresses as typed, or 64-digit server keys) is the scope; left
+     out it is every server. A script's own code runs to the end first (at most
+     a second) so that its handlers exist when the first event arrives.
+   - **Wiring**: `ui_scripts.odin` (started with the UI, stepped every frame
+     with 2 ms, the loop sleeps at most 0.1 s while scripts are running),
+     `ui_sessions.odin` (attach on `session_new`, detach before the connection
+     is freed) and the headless loop.
+   - Checked against a live server with two headless clients: `on_connect`,
+     a timer, the store across restarts, `on_presence`, a reply with
+     `yap.send`, an error in a handler (logged) and an endless loop (killed
+     after 200 ms, the client carries on).
+   - Not done: scripts are only read when the client starts (reload comes with
+     phase 5); a server's *name* isn't in `server` yet (reading it from the
+     net thread's data needs the event to carry it); `yap.reply`, `yap.react`,
+     `yap.channels/users/me` and DMs.
 3. **Local `/commands` (S).** `yap.register_command` hooked into the
    composer and the command palette (`ui_palette.odin`), with autocomplete
    from the registered help text. This is also the step that defines the

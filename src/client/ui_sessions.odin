@@ -3,6 +3,7 @@ package client
 import "base:intrinsics"
 import "client:audio"
 import "client:conn"
+import "client:script"
 import "client:platform"
 import "client:settings"
 import "client:video"
@@ -138,6 +139,9 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	ns.view.server = strings.clone(server)
 	ns.client = new(conn.Server_Conn)
 	ns.client.view = &ns.view
+	if ui.scripts != nil {
+		script.runtime_attach(ui.scripts, ns.client)
+	}
 	ns.client.slot = ns.slot
 	ns.client.blobs.disk = &ui.image_cache
 	if audio.voice_init(&ns.client.voice) {
@@ -271,6 +275,9 @@ session_free :: proc(ui: ^UI, ns: ^Net_Session) {
 	audio.close_streams(&ns.streams, &ns.client.voice)
 	sync.atomic_store(&ns.stop, true)
 	net_stop(ns)
+	if ui.scripts != nil {
+		script.runtime_detach(ui.scripts, ns.client)
+	}
 	audio.voice_destroy(&ns.client.voice)
 	free(ns.client)
 	conn.view_destroy(&ns.view)

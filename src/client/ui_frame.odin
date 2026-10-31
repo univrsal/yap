@@ -6,6 +6,7 @@ import "client:clipboard"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "client:script"
 import "client:settings"
 import "client:video"
 import glfw "client:wglfw"
@@ -62,6 +63,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.ui_scale_draft = settings.ui_scale_factor(&ui.settings) * 100
 	ui.chat_scale_draft = settings.chat_scale_factor(&ui.settings) * 100
 	image_cache_start(ui)
+	scripts_start(ui)
 
 	// Audio problems shouldn't stop the rest of the client from working.
 	// The settings page shows what went wrong.
@@ -160,6 +162,10 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		due := time.duration_seconds(time.tick_diff(time.tick_now(), ui.redraw_at))
 		wait = clamp(due, 0.001, wait)
 	}
+	if ui.scripts != nil {
+		// Scripts have timers, which nothing else wakes the loop for.
+		wait = min(wait, SCRIPT_TICK)
+	}
 	glfw.WaitEventsTimeout(wait)
 
 	// Without threads nobody else can run the connection, so it
@@ -191,6 +197,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	tray_update(ui)
 	thumbbar_update(ui)
 	activity_step(ui)
+	scripts_frame(ui)
 	status_sync(ui)
 	push_frame(ui)
 	if ui.hidden {
@@ -408,6 +415,8 @@ settle :: proc(ui: ^UI) {
 // ui_shutdown tears everything down in the reverse order of the startup.
 ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
+	script.runtime_destroy(ui.scripts)
+	ui.scripts = nil
 	delete(ui.sessions)
 	delete(ui.relay_server)
 	delete(ui.window_title)

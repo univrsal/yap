@@ -30,11 +30,38 @@ State :: distinct rawptr
 // Lua's allocator interface. `ptr` is nil to allocate, nsize 0 to free.
 Alloc_Proc :: #type proc "c" (ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr
 
-// Called every HOOK_COUNT instructions of a running script, and of every
-// coroutine it makes. Returns HOOK_CONTINUE, HOOK_YIELD (suspend the script
-// until it is resumed, if that can be done where it is) or HOOK_KILL.
+// A value passing between a script and the host (yap_value in yap_lua.h). For
+// a map, `items` has a key (a STR, NUL terminated) and its value for each of
+// `count` entries.
+C_Value :: struct {
+	type:  c.int,
+	i:     c.longlong,
+	n:     f64,
+	s:     [^]u8,
+	len:   c.size_t,
+	items: [^]C_Value,
+	count: c.size_t,
+}
+
+C_NIL :: 0
+C_BOOL :: 1
+C_INT :: 2
+C_NUM :: 3
+C_STR :: 4
+C_LIST :: 5
+C_MAP :: 6
+
+// What the hook of the script's state calls into: `check` every HOOK_COUNT
+// instructions of a running script (and of every coroutine it makes), which
+// returns HOOK_CONTINUE, HOOK_YIELD (suspend the script until it is resumed,
+// if that can be done where it is) or HOOK_KILL; and `host` when the script
+// calls one of the yap.* functions (see register): op is the position of the
+// function in the names given there. It returns 0 with the value to return in
+// `ret`, or 1 with an error message (a C_STR) in it. What `ret` points to has
+// to stay valid until the next call.
 Hook :: struct {
 	check: #type proc "c" (ud: rawptr, thread: State) -> c.int,
+	host:  #type proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, ret: ^C_Value) -> c.int,
 	ud:    rawptr,
 }
 

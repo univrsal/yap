@@ -188,6 +188,36 @@ void yap_lua_collect_garbage(void *state) {
     lua_gc((lua_State *)state, LUA_GCCOLLECT);
 }
 
+#define MAX_VALUE_DEPTH 8
+
+/* Pushes a value; false if it is nested too deeply or the stack can't hold it. */
+static int push_value(lua_State *L, const yap_value *v, int depth) {
+    size_t k;
+    if (depth > MAX_VALUE_DEPTH || !lua_checkstack(L, 4)) return 0;
+    switch (v->type) {
+    case YAP_BOOL: lua_pushboolean(L, v->i != 0); break;
+    case YAP_INT: lua_pushinteger(L, (lua_Integer)v->i); break;
+    case YAP_NUM: lua_pushnumber(L, (lua_Number)v->n); break;
+    case YAP_STR: lua_pushlstring(L, v->s ? v->s : "", v->len); break;
+    case YAP_LIST:
+        lua_createtable(L, (int)v->count, 0);
+        for (k = 0; k < v->count; k++) {
+            if (!push_value(L, &v->items[k], depth + 1)) return 0;
+            lua_rawseti(L, -2, (lua_Integer)k + 1);
+        }
+        break;
+    case YAP_MAP:
+        lua_createtable(L, 0, (int)v->count);
+        for (k = 0; k < v->count; k++) {
+            if (!push_value(L, &v->items[2 * k + 1], depth + 1)) return 0;
+            lua_setfield(L, -2, v->items[2 * k].s); /* keys are NUL terminated, see lua.odin */
+        }
+        break;
+    default: lua_pushnil(L); break;
+    }
+    return 1;
+}
+
 static void copy_error(lua_State *L, char *err, size_t errlen) {
     const char *m = lua_tostring(L, -1);
     if (!m) m = lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, -1));
@@ -201,8 +231,7 @@ typedef struct {
     const char *src;
     size_t srclen;
     const char *name;
-    const char *arg;
-    size_t arglen;
+    const yap_value *arg;
     int global;
     lua_State **thread;
     int *ref;
@@ -229,7 +258,7 @@ static int spawn_f(lua_State *L) {
             return 0;
         }
         if (a->arg) {
-            lua_pushlstring(co, a->arg, a->arglen);
+            if (!lua_checkstack(co, 16) || !push_value(co, a->arg, 0)) return luaL_error(L, "event too large");
             *a->nargs = 1;
         }
     }
@@ -268,13 +297,12 @@ int yap_lua_spawn_chunk(void *state, const char *src, size_t srclen, const char 
     return spawn((lua_State *)state, &a, err, errlen);
 }
 
-int yap_lua_spawn_global(void *state, const char *name, const char *arg, size_t arglen,
+int yap_lua_spawn_global(void *state, const char *name, const yap_value *arg,
                          void **thread, int *ref, int *nargs, char *err, size_t errlen) {
     spawn_args a = {0};
     a.global = 1;
     a.name = name;
     a.arg = arg;
-    a.arglen = arglen;
     a.thread = (lua_State **)thread;
     a.ref = ref;
     a.nargs = nargs;
@@ -301,4 +329,101 @@ int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errle
 
 void yap_lua_release(void *state, int ref) {
     luaL_unref((lua_State *)state, LUA_REGISTRYINDEX, ref);
+}
+
+#define MAX_API_ARGS 8
+
+/* What every yap.* function is: an upvalue says which one, and the host does it. */
+static int api_call(lua_State *L) {
+    yap_lua_hook *h = hook_of(L);
+    int op = (int)lua_tointeger(L, lua_upvalueindex(1));
+    int n = lua_gettop(L), k;
+    yap_value args[MAX_API_ARGS];
+    yap_value ret;
+    if (!h || !h->host) return luaL_error(L, "the host does not answer");
+    if (n > MAX_API_ARGS) return luaL_error(L, "too many arguments (at most %d)", MAX_API_ARGS);
+    memset(args, 0, sizeof args);
+    for (k = 0; k < n; k++) {
+        yap_value *a = &args[k];
+        switch (lua_type(L, k + 1)) {
+        case LUA_TNIL: a->type = YAP_NIL; break;
+        case LUA_TBOOLEAN: a->type = YAP_BOOL; a->i = lua_toboolean(L, k + 1); break;
+        case LUA_TNUMBER:
+            if (lua_isinteger(L, k + 1)) { a->type = YAP_INT; a->i = lua_tointeger(L, k + 1); }
+            else { a->type = YAP_NUM; a->n = lua_tonumber(L, k + 1); }
+            break;
+        case LUA_TSTRING: a->type = YAP_STR; a->s = lua_tolstring(L, k + 1, &a->len); break;
+        default:
+            return luaL_argerror(L, k + 1, "only nil, booleans, numbers and strings can be passed");
+        }
+    }
+    memset(&ret, 0, sizeof ret);
+    if (h->host(h->ud, op, args, n, &ret) != 0) {
+        return luaL_error(L, "%s", ret.type == YAP_STR && ret.s ? ret.s : "error");
+    }
+    if (ret.type == YAP_NIL) return 0;
+    if (!push_value(L, &ret, 0)) return luaL_error(L, "result too large");
+    return 1;
+}
+
+static const char api_prelude[] =
+    "local raw = yap._log\n"
+    "yap._log = nil\n"
+    "function yap.log(...)\n"
+    "  local t = {}\n"
+    "  for i = 1, select('#', ...) do t[i] = tostring((select(i, ...))) end\n"
+    "  raw(table.concat(t, ' '))\n"
+    "end\n";
+
+typedef struct {
+    const char *const *names;
+    int count;
+} register_args;
+
+static int register_f(lua_State *L) {
+    register_args *a = (register_args *)lua_touserdata(L, 1);
+    int k;
+    lua_newtable(L); /* yap */
+    for (k = 0; k < a->count; k++) {
+        const char *name = a->names[k];
+        const char *dot = strchr(name, '.');
+        lua_pushvalue(L, -1);
+        if (dot) {
+            /* ns.fn: the table `ns` inside yap */
+            lua_pushlstring(L, name, (size_t)(dot - name));
+            if (lua_rawget(L, -2) != LUA_TTABLE) {
+                lua_pop(L, 1);
+                lua_newtable(L);
+                lua_pushlstring(L, name, (size_t)(dot - name));
+                lua_pushvalue(L, -2);
+                lua_rawset(L, -4);
+            }
+            lua_remove(L, -2); /* the copy of yap */
+            name = dot + 1;
+        }
+        lua_pushinteger(L, k);
+        lua_pushcclosure(L, api_call, 1);
+        lua_setfield(L, -2, name);
+        lua_pop(L, 1);
+    }
+    lua_setglobal(L, "yap");
+    if (luaL_loadbufferx(L, api_prelude, sizeof api_prelude - 1, "=api", "t") != LUA_OK) lua_error(L);
+    lua_call(L, 0, 0);
+    return 0;
+}
+
+int yap_lua_register(void *state, const char *const *names, int count) {
+    lua_State *L = (lua_State *)state;
+    register_args a;
+    int status;
+    a.names = names;
+    a.count = count;
+    lua_pushcfunction(L, register_f);
+    lua_pushlightuserdata(L, &a);
+    status = lua_pcall(L, 1, 0, 0);
+    if (status != LUA_OK) {
+        lua_pop(L, 1);
+        return 1;
+    }
+    return 0;
 }

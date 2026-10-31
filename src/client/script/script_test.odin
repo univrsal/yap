@@ -1,6 +1,7 @@
 #+build !wasi
 package script
 
+import "core:fmt"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -347,4 +348,267 @@ test_nothing_leaks_when_destroyed_midway :: proc(t: ^testing.T) {
 	finish(&results)
 	testing.expect_value(t, pending(s), 2)
 	destroy(s)
+}
+
+// A host for tests: it records what the script asked for.
+@(private = "file")
+Fake :: struct {
+	host:     Host,
+	logs:     [dynamic]string,
+	sent:     [dynamic]string,
+	notices:  [dynamic]string,
+	servers:  map[string]Server_Id,
+}
+
+@(private = "file")
+fake_init :: proc(f: ^Fake) {
+	f.host = Host {
+		data = f,
+		log = proc(host: ^Host, s: ^Script, text: string) {
+			f := (^Fake)(host.data)
+			append(&f.logs, strings.clone(text))
+		},
+		send = proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: string) -> string {
+			f := (^Fake)(host.data)
+			if channel == "nowhere" {
+				return "there is no such channel"
+			}
+			append(&f.sent, fmt.aprintf("%d/%s/%s", server, channel, text))
+			return ""
+		},
+		notify = proc(host: ^Host, s: ^Script, server: Server_Id, title, text: string) -> string {
+			f := (^Fake)(host.data)
+			append(&f.notices, fmt.aprintf("%s: %s", title, text))
+			return ""
+		},
+		server_by_key = proc(host: ^Host, s: ^Script, key: string) -> Server_Id {
+			f := (^Fake)(host.data)
+			return f.servers[key] or_else 0
+		},
+	}
+}
+
+@(private = "file")
+fake_destroy :: proc(f: ^Fake) {
+	for x in f.logs {delete(x)}
+	for x in f.sent {delete(x)}
+	for x in f.notices {delete(x)}
+	delete(f.logs)
+	delete(f.sent)
+	delete(f.notices)
+	delete(f.servers)
+}
+
+@(test)
+test_events_arrive_as_tables :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		function on_message(ev)
+			assert(ev.text == "hi there" and ev.mine == false and ev.id == "42", "scalars")
+			assert(ev.author.name == "Ann" and #ev.tags == 2 and ev.tags[2] == "b", "nested")
+			assert(ev.nothing == nil, "nil fields are absent")
+			assert(ev.n == 7 and math.type(ev.n) == "integer" and ev.f == 1.5, "numbers")
+			ok = true
+		end
+		function check() assert(ok) end
+		`,
+	)
+	ev := Map(
+		[]Pair {
+			{"text", "hi there"},
+			{"mine", false},
+			{"id", "42"},
+			{"author", Map([]Pair{{"name", "Ann"}})},
+			{"tags", List([]Value{"a", "b"})},
+			{"n", i64(7)},
+			{"f", 1.5},
+		},
+	)
+	_, ok := call(s, "on_message", ev)
+	testing.expect(t, ok)
+	results, _, _ := run_to_end(s)
+	finish(&results)
+	_, ok = call(s, "check")
+	testing.expect(t, ok)
+	results, _, _ = run_to_end(s)
+	defer finish(&results)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+}
+
+@(test)
+test_yap_functions :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	defer fake_destroy(&f)
+	f.servers["key1"] = 7
+	s := new_script(t)
+	defer destroy(s)
+	s.host = &f.host
+	s.perms = {.Send, .Notify}
+	load(
+		t,
+		s,
+		`
+		function on_message(ev)
+			yap.log("got", ev.text, 3, true, nil)
+			yap.send("general", "pong")
+			yap.send("general", "to the other", "key1")
+			yap.notify("title", "body")
+			local ok, err = pcall(yap.send, "nowhere", "x")
+			assert(not ok and err:find("no such channel"), err)
+			assert(not pcall(yap.send, "general", {}))
+			assert(not pcall(yap.send, "general"))
+			assert(not pcall(yap.send, ("x"):rep(100), "x"))
+			assert(not pcall(yap.send, "general", "x", "unknown key"))
+		end
+		function load_time() yap.send("general", "x") end
+		`,
+	)
+	_, ok := call(s, "on_message", Map([]Pair{{"text", "ping"}}), 3)
+	testing.expect(t, ok)
+	results, _, _ := run_to_end(s)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	testing.expect_value(t, len(f.logs), 1)
+	testing.expect_value(t, f.logs[0], "got ping 3 true nil")
+	testing.expect_value(t, len(f.sent), 2)
+	testing.expect_value(t, f.sent[0], "3/general/pong") // on behalf of the event's server
+	testing.expect_value(t, f.sent[1], "7/general/to the other") // or the one named
+	testing.expect_value(t, len(f.notices), 1)
+	testing.expect_value(t, f.notices[0], "title: body")
+
+	// With no server to act on there is an error.
+	_, ok = call(s, "load_time")
+	testing.expect(t, ok)
+	results, _, _ = run_to_end(s)
+	defer finish(&results)
+	testing.expect_value(t, results[0].status, Status.Error)
+	testing.expectf(t, strings.contains(results[0].message, "no server"), "message: %q", results[0].message)
+}
+
+@(test)
+test_permissions :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	defer fake_destroy(&f)
+	s := new_script(t)
+	defer destroy(s)
+	s.host = &f.host
+	load(t, s, `
+		function try()
+			local ok, err = pcall(yap.send, "general", "x")
+			assert(not ok and err:find("'send' permission"), err)
+			ok, err = pcall(yap.notify, "t", "x")
+			assert(not ok and err:find("'notify' permission"), err)
+			yap.log("logging needs none")
+		end`)
+	_, _ = call(s, "try", nil, 1)
+	results, _, _ := run_to_end(s)
+	defer finish(&results)
+	testing.expectf(t, results[0].status == .Finished, "%v", results[0].message)
+	testing.expect_value(t, len(f.sent) + len(f.notices), 0)
+	testing.expect_value(t, len(f.logs), 1)
+}
+
+@(test)
+test_timers :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		fired = {}
+		function on_timer(ev) fired[#fired + 1] = ev.name end
+		function setup()
+			yap.timer("once", 0.06)
+			yap.timer("tick", 0.06, true)
+			yap.timer("never", 0.06)
+			yap.cancel("never")
+			assert(not pcall(yap.timer, "", 1))
+			assert(not pcall(yap.timer, "x", "soon"))
+			assert(not pcall(yap.timer, "x", -1))
+		end
+		function result()
+			local once, ticks = 0, 0
+			for _, n in ipairs(fired) do
+				if n == "once" then once = once + 1 end
+				if n == "tick" then ticks = ticks + 1 end
+				assert(n ~= "never")
+			end
+			assert(once == 1, "once fired " .. once)
+			assert(ticks >= 2, "tick fired " .. ticks)
+		end
+		`,
+	)
+	_, _ = call(s, "setup", nil, 1)
+	results: [dynamic]Result
+	defer finish(&results)
+	start := time.tick_now()
+	for time.tick_since(start) < 300 * time.Millisecond {
+		step(s, time.Millisecond, &results)
+		time.sleep(2 * time.Millisecond)
+	}
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	results_clear(&results)
+	_, _ = call(s, "result")
+	for pending(s) > 0 {
+		step(s, 2 * time.Millisecond, &results)
+	}
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+}
+
+@(test)
+test_store :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		function use()
+			assert(yap.store.get("n") == nil)
+			yap.store.set("n", 5)
+			yap.store.set("s", "text")
+			yap.store.set("b", false)
+			yap.store.set("f", 2.5)
+			assert(yap.store.get("n") == 5 and yap.store.get("s") == "text")
+			assert(yap.store.get("b") == false and yap.store.get("f") == 2.5)
+			yap.store.set("s", "longer text")
+			assert(yap.store.get("s") == "longer text")
+			yap.store.delete("n")
+			yap.store.set("f", nil)
+			assert(yap.store.get("n") == nil and yap.store.get("f") == nil)
+			assert(not pcall(yap.store.set, "t", {}))
+			assert(not pcall(yap.store.set, ("k"):rep(200), 1))
+			assert(not pcall(yap.store.set, "big", ("x"):rep(1 << 20)))
+			-- Filling it stops at the limit.
+			local ok = true
+			for i = 1, 100 do
+				ok = pcall(yap.store.set, "fill" .. i, ("x"):rep(10000))
+				if not ok then break end
+			end
+			assert(not ok, "the store has a limit")
+		end
+		`,
+	)
+	_, _ = call(s, "use")
+	results, _, _ := run_to_end(s)
+	defer finish(&results)
+	testing.expectf(t, results[0].status == .Finished, "%v", results[0].message)
+	testing.expect(t, s.store_dirty)
+	testing.expect_value(t, s.store["s"].(string), "longer text")
+	testing.expect_value(t, s.store["b"].(bool), false)
 }
