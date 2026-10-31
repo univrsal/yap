@@ -130,27 +130,41 @@ event_message :: proc(c: ^Server_Conn, m: proto.Message, mention: bool) {
 	if c.events == nil {
 		return
 	}
+	info := message_info(c, m)
+	info.mentions_me ||= mention
+	// message_info's strings are in the temp allocator.
+	info.channel = strings.clone(info.channel)
+	info.author_name = strings.clone(info.author_name)
+	info.username = strings.clone(info.username)
+	info.text = strings.clone(info.text)
+	event_put(c, info)
+}
+
+// message_info describes a message the way scripts are told about it. The
+// strings are in the temp allocator.
+message_info :: proc(c: ^Server_Conn, m: proto.Message) -> Event_Message {
 	info := c.convs.convs[m.conv] or_else Conv_Info{}
-	shown, _ := richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
+	shown, spans := richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 	acc := c.auth.accounts[m.sender] or_else Dir_Account{}
-	event_put(
-		c,
-		Event_Message {
-			id = m.id,
-			conv = m.conv,
-			channel = strings.clone(room_name(c, proto.Room(m.conv))),
-			kind = info.kind,
-			msg_kind = m.kind,
-			author = m.sender,
-			author_name = strings.clone(acc.display),
-			username = strings.clone(acc.username),
-			text = strings.clone(shown),
-			thread_root = m.thread_root,
-			time = m.time,
-			mine = m.sender == c.auth.me,
-			mentions_me = mention,
-		},
-	)
+	mentions_me := false
+	for sp in spans {
+		mentions_me ||= sp.me
+	}
+	return Event_Message {
+		id = m.id,
+		conv = m.conv,
+		channel = room_name(c, proto.Room(m.conv)),
+		kind = info.kind,
+		msg_kind = m.kind,
+		author = m.sender,
+		author_name = acc.display,
+		username = acc.username,
+		text = shown,
+		thread_root = m.thread_root,
+		time = m.time,
+		mine = m.sender == c.auth.me,
+		mentions_me = mentions_me,
+	}
 }
 
 event_presence :: proc(c: ^Server_Conn, id: proto.Account_Id, was: proto.Activity) {

@@ -14,6 +14,7 @@ package script
 
 import "base:runtime"
 import "core:c"
+import "core:fmt"
 import "core:strings"
 import "core:time"
 
@@ -93,6 +94,10 @@ Script :: struct {
 	store:     map[string]Value,
 	store_size: int, // the bytes in it, as far as they are counted
 	store_dirty: bool, // it changed since the runtime last saved it
+	// Filters (filter below) that went wrong in a row; at MAX_FILTER_STRIKES they
+	// are switched off for this script.
+	filter_strikes: int,
+	filters_off:    bool,
 	// How many messages it has sent in the current SEND_WINDOW (api.odin).
 	send_window: time.Tick,
 	sent: int,
@@ -128,6 +133,10 @@ Run :: struct {
 	slice_end: time.Tick,
 	spent:     time.Duration, // of its earlier slices
 	killed:    bool,
+	// A filter (see filter) is run to the end, never suspended, and for no
+	// longer than `limit`.
+	sync:      bool,
+	limit:     time.Duration,
 }
 
 // One run of a handler (or of the script's own code, when it is loaded).
@@ -324,6 +333,97 @@ call_command :: proc(s: ^Script, name: string, arg: Value, server := Server_Id(0
 	return queue(s, &t, status, buf[:])
 }
 
+// How long a filter may run, and how many go wrong in a row before the
+// script's filters are switched off.
+FILTER_LIMIT :: 2 * time.Millisecond
+MAX_FILTER_STRIKES :: 3
+
+Filter_Outcome :: enum {
+	Unchanged, // nothing returned (or true), or the script has no such function
+	Hide, // false
+	Replace, // a string
+}
+
+// filter calls the global function `handler` and waits for what it returns:
+// nothing or true leaves things as they are, false hides, a string replaces.
+// Unlike call it runs to the end now, so it can't be suspended, and it is
+// killed after FILTER_LIMIT. A filter that fails or runs too long counts as a
+// strike, and after MAX_FILTER_STRIKES in a row the script's filters are off
+// (a good one clears them). `err` says what went wrong. The replacement is in
+// `allocator`.
+filter :: proc(
+	s: ^Script,
+	handler: string,
+	arg: Value,
+	server := Server_Id(0),
+	allocator := context.temp_allocator,
+) -> (
+	outcome: Filter_Outcome,
+	text: string,
+	err: string,
+) {
+	if s.filters_off {
+		return
+	}
+	cname, _ := strings.clone_to_cstring(handler, context.temp_allocator)
+	buf: [ERROR_LEN]u8
+	thread: State
+	ref, nargs: c.int
+	arena := runtime.arena_allocator(&s.scratch)
+	free_all(arena)
+	defer free_all(arena)
+	value := to_c(arg, arena)
+	#partial switch spawn_global(s.state, cname, &value, &thread, &ref, &nargs, &buf[0], len(buf)) {
+	case .Missing:
+		return
+	case .Error:
+		return .Unchanged, "", strike(s, handler, message_of(buf[:]))
+	}
+	defer release(s.state, ref)
+
+	saved := s.run
+	s.run = Run {
+		thread = thread,
+		server = server,
+		began  = time.tick_now(),
+		sync   = true,
+		limit  = FILTER_LIMIT,
+	}
+	result: C_Value
+	status := resume(s.state, thread, nargs, &buf[0], len(buf), &result)
+	killed := s.run.killed
+	s.run = saved
+	switch {
+	case killed:
+		return .Unchanged, "", strike(s, handler, "ran for too long")
+	case status == .Error:
+		return .Unchanged, "", strike(s, handler, message_of(buf[:]))
+	case status == .Yield:
+		return .Unchanged, "", strike(s, handler, "a filter cannot wait (it yielded)")
+	}
+	s.filter_strikes = 0
+	switch result.type {
+	case C_BOOL:
+		if result.i == 0 {
+			outcome = .Hide
+		}
+	case C_STR:
+		outcome = .Replace
+		text = strings.clone(string(result.s[:result.len]), allocator) if result.len > 0 else ""
+	}
+	return
+}
+
+@(private = "file")
+strike :: proc(s: ^Script, handler, why: string) -> string {
+	s.filter_strikes += 1
+	if s.filter_strikes >= MAX_FILTER_STRIKES {
+		s.filters_off = true
+		return fmt.tprintf("%s: %s (filters switched off)", handler, why)
+	}
+	return fmt.tprintf("%s: %s", handler, why)
+}
+
 @(private)
 queue :: proc(s: ^Script, t: ^Task, status: Lua_Status, buf: []u8) -> (err: string, ok: bool) {
 	#partial switch status {
@@ -392,7 +492,7 @@ resume_task :: proc(
 	buf: [ERROR_LEN]u8
 	nargs := t.nargs
 	t.nargs = 0
-	status := resume(s.state, t.thread, nargs, &buf[0], len(buf))
+	status := resume(s.state, t.thread, nargs, &buf[0], len(buf), nil)
 	t.spent += time.tick_since(now)
 	t.slices += 1
 	killed := s.run.killed
@@ -431,13 +531,14 @@ hook_check :: proc "c" (ud: rawptr, thread: State) -> c.int {
 	if r.killed {
 		return HOOK_KILL
 	}
-	if s.limits.total > 0 && r.spent + time.tick_diff(r.began, now) > s.limits.total {
+	limit := r.limit if r.limit > 0 else s.limits.total
+	if limit > 0 && r.spent + time.tick_diff(r.began, now) > limit {
 		r.killed = true
 		return HOOK_KILL
 	}
 	// Only the task itself can be suspended. A coroutine it made yields to the
 	// script, not to us, so that one runs until the limit above.
-	if thread == r.thread && time.tick_diff(r.slice_end, now) >= 0 {
+	if !r.sync && thread == r.thread && time.tick_diff(r.slice_end, now) >= 0 {
 		return HOOK_YIELD
 	}
 	return HOOK_CONTINUE

@@ -323,12 +323,20 @@ int yap_lua_spawn_ref(void *state, int fn, const yap_value *arg,
     return spawn((lua_State *)state, &a, err, errlen);
 }
 
-int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errlen) {
+int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errlen, yap_value *result) {
     lua_State *co = (lua_State *)thread;
     int nres = 0;
     int status = lua_resume(co, (lua_State *)state, nargs, &nres);
+    if (result) memset(result, 0, sizeof *result);
     if (status == LUA_OK) {
-        lua_settop(co, 0);
+        if (result && nres > 0) {
+            switch (lua_type(co, 1)) {
+            case LUA_TBOOLEAN: result->type = YAP_BOOL; result->i = lua_toboolean(co, 1); break;
+            case LUA_TSTRING: result->type = YAP_STR; result->s = lua_tolstring(co, 1, &result->len); break;
+            default: break;
+            }
+        }
+        if (!result) lua_settop(co, 0); /* else the string is kept until the task is released */
         return YAP_LUA_OK;
     }
     if (status == LUA_YIELD) {

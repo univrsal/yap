@@ -51,9 +51,11 @@ Config :: struct {
 // A connection scripts hear from.
 @(private)
 Attached :: struct {
-	id:   Server_Id,
-	c:    ^conn.Server_Conn,
-	sink: conn.Event_Sink,
+	id:     Server_Id,
+	rt:     ^Runtime,
+	c:      ^conn.Server_Conn,
+	sink:   conn.Event_Sink,
+	filter: conn.Message_Filter,
 }
 
 @(private)
@@ -66,7 +68,14 @@ Entry :: struct {
 	saved:       time.Tick,
 }
 
+// Everything that runs Lua, or changes what runs it, holds `mutex`: the step,
+// the calls from the UI, and the filters the network thread asks for
+// (filter_incoming). The network thread only waits a moment for it (FILTER_WAIT)
+// and shows a message as it is if it can't have it.
+FILTER_WAIT :: 5 * time.Millisecond
+
 Runtime :: struct {
+	mutex:    sync.Mutex,
 	dir:      string, // owned
 	host:     Host,
 	attached: [dynamic]^Attached,
@@ -241,21 +250,30 @@ runtime_add :: proc(rt: ^Runtime, file, source: string, cfg: Script_Config) -> b
 // runtime_attach lets the runtime hear from a connection, which stays attached
 // until runtime_detach (before the connection goes away).
 runtime_attach :: proc(rt: ^Runtime, c: ^conn.Server_Conn) -> Server_Id {
+	sync.guard(&rt.mutex)
 	a := new(Attached)
 	a.id = rt.next_id
 	rt.next_id += 1
+	a.rt = rt
 	a.c = c
+	a.filter = {
+		data     = a,
+		incoming = filter_incoming,
+	}
 	c.events = &a.sink
+	c.filter = &a.filter
 	append(&rt.attached, a)
 	return a.id
 }
 
 runtime_detach :: proc(rt: ^Runtime, c: ^conn.Server_Conn) {
+	sync.guard(&rt.mutex)
 	for a, i in rt.attached {
 		if a.c != c {
 			continue
 		}
 		c.events = nil
+		c.filter = nil
 		for &e in rt.entries {
 			forget_server(e.script, a.id)
 		}
@@ -269,6 +287,7 @@ runtime_detach :: proc(rt: ^Runtime, c: ^conn.Server_Conn) {
 // runtime_step tells the scripts what has happened since the last time, and
 // runs them for about `budget`.
 runtime_step :: proc(rt: ^Runtime, budget: time.Duration) {
+	sync.guard(&rt.mutex)
 	if len(rt.entries) == 0 {
 		// Nobody listens: the events are not kept.
 		for a in rt.attached {
@@ -567,6 +586,7 @@ runtime_commands :: proc(
 	c: ^conn.Server_Conn,
 	allocator := context.temp_allocator,
 ) -> []Command_Info {
+	sync.guard(&rt.mutex)
 	list := make([dynamic]Command_Info, allocator)
 	a := attached_for(rt, c)
 	if a == nil {
@@ -590,6 +610,12 @@ runtime_commands :: proc(
 // line is then for the caller to treat as it likes). The command runs like an
 // event handler, on the next runtime_step.
 runtime_run_command :: proc(rt: ^Runtime, c: ^conn.Server_Conn, line, channel: string) -> bool {
+	sync.guard(&rt.mutex)
+	return run_command(rt, c, line, channel)
+}
+
+@(private = "file")
+run_command :: proc(rt: ^Runtime, c: ^conn.Server_Conn, line, channel: string) -> bool {
 	text := strings.trim_space(line)
 	if !strings.has_prefix(text, "/") {
 		return false
@@ -647,6 +673,7 @@ attached_for :: proc(rt: ^Runtime, c: ^conn.Server_Conn) -> ^Attached {
 Queued :: struct {
 	c:    ^conn.Server_Conn,
 	line: string, // owned
+	say:  bool, // a message to post (runtime_queue_say), else a command line
 }
 
 // runtime_queue_command has the next runtime_step run the /command in `line`
@@ -654,6 +681,14 @@ Queued :: struct {
 runtime_queue_command :: proc(rt: ^Runtime, c: ^conn.Server_Conn, line: string) {
 	sync.guard(&rt.queue_mutex)
 	append(&rt.queued, Queued{c = c, line = strings.clone(line)})
+}
+
+// runtime_queue_say has the next runtime_step pass a message the user typed
+// (headless mode) by the scripts' on_send before it is posted to the channel
+// being looked at, from any thread.
+runtime_queue_say :: proc(rt: ^Runtime, c: ^conn.Server_Conn, text: string) {
+	sync.guard(&rt.queue_mutex)
+	append(&rt.queued, Queued{c = c, line = strings.clone(text), say = true})
 }
 
 @(private = "file")
@@ -667,7 +702,19 @@ run_queued :: proc(rt: ^Runtime) {
 		if rt.inline_conns {
 			channel = conn.room_name(q.c, proto.Room(q.c.convs.viewing))
 		}
-		if !runtime_run_command(rt, q.c, q.line, channel) {
+		switch {
+		case q.say:
+			// Not runtime_filter_send, which would take the lock the step holds.
+			text, cancel, by := filter_send(rt, q.c, channel, q.line)
+			if cancel {
+				log.warnf("%s stopped the message from being sent", by)
+			} else {
+				conn.push_command(
+					&q.c.commands,
+					conn.Chat_Command{text = strings.clone(text), typed = true},
+				)
+			}
+		case !run_command(rt, q.c, q.line, channel):
 			word, _, _ := strings.partition(q.line, " ")
 			log.warnf("no command %s (no script has registered it)", word)
 		}
@@ -680,4 +727,104 @@ run_queued :: proc(rt: ^Runtime) {
 // steps the runtime (headless mode), so that it may look at their state.
 runtime_inline_conns :: proc(rt: ^Runtime) {
 	rt.inline_conns = true
+}
+
+// filter_incoming is what the network thread calls for a message on its way to
+// the screen (conn/filter.odin): the scripts that run for the server and have
+// an on_incoming are asked in turn, each seeing what the one before made of it.
+@(private = "file")
+filter_incoming :: proc(data: rawptr, c: ^conn.Server_Conn, info: conn.Event_Message) -> (r: conn.Filter_Result) {
+	a := (^Attached)(data)
+	rt := a.rt
+	if !lock_for(rt, FILTER_WAIT) {
+		return
+	}
+	defer sync.mutex_unlock(&rt.mutex)
+	info := info
+	for &e in rt.entries {
+		if e.script.filters_off || !in_scope(&e, a) {
+			continue
+		}
+		outcome, text, err := filter(e.script, "on_incoming", message_value(a, info), a.id)
+		if err != "" {
+			log.warnf("script %s: %s", e.file, err)
+		}
+		switch outcome {
+		case .Unchanged:
+		case .Hide:
+			return {hide = true}
+		case .Replace:
+			info.text = text
+			r = {
+				text     = text,
+				replaced = true,
+			}
+		}
+	}
+	return
+}
+
+// lock_for takes the runtime's mutex, waiting at most `wait` for it.
+@(private = "file")
+lock_for :: proc(rt: ^Runtime, wait: time.Duration) -> bool {
+	began := time.tick_now()
+	for !sync.mutex_try_lock(&rt.mutex) {
+		if time.tick_since(began) > wait {
+			return false
+		}
+		time.sleep(50 * time.Microsecond)
+	}
+	return true
+}
+
+// runtime_filter_send lets the scripts that run for the connection look at a
+// message the user is about to send (on_send, called with the channel it is for
+// and the text as typed). `cancel` says one of them stopped it, `by` which; else
+// `text` is what to send, in the temp allocator.
+runtime_filter_send :: proc(
+	rt: ^Runtime,
+	c: ^conn.Server_Conn,
+	channel, text: string,
+) -> (
+	out: string,
+	cancel: bool,
+	by: string,
+) {
+	sync.guard(&rt.mutex)
+	return filter_send(rt, c, channel, text)
+}
+
+@(private = "file")
+filter_send :: proc(
+	rt: ^Runtime,
+	c: ^conn.Server_Conn,
+	channel, text: string,
+) -> (
+	out: string,
+	cancel: bool,
+	by: string,
+) {
+	out = text
+	a := attached_for(rt, c)
+	if a == nil {
+		return
+	}
+	for &e in rt.entries {
+		if e.script.filters_off || !in_scope(&e, a) {
+			continue
+		}
+		event := map_of({"server", server_value(a)}, {"channel", channel}, {"text", out})
+		outcome, replaced, err := filter(e.script, "on_send", event, a.id)
+		if err != "" {
+			log.warnf("script %s: %s", e.file, err)
+		}
+		switch outcome {
+		case .Unchanged:
+		case .Hide:
+			return out, true, e.file
+		case .Replace:
+			out = replaced
+		}
+	}
+	return
 }

@@ -522,6 +522,48 @@ global function `get_info()` that returns a table:
 4. **Filters (M).** `on_incoming` / `on_send` with the time budget and the
    "applied locally only" rule. The part that touches the display path, so
    it comes after the rest is stable.
+   *As built (phase 4):* `on_incoming(ev)` and `on_send(ev)`; each returns
+   nothing or `true` (leave it), `false`, or a string (replace the text).
+   - **`filter`** (`script.odin`) is a synchronous call: it spawns the handler's
+     coroutine and resumes it to the end now (`yap_lua_resume` can hand back the
+     first returned value: nil, a boolean or a string), with no yielding and a
+     hard limit of 2 ms (`FILTER_LIMIT`). A filter that errors, runs too long or
+     yields is a strike; three in a row switch that script's filters off, and a
+     good call clears the count. A script with no such function costs one failed
+     lookup.
+   - **`on_incoming`** runs on the *network thread*, where the messages become
+     what the UI shows (`conn/filter.odin`: `filter_message`, called for a
+     message arriving, a page of history, a thread's root and an edit). Since the
+     Lua state belongs to one thread at a time, `Runtime.mutex` is held by
+     `runtime_step`, the UI calls and the filters; the network thread waits at
+     most 5 ms for it (`FILTER_WAIT`) and shows the message as it is if it
+     can't have it. Scripts run for a server see each other's changes in turn.
+     `ev` is the same as `on_message`'s. Not offered: our own messages, files,
+     system messages, deleted ones.
+   - **Deviation: hide shows a placeholder.** `false` makes the message appear as
+     `[hidden by a script]` (and makes no sound and no notification), instead of
+     removing it: the timeline is a window of messages by id, kept in step with
+     the server's pages and unread counts, and a missing message would be a hole
+     in all of that. Unread counts still include hidden messages. Search results,
+     pins and bookmarks show messages as they are. A replacement is plain text
+     (mentions in it stay as typed, without their highlight); `on_message` still
+     gets the original.
+   - **`on_send`** runs on the UI thread in `composer_send`, after the check for
+     a script's /command (a command is not a message) and before mentions and
+     emoji are encoded, with `ev = {server, channel, text}`: `false` keeps the
+     text in the composer and shows a notice ("send.lua stopped this message."),
+     a string is sent instead. Edits are not filtered. In headless mode the
+     stdin thread queues `/say` for the stepping thread (`runtime_queue_say`)
+     which filters it and posts it; a `/say` with files isn't filtered.
+   - Checked: the filter and hook behaviour in unit tests (rewrite, hide, a
+     second script seeing the first's change, scoping, own messages, a
+     lock that can't be had, a looping filter being cut off and then switched
+     off, a filter between the steps of a suspended handler), and live against a
+     server for `on_send` (a message with "secret" stopped, `!shout` sent as
+     `[auto] shout`) and for the hook being called in the real message path.
+     A live rewrite and hide could not be shown: in this VM a client often
+     doesn't get live messages at all, with or without scripts and also with the
+     previous commit's build, so that is not something the filters cause.
 5. **Metadata, settings and the Settings page (M).** `get_info` with the
    metadata sandbox, schema validation (tests: malformed entries, clamping,
    unknown choice), the form, `yap.setting`, `on_setting`, the permission

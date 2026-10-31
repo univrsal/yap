@@ -664,6 +664,11 @@ notify :: proc(c: ^Server_Conn, ok: bool, text: string) {
 // notices (for example a file it refuses to attach) also come this way.
 view_notice :: proc(v: ^View, ok: bool, text: string) {
 	view_write(v)
+	notice_set(v, ok, text)
+}
+
+// notice_set is view_notice for code that has the View locked already.
+notice_set :: proc(v: ^View, ok: bool, text: string) {
 	delete(v.notice.text)
 	v.notice.text = strings.clone(text)
 	v.notice.ok = ok

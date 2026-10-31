@@ -681,3 +681,119 @@ test_register_command :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_filters :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		function pass(ev) end
+		function pass_true(ev) return true end
+		function hide(ev) if ev.text == "spam" then return false end end
+		function rewrite(ev) return ev.text:upper() .. "!" end
+		function empty(ev) return "" end
+		function number(ev) return 5 end
+		function table_result(ev) return {} end
+		`,
+	)
+	ev := Map([]Pair{{"text", "spam"}})
+	check :: proc(t: ^testing.T, s: ^Script, handler: string, ev: Value, want: Filter_Outcome, want_text := "") {
+		outcome, text, err := filter(s, handler, ev)
+		testing.expectf(t, err == "", "%s: %s", handler, err)
+		testing.expect_value(t, outcome, want)
+		testing.expect_value(t, text, want_text)
+	}
+	check(t, s, "pass", ev, .Unchanged)
+	check(t, s, "pass_true", ev, .Unchanged)
+	check(t, s, "hide", ev, .Hide)
+	check(t, s, "hide", Map([]Pair{{"text", "fine"}}), .Unchanged)
+	check(t, s, "rewrite", ev, .Replace, "SPAM!")
+	check(t, s, "empty", ev, .Replace, "")
+	check(t, s, "number", ev, .Unchanged) // only false and strings mean anything
+	check(t, s, "table_result", ev, .Unchanged)
+	check(t, s, "not_defined", ev, .Unchanged)
+	testing.expect_value(t, s.filter_strikes, 0)
+}
+
+@(test)
+test_a_filter_cannot_stall :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		function spin(ev) while true do end end
+		function evade(ev) while true do pcall(function() while true do end end) end end
+		function coro(ev) coroutine.wrap(function() while true do end end)() end
+		function oops(ev) error("bad") end
+		function waits(ev) coroutine.yield() end
+		function fine(ev) return "ok" end
+		`,
+	)
+	// Each is cut off at the filter limit (not the script's, which is longer),
+	// and each is a strike. A good one clears the strikes.
+	for handler in ([]string{"spin", "evade", "coro"}) {
+		began := time.tick_now()
+		outcome, _, err := filter(s, handler, Map([]Pair{}))
+		took := time.tick_since(began)
+		testing.expect_value(t, outcome, Filter_Outcome.Unchanged)
+		testing.expectf(t, strings.contains(err, "too long") || err == "", "%s: %q", handler, err)
+		testing.expectf(t, err != "", "%s was not stopped", handler)
+		testing.expectf(t, took < 15 * time.Millisecond, "%s took %v", handler, took)
+		s.filter_strikes = 0 // so as to not switch them off yet
+	}
+	_, _, err := filter(s, "oops", Map([]Pair{}))
+	testing.expectf(t, strings.contains(err, "bad"), "%q", err)
+	_, _, err = filter(s, "waits", Map([]Pair{}))
+	testing.expectf(t, strings.contains(err, "cannot wait"), "%q", err)
+	testing.expect_value(t, s.filter_strikes, 2)
+	outcome, text, e := filter(s, "fine", Map([]Pair{}))
+	testing.expect_value(t, e, "")
+	testing.expect_value(t, outcome, Filter_Outcome.Replace)
+	testing.expect_value(t, text, "ok")
+	testing.expect_value(t, s.filter_strikes, 0)
+
+	// Three in a row and they are off, for good handlers too.
+	for _ in 0 ..< MAX_FILTER_STRIKES {
+		_, _, err = filter(s, "oops", Map([]Pair{}))
+	}
+	testing.expect(t, s.filters_off)
+	testing.expectf(t, strings.contains(err, "switched off"), "%q", err)
+	outcome, _, e = filter(s, "fine", Map([]Pair{}))
+	testing.expect_value(t, outcome, Filter_Outcome.Unchanged)
+	testing.expect_value(t, e, "")
+}
+
+@(test)
+test_a_filter_between_the_steps_of_a_handler :: proc(t: ^testing.T) {
+	// Running a filter must not disturb a handler that has been suspended.
+	s := new_script(t)
+	defer destroy(s)
+	load(t, s, `
+		function slow() local x = 0 for i = 1, 3000000 do x = x + i end done = x end
+		function check() assert(done == 3000000 * 3000001 // 2) end
+		function f(ev) return "filtered" end`)
+	_, _ = call(s, "slow")
+	results: [dynamic]Result
+	defer finish(&results)
+	step(s, time.Millisecond, &results)
+	testing.expect_value(t, pending(s), 1) // suspended part-way
+	outcome, text, err := filter(s, "f", Map([]Pair{}))
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, outcome, Filter_Outcome.Replace)
+	testing.expect_value(t, text, "filtered")
+	for pending(s) > 0 {
+		step(s, 2 * time.Millisecond, &results)
+	}
+	_, _ = call(s, "check")
+	for pending(s) > 0 {
+		step(s, 2 * time.Millisecond, &results)
+	}
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+}

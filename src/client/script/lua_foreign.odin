@@ -28,7 +28,9 @@ foreign lib {
 	// A call of the Lua function that a C_FUNC argument referred to.
 	spawn_ref :: proc(s: State, fn: c.int, arg: ^C_Value, thread: ^State, ref: ^c.int, nargs: ^c.int, err: [^]u8, errlen: c.size_t) -> Lua_Status ---
 	// Run a task until it finishes (.Ok), fails (.Error, with the message) or
-	// is suspended (.Yield).
-	resume :: proc(s: State, thread: State, nargs: c.int, err: [^]u8, errlen: c.size_t) -> Lua_Status ---
+	// is suspended (.Yield). With `result`, a task that finishes gives the first
+	// value it returned there (nil, a boolean or a string, valid until the task
+	// is released).
+	resume :: proc(s: State, thread: State, nargs: c.int, err: [^]u8, errlen: c.size_t, result: ^C_Value) -> Lua_Status ---
 	release :: proc(s: State, ref: c.int) ---
 }

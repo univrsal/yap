@@ -764,6 +764,11 @@ read_commands :: proc(reader: ^Reader) {
 		case strings.has_prefix(line, "/say "):
 			text := line[len("/say "):]
 			if len(attached) == 0 {
+				if reader.scripts != nil {
+					// The scripts may change it or stop it, on the other thread.
+					script.runtime_queue_say(reader.scripts, reader.c, typed_lines(text))
+					break
+				}
 				conn.push_command(q, conn.Chat_Command{text = typed_lines(text), typed = true})
 				break
 			}

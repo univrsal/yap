@@ -4,6 +4,7 @@ package script
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 import "core:time"
 
@@ -293,4 +294,126 @@ test_script_commands_run_for_their_servers :: proc(t: ^testing.T) {
 	if len(texts) == 1 {
 		testing.expect_value(t, texts[0], "general: rolled 2d6 x on a.example:7777")
 	}
+}
+
+@(private = "file")
+incoming :: proc(c: ^conn.Server_Conn, text: string, sender := proto.Account_Id(9)) -> (shown: string, hidden: bool) {
+	out, hide := conn.filter_message(c, proto.Message{id = 5, conv = 3, sender = sender, kind = .Text, text = text})
+	return out.text, hide
+}
+
+@(test)
+test_incoming_filters :: proc(t: ^testing.T) {
+	r := rig_new()
+	defer rig_destroy(&r)
+	r.a.auth.me = 1
+	r.b.auth.me = 1
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"filter.lua",
+			`
+			function on_incoming(ev)
+				assert(ev.server.address and ev.id == "5" and ev.kind == "channel" and ev.mine == false)
+				if ev.text:find("buy pills") then return false end
+				if ev.text:find("darn") then return (ev.text:gsub("darn", "****")) end
+			end`,
+			Script_Config{servers = {"a.example:7777"}},
+		),
+	)
+	// A second script sees what the first made of it.
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"second.lua",
+			`function on_incoming(ev) if ev.text:find("%*%*%*%*") then return ev.text .. " (censored)" end end`,
+			Script_Config{},
+		),
+	)
+	shown, hidden := incoming(r.a, "hello")
+	testing.expect_value(t, shown, "hello")
+	testing.expect(t, !hidden)
+	shown, hidden = incoming(r.a, "well darn it")
+	testing.expect_value(t, shown, "well **** it (censored)")
+	testing.expect(t, !hidden)
+	shown, hidden = incoming(r.a, "buy pills now")
+	testing.expect_value(t, shown, conn.HIDDEN_TEXT)
+	testing.expect(t, hidden)
+
+	// The first only runs for server a.
+	shown, hidden = incoming(r.b, "buy pills now")
+	testing.expect_value(t, shown, "buy pills now")
+	testing.expect(t, !hidden)
+
+	// Nor does it touch what we sent ourselves.
+	shown, hidden = incoming(r.a, "buy pills now", sender = 1)
+	testing.expect_value(t, shown, "buy pills now")
+	testing.expect(t, !hidden)
+}
+
+@(test)
+test_incoming_filter_does_not_wait_for_a_busy_runtime :: proc(t: ^testing.T) {
+	r := rig_new()
+	defer rig_destroy(&r)
+	testing.expect(t, runtime_add(r.rt, "f.lua", `function on_incoming(ev) return false end`, Script_Config{}))
+	sync.mutex_lock(&r.rt.mutex) // as if a step were running
+	began := time.tick_now()
+	shown, hidden := incoming(r.a, "hello")
+	took := time.tick_since(began)
+	sync.mutex_unlock(&r.rt.mutex)
+	testing.expect_value(t, shown, "hello") // shown as it is
+	testing.expect(t, !hidden)
+	testing.expectf(t, took < 50 * time.Millisecond, "waited %v", took)
+	shown, hidden = incoming(r.a, "hello")
+	testing.expect(t, hidden)
+}
+
+@(test)
+test_a_bad_incoming_filter_is_switched_off :: proc(t: ^testing.T) {
+	r := rig_new()
+	defer rig_destroy(&r)
+	testing.expect(t, runtime_add(r.rt, "bad.lua", `function on_incoming(ev) while true do end end`, Script_Config{}))
+	began := time.tick_now()
+	for _ in 0 ..< 10 {
+		shown, hidden := incoming(r.a, "hello")
+		testing.expect_value(t, shown, "hello")
+		testing.expect(t, !hidden)
+	}
+	// Three that took the filter's limit, and the other seven nothing.
+	testing.expectf(t, time.tick_since(began) < 100 * time.Millisecond, "took %v", time.tick_since(began))
+	testing.expect(t, r.rt.entries[0].script.filters_off)
+}
+
+@(test)
+test_send_filters :: proc(t: ^testing.T) {
+	r := rig_new()
+	defer rig_destroy(&r)
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"send.lua",
+			`
+			function on_send(ev)
+				assert(ev.channel == "general" and ev.server.address == "a.example:7777")
+				if ev.text:find("password") then return false end
+				if ev.text:sub(1, 1) == "!" then return "[bot] " .. ev.text:sub(2) end
+			end`,
+			Script_Config{servers = {"a.example:7777"}},
+		),
+	)
+	text, cancel, by := runtime_filter_send(r.rt, r.a, "general", "hi")
+	testing.expect_value(t, text, "hi")
+	testing.expect(t, !cancel)
+	text, cancel, by = runtime_filter_send(r.rt, r.a, "general", "!status")
+	testing.expect_value(t, text, "[bot] status")
+	testing.expect(t, !cancel)
+	text, cancel, by = runtime_filter_send(r.rt, r.a, "general", "my password is x")
+	testing.expect(t, cancel)
+	testing.expect_value(t, by, "send.lua")
+	// Not for the other server.
+	text, cancel, by = runtime_filter_send(r.rt, r.b, "general", "my password is x")
+	testing.expect(t, !cancel)
 }
