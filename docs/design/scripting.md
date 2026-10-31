@@ -708,3 +708,19 @@ global function `get_info()` that returns a table:
 | D14 | Script hint of intended servers | Yes, optional `servers` in `get_info`, only to pre-select |
 | D15 | One Lua state across servers or one per server | Shared in v1; a per-server instance mode (`per_server = true` in `get_info`) is a possible later addition |
 | D8 | Trust model for downloaded scripts | Permissions shown on first load and re-asked when the file changes; no signing |
+
+## Phase 7: documentation
+
+`docs/Scripting.md` is the reference for people who write scripts (where they go,
+approval, events, functions, `get_info` and its settings, commands, filters, web
+requests, the limits, the command-line client, troubleshooting). It is checked against
+the code rather than the plan, so it says what is *there*: no `yap.reply`, `yap.react`
+or `yap.channels/users/me`, no sending to a direct message, and that `get_info`'s
+`servers` hint is read but not yet used by the page. The examples in
+`docs/examples/scripts` all have tests that load the file itself
+(`runtime_test.odin`, `http_test.odin`), so that an example can't rot: `showcase`,
+`keywords`, `presence`, `away`, `webget`, `webhook`.
+
+A change made while writing the examples: text a script posts with `yap.send` is
+sent *as typed*, so `@username` in it is a real mention (as in the headless client's
+`/say`), instead of the literal characters.

@@ -44,7 +44,7 @@ rig_destroy :: proc(r: ^Rig) {
 }
 
 // The chat commands queued for a connection.
-@(private = "file")
+@(private)
 posted :: proc(c: ^Server_Conn_Alias) -> (texts: [dynamic]string) {
 	for cmd in c.commands.commands {
 		if chat, ok := cmd.(conn.Chat_Command); ok {
@@ -57,7 +57,7 @@ posted :: proc(c: ^Server_Conn_Alias) -> (texts: [dynamic]string) {
 @(private = "file")
 Server_Conn_Alias :: conn.Server_Conn
 
-@(private = "file")
+@(private)
 message :: proc(text: string, mentions_me := false) -> conn.Event {
 	return conn.Event_Message {
 		id = 41,
@@ -74,12 +74,12 @@ message :: proc(text: string, mentions_me := false) -> conn.Event {
 	}
 }
 
-@(private = "file")
+@(private)
 emit :: proc(c: ^conn.Server_Conn, e: conn.Event) {
 	sync_append(c, e)
 }
 
-@(private = "file")
+@(private)
 sync_append :: proc(c: ^conn.Server_Conn, e: conn.Event) {
 	conn.sink_put_for_test(c, e)
 }
@@ -794,4 +794,221 @@ test_a_script_can_run_for_no_server :: proc(t: ^testing.T) {
 	runtime_set_scope(r.rt, "echo.lua", true, nil)
 	v, _ = view_of(r.rt, "echo.lua")
 	testing.expect(t, v.all_servers)
+}
+
+// A View on a connection, to read the notices a script shows.
+@(private = "file")
+notices_on :: proc(c: ^conn.Server_Conn) -> ^conn.View {
+	v := new(conn.View)
+	conn.view_init(v)
+	c.view = v
+	return v
+}
+
+@(private = "file")
+notices_off :: proc(c: ^conn.Server_Conn, v: ^conn.View) {
+	c.view = nil
+	conn.view_destroy(v)
+	free(v)
+}
+
+@(private = "file")
+dm_message :: proc(text: string) -> conn.Event {
+	e := message(text).(conn.Event_Message)
+	e.kind = .DM
+	return e
+}
+
+EXAMPLES :: "../../../docs/examples/scripts/"
+KEYWORDS_EXAMPLE :: #load(EXAMPLES + "keywords.lua", string)
+PRESENCE_EXAMPLE :: #load(EXAMPLES + "presence.lua", string)
+WEBHOOK_EXAMPLE :: #load(EXAMPLES + "webhook.lua", string)
+AWAY_EXAMPLE :: #load(EXAMPLES + "away.lua", string)
+
+// Every example describes itself without trouble.
+@(test)
+test_the_examples_describe_themselves :: proc(t: ^testing.T) {
+	Case :: struct {
+		file, source: string,
+		settings:     int,
+		permissions:  Permissions,
+	}
+	for c in ([]Case{
+			{"keywords.lua", KEYWORDS_EXAMPLE, 2, {.Notify}},
+			{"presence.lua", PRESENCE_EXAMPLE, 2, {.Notify}},
+			{"webhook.lua", WEBHOOK_EXAMPLE, 1, {.Net}},
+			{"away.lua", AWAY_EXAMPLE, 3, {.Send}},
+		}) {
+		info, has, err := read_info(c.file, c.source)
+		testing.expect(t, has, c.file)
+		testing.expect_value(t, err, "")
+		testing.expect_value(t, len(info.problems), 0)
+		testing.expect_value(t, len(info.settings), c.settings)
+		testing.expect_value(t, info.permissions, c.permissions)
+		testing.expect(t, info.name != "" && info.description != "" && info.version != "", c.file)
+		info_destroy(&info)
+	}
+}
+
+@(test)
+test_the_keywords_example :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	v := notices_on(r.a)
+	defer notices_off(r.a, v)
+	testing.expect(t, runtime_add(r.rt, "keywords.lua", KEYWORDS_EXAMPLE, Script_Config{permissions = {"notify"}}))
+
+	say :: proc(r: ^Rig, e: conn.Event) {
+		emit(r.a, e)
+		runtime_step(r.rt, 10 * time.Millisecond)
+	}
+	say(&r, message("I love Lua"))
+	testing.expect_value(t, v.notice.text, `Ann said "lua" in general: I love Lua`)
+	count := v.notice.count
+	say(&r, message("nothing of interest"))
+	testing.expect_value(t, v.notice.count, count)
+	mine := message("yap yap").(conn.Event_Message)
+	mine.mine = true
+	say(&r, mine)
+	testing.expect_value(t, v.notice.count, count) // not our own
+
+	// Different words, and only in direct messages.
+	testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "words", " Tea ,, coffee "), "")
+	say(&r, message("lua and Coffee"))
+	testing.expect_value(t, v.notice.text, `Ann said "coffee" in general: lua and Coffee`)
+	testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "where", "direct messages only"), "")
+	count = v.notice.count
+	say(&r, message("tea time"))
+	testing.expect_value(t, v.notice.count, count) // a channel
+	say(&r, dm_message("tea time"))
+	testing.expect_value(t, v.notice.count, count + 1)
+}
+
+@(test)
+test_the_presence_example :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	v := notices_on(r.a)
+	defer notices_off(r.a, v)
+	testing.expect(t, runtime_add(r.rt, "presence.lua", PRESENCE_EXAMPLE, Script_Config{permissions = {"notify"}}))
+	change :: proc(r: ^Rig, username: string, was, now: proto.Activity) {
+		emit(r.a, conn.Event_Presence{account = 4, name = strings.clone("Bob"), username = strings.clone(username), activity = now, was = was})
+		runtime_step(r.rt, 10 * time.Millisecond)
+	}
+	change(&r, "bob", .Offline, .Online)
+	testing.expect_value(t, v.notice.text, "Bob is online: on a.example:7777")
+	count := v.notice.count
+	change(&r, "bob", .Away, .Online) // back from away: not news
+	change(&r, "bob", .Online, .Offline) // and going isn't wanted
+	testing.expect_value(t, v.notice.count, count)
+
+	testing.expect_value(t, runtime_set_value(r.rt, "presence.lua", "people", "Alice, carol"), "")
+	change(&r, "bob", .Offline, .Online)
+	testing.expect_value(t, v.notice.count, count) // not on the list
+	change(&r, "CAROL", .Offline, .Online)
+	testing.expect_value(t, v.notice.count, count + 1)
+	testing.expect_value(t, runtime_set_value(r.rt, "presence.lua", "goes", true), "")
+	change(&r, "alice", .Online, .Offline)
+	testing.expect_value(t, v.notice.text, "Bob went offline: on a.example:7777")
+}
+
+@(test)
+test_the_away_example :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	testing.expect(t, runtime_add(r.rt, "away.lua", AWAY_EXAMPLE, Script_Config{permissions = {"send"}}))
+	mention :: proc(r: ^Rig, author: proto.Account_Id, mine := false) {
+		e := message("hey @me", true).(conn.Event_Message)
+		delete(e.username)
+		e.author, e.username, e.mine = author, strings.clone(fmt.tprintf("user%d", author)), mine
+		emit(r.a, e)
+		runtime_step(r.rt, 10 * time.Millisecond)
+	}
+	sent :: proc(r: ^Rig) -> int {
+		texts := posted(r.a)
+		defer delete(texts)
+		return len(texts)
+	}
+	mention(&r, 9)
+	testing.expect_value(t, sent(&r), 0) // not away
+	testing.expect_value(t, runtime_set_value(r.rt, "away.lua", "away", true), "")
+	mention(&r, 9)
+	texts := posted(r.a)
+	testing.expect_value(t, len(texts), 1)
+	if len(texts) == 1 {
+		testing.expect_value(t, texts[0], "general: @user9 I am away right now and will answer later.")
+	}
+	delete(texts)
+	mention(&r, 9) // the same person, soon again
+	testing.expect_value(t, sent(&r), 1)
+	mention(&r, 10) // somebody else
+	testing.expect_value(t, sent(&r), 2)
+	mention(&r, 11, mine = true)
+	testing.expect_value(t, sent(&r), 2)
+	// It remembers who it answered.
+	testing.expect(t, r.rt.entries[0].script.store_size > 0)
+}
+
+SCRIPTING_DOC :: #load("../../../docs/Scripting.md", string)
+
+// The Lua in docs/Scripting.md is a script, or part of one: every block has to
+// load, and the one in the quick start has to do what the text says.
+@(test)
+test_the_documentation_code_works :: proc(t: ^testing.T) {
+	blocks := make([dynamic]string, context.temp_allocator)
+	in_block := false
+	current := strings.builder_make(context.temp_allocator)
+	doc := SCRIPTING_DOC
+	for line in strings.split_lines_iterator(&doc) {
+		trimmed := strings.trim_space(line)
+		switch {
+		case !in_block && trimmed == "```lua":
+			in_block = true
+			strings.builder_reset(&current)
+		case in_block && trimmed == "```":
+			in_block = false
+			append(&blocks, strings.clone(strings.to_string(current), context.temp_allocator))
+		case in_block:
+			// The lines of a block are indented with the list or text around them.
+			strings.write_string(&current, strings.trim_left(line, " "))
+			strings.write_byte(&current, '\n')
+		}
+	}
+	testing.expectf(t, len(blocks) >= 6, "only %d Lua blocks were found", len(blocks))
+	for block, i in blocks {
+		info, _, err := read_info(fmt.tprintf("doc%d.lua", i), block)
+		testing.expectf(t, err == "", "block %d does not load: %s\n%s", i, err, block)
+		info_destroy(&info)
+	}
+
+	// The quick start: the first block.
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	if len(blocks) == 0 {
+		return
+	}
+	testing.expect(t, runtime_add(r.rt, "hello.lua", blocks[0], Script_Config{permissions = {"send"}}))
+	view, found := view_of(r.rt, "hello.lua")
+	testing.expect(t, found)
+	testing.expect_value(t, view.name, "Hello")
+	emit(r.a, message("!ping"))
+	mine := message("!ping").(conn.Event_Message)
+	mine.mine = true
+	emit(r.a, mine)
+	emit(r.a, message("something else"))
+	runtime_step(r.rt, 10 * time.Millisecond)
+	texts := posted(r.a)
+	defer delete(texts)
+	testing.expect_value(t, len(texts), 1)
+	if len(texts) == 1 {
+		testing.expect_value(t, texts[0], "general: pong")
+	}
 }

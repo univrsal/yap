@@ -16,6 +16,7 @@ A sloppy chat and VOIP application.
 - Pin, link and forward messages
 - Screen sharing ([optional component for native clients](docs/Screenshare.md))
 - Bot accounts, and an HTTP/JSON API with an event WebSocket for them ([API.md](docs/API.md))
+- Lua scripts in the client: react to messages, add `/commands`, change what is shown or sent, make web requests ([Scripting.md](docs/Scripting.md))
 - Global hotkeys (requires `input` group on wayland)
 - Option to share audio of a specific application (native clients only)
 

@@ -1,6 +1,7 @@
 #+build !wasi
 package script
 
+import "core:encoding/json"
 import "core:fmt"
 import "core:net"
 import "core:strconv"
@@ -137,6 +138,9 @@ serve :: proc(s: ^Server, client: net.TCP_Socket) {
 		time.sleep(3 * time.Second)
 		reply(client, "200 OK", "", "late")
 	case method == "POST" && path == "/echo":
+		sync.guard(&s.mutex)
+		delete(s.posted)
+		s.posted = strings.clone(body)
 		type := "?"
 		for h in strings.split_lines(headers, context.temp_allocator) {
 			if strings.has_prefix(strings.to_lower(h, context.temp_allocator), "content-type:") {
@@ -369,4 +373,72 @@ test_web_requests_without_a_client :: proc(t: ^testing.T) {
 		testing.expectf(t, res.status == .Finished, "%v: %v", res.name, res.message)
 	}
 	testing.expect_value(t, len(r.rt.http.pending), 0)
+}
+
+@(test)
+test_the_webhook_example :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	if !http_ready(r.rt) {
+		log_skip(t, "no way to make web requests here (libcurl?)")
+		return
+	}
+	server, ok := server_start()
+	if !ok {
+		testing.expect(t, ok)
+		return
+	}
+	defer server_stop(server)
+	testing.expect(t, runtime_add(r.rt, "webhook.lua", WEBHOOK_EXAMPLE, Script_Config{permissions = {"net"}}))
+	s := r.rt.entries[0].script
+
+	hear :: proc(r: ^Rig, e: conn.Event) {
+		emit(r.a, e)
+		for _ in 0 ..< 3 {
+			runtime_step(r.rt, 10 * time.Millisecond)
+		}
+	}
+	posted_body :: proc(server: ^Server) -> string {
+		sync.guard(&server.mutex)
+		return strings.clone(server.posted, context.temp_allocator)
+	}
+	wait_for_post :: proc(r: ^Rig, server: ^Server) -> string {
+		began := time.tick_now()
+		for time.tick_since(began) < 4 * time.Second {
+			runtime_step(r.rt, 5 * time.Millisecond)
+			time.sleep(2 * time.Millisecond)
+			if body := posted_body(server); body != "" {
+				return body
+			}
+		}
+		return ""
+	}
+
+	// No address yet: nothing is sent.
+	hear(&r, message("hello @me", true))
+	testing.expect_value(t, len(s.requests), 0)
+
+	testing.expect_value(t, runtime_set_value(r.rt, "webhook.lua", "url", fmt.tprintf("http://127.0.0.1:%d/echo", server.port)), "")
+	// Not a mention, or our own: nothing.
+	hear(&r, message("hello"))
+	mine := message("hi @me", true).(conn.Event_Message)
+	mine.mine = true
+	hear(&r, mine)
+	testing.expect_value(t, len(s.requests), 0)
+
+	// A mention, with a quote, a line break and a backslash in it.
+	e := message("he said \"hi\"\nand left\\", true)
+	hear(&r, e)
+	body := wait_for_post(&r, server)
+	testing.expect(t, body != "", "no request arrived")
+	parsed, err := json.parse(transmute([]u8)body, allocator = context.temp_allocator)
+	testing.expectf(t, err == nil, "not JSON: %s", body)
+	obj, is_object := parsed.(json.Object)
+	testing.expect(t, is_object)
+	testing.expect_value(t, string(obj["author"].(json.String)), "Ann")
+	testing.expect_value(t, string(obj["channel"].(json.String)), "general")
+	testing.expect_value(t, string(obj["server"].(json.String)), "a.example:7777")
+	testing.expect_value(t, string(obj["text"].(json.String)), "he said \"hi\"\nand left\\")
 }

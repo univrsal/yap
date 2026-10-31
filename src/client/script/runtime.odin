@@ -367,7 +367,8 @@ host_send :: proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: str
 	}
 	conn.push_command(
 		&a.c.commands,
-		conn.Chat_Command{text = strings.clone(text), channel = strings.clone(channel)},
+		// `typed`: @username in the text is a mention, as it is when it is typed.
+		conn.Chat_Command{text = strings.clone(text), channel = strings.clone(channel), typed = true},
 	)
 	return ""
 }
