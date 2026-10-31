@@ -1,4 +1,4 @@
--- Shows a notice when somebody comes online.
+-- Shows a desktop notification when somebody comes online.
 --
 -- Leave "People" empty for everybody, or list usernames (comma separated) to hear
 -- about only those. A person is "coming online" when they were offline and are now
@@ -7,7 +7,7 @@
 function get_info()
   return {
     name = "Who is here",
-    description = "Shows a notice when somebody comes online.",
+    description = "Shows a desktop notification when somebody comes online.",
     version = "1.0",
     author = "the yap examples",
     permissions = { "notify" },

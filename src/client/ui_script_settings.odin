@@ -255,7 +255,7 @@ script_permissions_text :: proc(p: script.Permissions) -> string {
 		append(&parts, "send messages as you")
 	}
 	if .Notify in p {
-		append(&parts, "show notices")
+		append(&parts, "show notifications and status text")
 	}
 	if .Net in p {
 		append(&parts, "make web requests")

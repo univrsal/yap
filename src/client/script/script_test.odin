@@ -354,6 +354,7 @@ Fake :: struct {
 	logs:     [dynamic]string,
 	sent:     [dynamic]string,
 	notices:  [dynamic]string,
+	statuses: [dynamic]string,
 	servers:  map[string]Server_Id,
 	// Web requests: what was asked for, whether they can be made, and what
 	// starting one says.
@@ -388,6 +389,11 @@ fake_init :: proc(f: ^Fake) {
 		notify = proc(host: ^Host, s: ^Script, server: Server_Id, title, text: string) -> string {
 			f := (^Fake)(host.data)
 			append(&f.notices, fmt.aprintf("%s: %s", title, text))
+			return ""
+		},
+		status = proc(host: ^Host, s: ^Script, server: Server_Id, text: string) -> string {
+			f := (^Fake)(host.data)
+			append(&f.statuses, strings.clone(text))
 			return ""
 		},
 		server_by_key = proc(host: ^Host, s: ^Script, key: string) -> Server_Id {
@@ -428,6 +434,8 @@ fake_destroy :: proc(f: ^Fake) {
 	for x in f.logs {delete(x)}
 	for x in f.sent {delete(x)}
 	for x in f.notices {delete(x)}
+	for x in f.statuses {delete(x)}
+	delete(f.statuses)
 	for a in f.asked {
 		delete(a.method)
 		delete(a.url)
@@ -1068,4 +1076,63 @@ test_http_when_requests_cannot_be_made :: proc(t: ^testing.T) {
 	}
 	finish(&results)
 	testing.expect_value(t, len(s.requests), 0)
+}
+
+@(test)
+test_status_and_the_limit_on_notifications :: proc(t: ^testing.T) {
+	f: Fake
+	fake_init(&f)
+	defer fake_destroy(&f)
+	s := new_script(t)
+	defer destroy(s)
+	s.host = &f.host
+	s.perms = {.Notify}
+	load(
+		t,
+		s,
+		`
+		function status() yap.status("one line") yap.status("another") end
+		function bad()
+			assert(not pcall(yap.status))
+			assert(not pcall(yap.status, 5))
+			assert(not pcall(yap.status, ("x"):rep(20000)))
+			assert(not pcall(yap.notify))
+			assert(not pcall(yap.notify, "t", {}))
+		end
+		function flood() for i = 1, 12 do yap.notify("n" .. i) end end
+		`,
+	)
+	for h in ([]string{"status", "bad"}) {
+		_, _ = call(s, h)
+	}
+	results, _, _ := run_to_end(s)
+	for r in results {
+		testing.expectf(t, r.status == .Finished, "%v: %v", r.name, r.message)
+	}
+	finish(&results)
+	testing.expect_value(t, len(f.statuses), 2)
+	testing.expect_value(t, len(f.notices), 0)
+
+	// Ten in ten seconds, then an error that says so.
+	_, _ = call(s, "flood")
+	results, _, _ = run_to_end(s)
+	testing.expect_value(t, results[0].status, Status.Error)
+	testing.expect(t, strings.contains(results[0].message, "too many notifications"), results[0].message)
+	finish(&results)
+	testing.expect_value(t, len(f.notices), MAX_NOTIFICATIONS)
+
+	// Both need the permission.
+	s.perms = {}
+	load_check :: proc(t: ^testing.T, s: ^Script, source: string) {
+		load(t, s, source)
+	}
+	load_check(t, s, `
+		function nope()
+			local ok, err = pcall(yap.status, "x") assert(not ok and err:find("'notify' permission"), err)
+			ok, err = pcall(yap.notify, "x") assert(not ok and err:find("'notify' permission"), err)
+		end`)
+	_, _ = call(s, "nope")
+	results, _, _ = run_to_end(s)
+	defer finish(&results)
+	testing.expectf(t, results[0].status == .Finished, "%v", results[0].message)
 }

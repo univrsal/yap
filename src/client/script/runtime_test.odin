@@ -688,6 +688,9 @@ test_the_showcase_example :: proc(t: ^testing.T) {
 	defer folder_destroy(&f)
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
+	v := notices_on(r.a)
+	defer notices_off(r.a, v)
+	runtime_notifications_to_ui(r.rt)
 	testing.expect(t, runtime_add(r.rt, "showcase.lua", SHOWCASE, Script_Config{permissions = {"send", "notify"}}))
 	cmds := runtime_commands(r.rt, r.a)
 	testing.expect_value(t, len(cmds), 3)
@@ -703,6 +706,9 @@ test_the_showcase_example :: proc(t: ^testing.T) {
 	testing.expect(t, runtime_run_command(r.rt, r.a, "/roll 1d500", "general"))
 	testing.expect(t, runtime_run_command(r.rt, r.a, "/hello Ann", "general"))
 	runtime_step(r.rt, 20 * time.Millisecond)
+	// Answers to commands are status text, not desktop notifications.
+	testing.expect_value(t, v.notice.text, "Hello, Ann. (calm, a.example:7777)")
+	testing.expect_value(t, len(notified(&r)), 0)
 	texts := posted(r.a)
 	testing.expect_value(t, len(texts), 1)
 	if len(texts) == 1 {
@@ -752,9 +758,15 @@ test_the_showcase_example :: proc(t: ^testing.T) {
 	testing.expect_value(t, text, "just a message")
 	testing.expect(t, !cancel)
 
-	// A mention gives a notice (which, with no window, goes to the log).
+	// A mention is a desktop notification.
 	emit(r.a, message("hey @you", true))
 	runtime_step(r.rt, 20 * time.Millisecond)
+	got := notified(&r)
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {
+		testing.expect_value(t, got[0].title, "Mentioned by Ann in general")
+		testing.expect_value(t, got[0].text, "hey @you")
+	}
 }
 
 @(test)
@@ -850,40 +862,49 @@ test_the_examples_describe_themselves :: proc(t: ^testing.T) {
 	}
 }
 
+// The notifications scripts have asked for since the last look.
+@(private = "file")
+notified :: proc(r: ^Rig) -> []Notification {
+	return runtime_take_notifications(r.rt)
+}
+
 @(test)
 test_the_keywords_example :: proc(t: ^testing.T) {
 	f := folder_make()
 	defer folder_destroy(&f)
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
-	v := notices_on(r.a)
-	defer notices_off(r.a, v)
+	runtime_notifications_to_ui(r.rt)
 	testing.expect(t, runtime_add(r.rt, "keywords.lua", KEYWORDS_EXAMPLE, Script_Config{permissions = {"notify"}}))
 
-	say :: proc(r: ^Rig, e: conn.Event) {
+	say :: proc(r: ^Rig, e: conn.Event) -> []Notification {
 		emit(r.a, e)
 		runtime_step(r.rt, 10 * time.Millisecond)
+		return runtime_take_notifications(r.rt)
 	}
-	say(&r, message("I love Lua"))
-	testing.expect_value(t, v.notice.text, `Ann said "lua" in general: I love Lua`)
-	count := v.notice.count
-	say(&r, message("nothing of interest"))
-	testing.expect_value(t, v.notice.count, count)
+	got := say(&r, message("I love Lua"))
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {
+		testing.expect_value(t, got[0].title, `Ann said "lua" in general`)
+		testing.expect_value(t, got[0].text, "I love Lua")
+		testing.expect_value(t, got[0].server, "a.example:7777")
+		testing.expect_value(t, got[0].script, "keywords.lua")
+	}
+	testing.expect_value(t, len(say(&r, message("nothing of interest"))), 0)
 	mine := message("yap yap").(conn.Event_Message)
 	mine.mine = true
-	say(&r, mine)
-	testing.expect_value(t, v.notice.count, count) // not our own
+	testing.expect_value(t, len(say(&r, mine)), 0) // not our own
 
 	// Different words, and only in direct messages.
 	testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "words", " Tea ,, coffee "), "")
-	say(&r, message("lua and Coffee"))
-	testing.expect_value(t, v.notice.text, `Ann said "coffee" in general: lua and Coffee`)
+	got = say(&r, message("lua and Coffee"))
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {
+		testing.expect_value(t, got[0].title, `Ann said "coffee" in general`)
+	}
 	testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "where", "direct messages only"), "")
-	count = v.notice.count
-	say(&r, message("tea time"))
-	testing.expect_value(t, v.notice.count, count) // a channel
-	say(&r, dm_message("tea time"))
-	testing.expect_value(t, v.notice.count, count + 1)
+	testing.expect_value(t, len(say(&r, message("tea time"))), 0) // a channel
+	testing.expect_value(t, len(say(&r, dm_message("tea time"))), 1)
 }
 
 @(test)
@@ -892,28 +913,84 @@ test_the_presence_example :: proc(t: ^testing.T) {
 	defer folder_destroy(&f)
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
-	v := notices_on(r.a)
-	defer notices_off(r.a, v)
+	runtime_notifications_to_ui(r.rt)
 	testing.expect(t, runtime_add(r.rt, "presence.lua", PRESENCE_EXAMPLE, Script_Config{permissions = {"notify"}}))
-	change :: proc(r: ^Rig, username: string, was, now: proto.Activity) {
+	change :: proc(r: ^Rig, username: string, was, now: proto.Activity) -> []Notification {
 		emit(r.a, conn.Event_Presence{account = 4, name = strings.clone("Bob"), username = strings.clone(username), activity = now, was = was})
 		runtime_step(r.rt, 10 * time.Millisecond)
+		return runtime_take_notifications(r.rt)
 	}
-	change(&r, "bob", .Offline, .Online)
-	testing.expect_value(t, v.notice.text, "Bob is online: on a.example:7777")
-	count := v.notice.count
-	change(&r, "bob", .Away, .Online) // back from away: not news
-	change(&r, "bob", .Online, .Offline) // and going isn't wanted
-	testing.expect_value(t, v.notice.count, count)
+	got := change(&r, "bob", .Offline, .Online)
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {
+		testing.expect_value(t, got[0].title, "Bob is online")
+		testing.expect_value(t, got[0].text, "on a.example:7777")
+	}
+	testing.expect_value(t, len(change(&r, "bob", .Away, .Online)), 0) // back from away: not news
+	testing.expect_value(t, len(change(&r, "bob", .Online, .Offline)), 0) // and going isn't wanted
 
 	testing.expect_value(t, runtime_set_value(r.rt, "presence.lua", "people", "Alice, carol"), "")
-	change(&r, "bob", .Offline, .Online)
-	testing.expect_value(t, v.notice.count, count) // not on the list
-	change(&r, "CAROL", .Offline, .Online)
-	testing.expect_value(t, v.notice.count, count + 1)
+	testing.expect_value(t, len(change(&r, "bob", .Offline, .Online)), 0) // not on the list
+	testing.expect_value(t, len(change(&r, "CAROL", .Offline, .Online)), 1)
 	testing.expect_value(t, runtime_set_value(r.rt, "presence.lua", "goes", true), "")
-	change(&r, "alice", .Online, .Offline)
-	testing.expect_value(t, v.notice.text, "Bob went offline: on a.example:7777")
+	got = change(&r, "alice", .Online, .Offline)
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {
+		testing.expect_value(t, got[0].title, "Bob went offline")
+	}
+}
+
+@(test)
+test_notifications_and_status_text :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	v := notices_on(r.a)
+	defer notices_off(r.a, v)
+	runtime_notifications_to_ui(r.rt)
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"both.lua",
+			`
+			function on_message(ev)
+				yap.notify("Title", "text of it")
+				yap.notify("Only a title")
+				yap.status("Status text")
+			end`,
+			Script_Config{permissions = {"notify"}},
+		),
+	)
+	emit(r.a, message("x"))
+	runtime_step(r.rt, 10 * time.Millisecond)
+	// A notification is queued for the UI, with the server it was for...
+	got := notified(&r)
+	testing.expect_value(t, len(got), 2)
+	if len(got) == 2 {
+		testing.expect_value(t, got[0].title, "Title")
+		testing.expect_value(t, got[0].text, "text of it")
+		testing.expect_value(t, got[0].server, "a.example:7777")
+		testing.expect_value(t, got[1].title, "Only a title")
+		testing.expect_value(t, got[1].text, "")
+	}
+	testing.expect_value(t, len(notified(&r)), 0) // taken once
+	// ... and status text is the client's status line, not a notification.
+	testing.expect_value(t, v.notice.text, "Status text")
+}
+
+@(test)
+test_notifications_without_a_ui_go_to_the_log :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	// No runtime_notifications_to_ui: as in the headless client.
+	testing.expect(t, runtime_add(r.rt, "n.lua", `function on_message(ev) yap.notify("Title", "text") end`, Script_Config{permissions = {"notify"}}))
+	emit(r.a, message("x"))
+	runtime_step(r.rt, 10 * time.Millisecond)
+	testing.expect_value(t, len(notified(&r)), 0)
 }
 
 @(test)

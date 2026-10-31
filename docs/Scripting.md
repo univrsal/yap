@@ -3,7 +3,7 @@
 The client can run scripts written in [Lua](https://www.lua.org/) 5.4. A script
 can react to what happens on a server (messages, people coming and going), add
 `/commands`, change what you see of other people's messages or what you send,
-show notices, keep time, and make web requests.
+show notifications, keep time, and make web requests.
 
 Scripts run in the client, on your side. They see what your client sees, they act
 as you, and they do not exist for anybody else: the server and the other users
@@ -98,13 +98,13 @@ it on, and a function that needs one raises an error without it.
 | Permission | Allows |
 | --- | --- |
 | `send` | `yap.send`: posting messages as you |
-| `notify` | `yap.notify`: showing notices |
+| `notify` | `yap.notify` and `yap.status`: desktop notifications, and text in the status area |
 | `net` | `yap.http_get` and `yap.http_post`: web requests |
 
 Everything else needs no permission, including reading the messages and people of
 the servers the script runs for. That is why the page asks you to switch on only
 scripts you trust. A script that has no `get_info` is listed by its file name and
-asks for nothing, so it can read and react, but not post, show notices or use the
+asks for nothing, so it can read and react, but not post, notify or use the
 web.
 
 ### What is kept, and where
@@ -221,7 +221,8 @@ All functions are in the table `yap`.
 | --- | --- |
 | `yap.log(...)` | writes the values, joined by spaces, to the log |
 | `yap.send(channel, text [, server])` | posts `text` to the channel of that name as you. Needs `send`. At most 20 messages in 10 seconds. `@username` in the text is a mention. The channel has to be one you are in; it does not change the channel you are looking at. |
-| `yap.notify(title [, text])` | shows a notice in the client (in the terminal client: a line in the log). Needs `notify`. |
+| `yap.notify(title [, text])` | shows a **desktop notification**, the way the client does for a mention, a direct message or a call: through the tray icon, or the browser's notifications in a web client (or, if the desktop can't show one, the window asks for attention). With several servers connected the title says which server it was for. Clicking it brings the window up. Needs `notify`. At most 10 in 10 seconds. In the terminal client: a line in the log. |
+| `yap.status(text)` | shows `text` in the **status area**, the line at the top right of the chat window, where the client itself says things like "Password changed." It stays for five seconds and the next one replaces it, so it is for answers to what you just did (a command's result, a usage hint), not for alerts. Needs `notify`. In the terminal client: a line in the log. |
 | `yap.timer(name, seconds [, repeat])` | calls `on_timer{name = name}` after `seconds` (a shorter time is made 0.05), and again each time if `repeat` is true. A timer of the same name is replaced. At most 64. |
 | `yap.cancel(name)` | cancels a timer |
 | `yap.store.get(key)` | what was stored under `key`, or `nil` |
@@ -301,7 +302,7 @@ change in `on_setting{key, value}`.
 yap.register_command("roll", "Roll dice, like /roll 2d6", function(ev)
   -- ev.name = "roll", ev.args = "2d6", ev.argv = {"2d6"}, ev.channel, ev.server
   local n, sides = ev.args:match("^(%d+)d(%d+)$")
-  if not n then yap.notify("/roll", "Say how many dice, like 2d6") return end
+  if not n then yap.status("/roll: say how many dice, like 2d6") return end
   local total = 0
   for i = 1, tonumber(n) do total = total + math.random(tonumber(sides)) end
   yap.send(ev.channel, ev.args .. " = " .. total)
@@ -470,15 +471,16 @@ is stopped. Both only freeze the client for a moment, then the handler is stoppe
 | `/script servers <file> all` or `<address> ...` | chooses the servers it runs for |
 
 A `/word` that none of the client's own commands know is tried as a script's command.
-`yap.notify` writes a line to the log. The channel in a command's `ev.channel` is the
+`yap.notify` and `yap.status` write a line to the log. The channel in a command's `ev.channel` is the
 one you are looking at (`/view`).
 
 ## The web client
 
 A browser can run scripts too, with these differences: they are kept in the browser's
 storage (added on the Scripts page, at most 60 KiB each), there is no file to edit, and
-web requests are made by the page (see above). Desktop notifications are not used by
-`yap.notify` in any client; it shows the client's own notice.
+web requests are made by the page (see above). `yap.notify` uses the browser's
+notifications, which the page has to be allowed to show (the client asks, as it does for
+its own); `yap.status` is the same status area.
 
 ## When something doesn't work
 
@@ -508,11 +510,11 @@ into **Add a script**):
 
 | Script | Shows |
 | --- | --- |
-| [`showcase.lua`](examples/scripts/showcase.lua) | every kind of setting, commands, both filters, notices, a timer |
-| [`keywords.lua`](examples/scripts/keywords.lua) | a notice when a message contains a word of yours |
-| [`presence.lua`](examples/scripts/presence.lua) | a notice when somebody comes online |
+| [`showcase.lua`](examples/scripts/showcase.lua) | every kind of setting, commands, both filters, notifications and status text, a timer |
+| [`keywords.lua`](examples/scripts/keywords.lua) | a notification when a message contains a word of yours |
+| [`presence.lua`](examples/scripts/presence.lua) | a notification when somebody comes online |
 | [`away.lua`](examples/scripts/away.lua) | answering a mention while you're away, once per person |
-| [`webget.lua`](examples/scripts/webget.lua) | web requests: `/get` and `/post` |
+| [`webget.lua`](examples/scripts/webget.lua) | web requests: `/get` and `/post`, answered in the status area |
 | [`webhook.lua`](examples/scripts/webhook.lua) | sending the messages that mention you to a web address |
 
 ## Not available (yet)

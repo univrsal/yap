@@ -1,4 +1,4 @@
--- Shows a notice when a message contains one of your keywords.
+-- Shows a desktop notification when a message contains one of your keywords.
 --
 -- Switch it on in Settings > Scripts, then change "Keywords" there (comma separated;
 -- upper or lower case does not matter). Messages you wrote yourself are left out.
@@ -6,7 +6,7 @@
 function get_info()
   return {
     name = "Keywords",
-    description = "Shows a notice when a message contains one of your keywords.",
+    description = "Shows a desktop notification when a message contains one of your keywords.",
     version = "1.0",
     author = "the yap examples",
     permissions = { "notify" },

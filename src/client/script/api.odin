@@ -25,6 +25,7 @@ Op :: enum c.int {
 	Http_Available,
 	Http_Get,
 	Http_Post,
+	Status,
 }
 
 // The names the functions get in the yap table. Op is the index.
@@ -44,6 +45,7 @@ OP_NAMES := [?]cstring {
 	int(Op.Http_Available) = "http_available",
 	int(Op.Http_Get) = "http_get",
 	int(Op.Http_Post) = "http_post",
+	int(Op.Status) = "status",
 }
 
 // Limits on what a script may hold or ask for.
@@ -59,6 +61,9 @@ MIN_TIMER :: 50 * time.Millisecond
 // A script may send this many messages in this long.
 MAX_SENDS :: 20
 SEND_WINDOW :: 10 * time.Second
+// ... and this many desktop notifications in this long.
+MAX_NOTIFICATIONS :: 10
+NOTIFY_WINDOW :: 10 * time.Second
 
 @(private)
 register_api :: proc(s: ^Script) -> bool {
@@ -174,7 +179,26 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 		if s.host == nil || s.host.notify == nil {
 			return nil, "yap.notify is not available"
 		}
+		now := time.tick_now()
+		if s.notified == 0 || time.tick_diff(s.notify_window, now) > NOTIFY_WINDOW {
+			s.notify_window, s.notified = now, 0
+		}
+		if s.notified >= MAX_NOTIFICATIONS {
+			return nil, error_of("yap.notify: too many notifications (at most %d in %v)", MAX_NOTIFICATIONS, NOTIFY_WINDOW)
+		}
+		s.notified += 1
 		if e := s.host.notify(s.host, s, server, title, text); e != "" {
+			return nil, e
+		}
+	case .Status:
+		if .Notify not_in s.perms {
+			return nil, "yap.status needs the 'notify' permission"
+		}
+		text := arg_string(a, 0, MAX_TEXT) or_return
+		if s.host == nil || s.host.status == nil {
+			return nil, "yap.status is not available"
+		}
+		if e := s.host.status(s.host, s, server, text); e != "" {
 			return nil, e
 		}
 	case .Timer:

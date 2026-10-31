@@ -42,7 +42,7 @@ ERROR_LEN :: 512
 // Which of the things that reach out of the script it may do (api.odin).
 Permission :: enum {
 	Send, // post messages as the user
-	Notify, // show notices
+	Notify, // show desktop notifications (yap.notify) and status text (yap.status)
 	Net, // make web requests (yap.http_get, yap.http_post)
 }
 
@@ -59,7 +59,10 @@ Host :: struct {
 	data:          rawptr,
 	log:           proc(host: ^Host, s: ^Script, text: string),
 	send:          proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: string) -> string,
+	// A desktop notification, like the client's own for mentions and calls.
 	notify:        proc(host: ^Host, s: ^Script, server: Server_Id, title, text: string) -> string,
+	// A line of text in the client's status area (the top of the chat window).
+	status:        proc(host: ^Host, s: ^Script, server: Server_Id, text: string) -> string,
 	// The server with this key, 0 if the script has no such server (it isn't
 	// one it runs for, or there is none).
 	server_by_key: proc(host: ^Host, s: ^Script, key: string) -> Server_Id,
@@ -121,9 +124,12 @@ Script :: struct {
 	// are switched off for this script.
 	filter_strikes: int,
 	filters_off:    bool,
-	// How many messages it has sent in the current SEND_WINDOW (api.odin).
+	// How many messages it has sent in the current SEND_WINDOW, and notifications
+	// in the current NOTIFY_WINDOW (api.odin).
 	send_window: time.Tick,
 	sent: int,
+	notify_window: time.Tick,
+	notified: int,
 	// Memory for the values passed to a host function and back; emptied at the
 	// start of every call of one.
 	scratch:   runtime.Arena,

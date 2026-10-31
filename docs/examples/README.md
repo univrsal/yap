@@ -40,5 +40,5 @@ which go in `<config folder>/yap/scripts/` or are pasted in with Settings > Scri
 Add a script:
 
 - `scripts/showcase.lua` uses everything the Scripts page can show: every kind of
-  setting, `/commands`, the filters, notices and a timer.
+  setting, `/commands`, the filters, notifications, status text and a timer.
 - `scripts/webget.lua` makes web requests: `/get <address>` and `/post <address> <text>`.

@@ -125,8 +125,12 @@ event.
 
 Actions are the host calls of `yap.*`, checked, and carried out as the user's own
 requests would be: `yap.send` is a `Chat_Command` with a channel name (so the channel
-being looked at doesn't change), `yap.notify` a `view_notice`. A script has no power
-those don't have. Text posted with `yap.send` is sent **as typed**, so `@username` in
+being looked at doesn't change); `yap.status` a `view_notice` (the status area at the
+top of the chat window); `yap.notify` a desktop notification, which the runtime queues
+and the UI shows on the next frame with its own `notice()`, the one it uses for
+mentions, DMs and calls (tray icon, or the browser's notifications, or a request for
+the window's attention), at most 10 in 10 seconds per script; without a UI (headless)
+both are lines in the log. A script has no power those don't have. Text posted with `yap.send` is sent **as typed**, so `@username` in
 it is a mention.
 
 ### Which servers a script runs for

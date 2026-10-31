@@ -1,5 +1,6 @@
 package client
 
+import "core:fmt"
 import "core:strings"
 import "core:time"
 
@@ -24,13 +25,24 @@ scripts_start :: proc(ui: ^UI) {
 	}
 	rt := script.runtime_create(dir)
 	script.runtime_load(rt)
+	script.runtime_notifications_to_ui(rt)
 	ui.scripts = rt
 	ui.script_ui.dir = strings.clone(dir) if !platform.WEB else ""
 }
 
 scripts_frame :: proc(ui: ^UI) {
-	if ui.scripts != nil {
-		script.runtime_step(ui.scripts, SCRIPT_BUDGET)
+	if ui.scripts == nil {
+		return
+	}
+	script.runtime_step(ui.scripts, SCRIPT_BUDGET)
+	// What scripts want to notify of, shown as the client's own are. The server is
+	// named when there are several, as for a mention.
+	for n in script.runtime_take_notifications(ui.scripts) {
+		title := n.title
+		if n.server != "" && len(ui.sessions) > 1 {
+			title = fmt.tprintf("%s on %s", n.title, n.server)
+		}
+		script_notice(ui, title, n.text)
 	}
 }
 

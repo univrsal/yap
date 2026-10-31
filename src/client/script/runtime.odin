@@ -80,6 +80,10 @@ Runtime :: struct {
 	// The connections are driven by the thread that steps the runtime, so that
 	// it may look at their state (headless mode).
 	inline_conns: bool,
+	// The desktop notifications scripts have asked for, for the UI to show
+	// (runtime_take_notifications); without a UI they are written to the log.
+	notifications: [dynamic]Notification,
+	notifications_to_ui: bool,
 	// For what is made while stepping, which is emptied at the start of the next.
 	scratch:  runtime.Arena,
 }
@@ -93,6 +97,7 @@ runtime_create :: proc(dir: string) -> ^Runtime {
 		log           = host_log,
 		send          = host_send,
 		notify        = host_notify,
+		status        = host_status,
 		server_by_key = host_server_by_key,
 		http_available = host_http_available,
 		http_begin = host_http_begin,
@@ -111,6 +116,10 @@ runtime_destroy :: proc(rt: ^Runtime) {
 		delete(q.line)
 	}
 	delete(rt.queued)
+	for n in rt.notifications {
+		notification_destroy(n)
+	}
+	delete(rt.notifications)
 	for &e in rt.entries {
 		entry_save(&e, force = true)
 		entry_destroy(&e)
@@ -373,16 +382,85 @@ host_send :: proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: str
 	return ""
 }
 
+// A desktop notification a script asked for.
+Notification :: struct {
+	title:  string, // owned
+	text:   string, // owned
+	server: string, // owned; the address of the server it was for, "" for none
+	script: string, // owned; the script's file name
+}
+
+@(private = "file")
+notification_destroy :: proc(n: Notification) {
+	delete(n.title)
+	delete(n.text)
+	delete(n.server)
+	delete(n.script)
+}
+
+// How many are kept for a UI that doesn't take them (the oldest go).
+MAX_QUEUED_NOTIFICATIONS :: 50
+
+// runtime_notifications_to_ui says that the UI shows the notifications, taking
+// them with runtime_take_notifications; otherwise they are written to the log.
+runtime_notifications_to_ui :: proc(rt: ^Runtime) {
+	rt.notifications_to_ui = true
+}
+
+// runtime_take_notifications hands over the notifications asked for since the last
+// time, oldest first, in the temp allocator.
+runtime_take_notifications :: proc(rt: ^Runtime) -> []Notification {
+	sync.guard(&rt.mutex)
+	if len(rt.notifications) == 0 {
+		return nil
+	}
+	taken := make([]Notification, len(rt.notifications), context.temp_allocator)
+	for n, i in rt.notifications {
+		taken[i] = {
+			title  = strings.clone(n.title, context.temp_allocator),
+			text   = strings.clone(n.text, context.temp_allocator),
+			server = strings.clone(n.server, context.temp_allocator),
+			script = strings.clone(n.script, context.temp_allocator),
+		}
+		notification_destroy(n)
+	}
+	clear(&rt.notifications)
+	return taken
+}
+
 @(private = "file")
 host_notify :: proc(host: ^Host, s: ^Script, server: Server_Id, title, text: string) -> string {
 	rt := (^Runtime)(host.data)
-	shown := fmt.tprintf("%s: %s", title, text) if text != "" else title
 	a := attached_of(rt, server)
-	if a == nil || a.c.view == nil {
-		log.infof("[%s] notice: %s", s.name, shown)
+	if !rt.notifications_to_ui {
+		log.infof("[%s] notification: %s%s%s", s.name, title, ": " if text != "" else "", text)
 		return ""
 	}
-	conn.view_notice(a.c.view, true, shown)
+	if len(rt.notifications) >= MAX_QUEUED_NOTIFICATIONS {
+		notification_destroy(rt.notifications[0])
+		ordered_remove(&rt.notifications, 0)
+	}
+	append(
+		&rt.notifications,
+		Notification {
+			title = strings.clone(title),
+			text = strings.clone(text),
+			server = strings.clone(a.c.server_addr if a != nil else ""),
+			script = strings.clone(s.name),
+		},
+	)
+	return ""
+}
+
+@(private = "file")
+host_status :: proc(host: ^Host, s: ^Script, server: Server_Id, text: string) -> string {
+	rt := (^Runtime)(host.data)
+	a := attached_of(rt, server)
+	if a == nil || a.c.view == nil {
+		log.infof("[%s] status: %s", s.name, text)
+		return ""
+	}
+	conn.view_notice(a.c.view, true, text)
 	return ""
 }
 
