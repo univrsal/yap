@@ -234,6 +234,7 @@ jobs:
           odin test src/common/gif $collections -vet -strict-style
           odin test src/client/hotkeys $collections -vet -strict-style
           odin test src/client/richtext $collections -vet -strict-style
+          odin test src/client/script $collections -vet -strict-style
           odin test src/server/mail $collections -vet -strict-style
           odin test src/server/mattermost $collections -vet -strict-style
           odin test src/common/avatar $collections -vet -strict-style

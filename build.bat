@@ -80,6 +80,13 @@ rem scripts\build\sqlite.version. curl and tar come with Windows 10 and later.
 set SQLITE=src\server\sqlite
 if not exist %SQLITE%\yap_sqlite.lib call :build_sqlite || exit /b 1
 
+rem Lua, for the client's scripts (src\client\script): the language and the
+rem libraries scripts may use, as one C file compiled against the source
+rem fetched into .cache on first use. Delete the library after changing
+rem yap_lua.c or scripts\build\lua.version.
+set SCRIPT=src\client\script
+if not exist %SCRIPT%\yap_lua.lib call :build_lua || exit /b 1
+
 rem The version and commit (src\common\version.odin), as
 rem scripts/build/version-defines.sh finds them. The values are passed with
 rem their quotes (\" survives the command line as "), see version.odin.
@@ -129,6 +136,30 @@ echo building %SQLITE%\yap_sqlite.lib
 cl /nologo /MT /O1 /I.cache\%SQLITE_NAME% /c %SQLITE%\yap_sqlite.c /Fo:%SQLITE%\yap_sqlite.obj || exit /b 1
 lib /nologo /out:%SQLITE%\yap_sqlite.lib %SQLITE%\yap_sqlite.obj || exit /b 1
 del %SQLITE%\yap_sqlite.obj
+exit /b 0
+
+:build_lua
+rem scripts\build\lua.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\build\lua.version") do set "%%a=%%b"
+set LUA_NAME=lua-%lua_version%
+if not exist .cache mkdir .cache
+if exist .cache\%LUA_NAME%\src\lua.h goto :compile_lua
+if not exist .cache\%LUA_NAME%.tar.gz (
+	echo fetching lua %lua_version%
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o .cache\%LUA_NAME%.tar.gz.part https://www.lua.org/ftp/%LUA_NAME%.tar.gz || exit /b 1
+	move /y .cache\%LUA_NAME%.tar.gz.part .cache\%LUA_NAME%.tar.gz >nul || exit /b 1
+)
+certutil -hashfile .cache\%LUA_NAME%.tar.gz SHA256 | findstr /x /i /c:"%lua_sha256%" >nul
+if errorlevel 1 (
+	echo .cache\%LUA_NAME%.tar.gz: checksum mismatch; delete it to fetch it again
+	exit /b 1
+)
+tar -xzf .cache\%LUA_NAME%.tar.gz -C .cache || exit /b 1
+:compile_lua
+echo building %SCRIPT%\yap_lua.lib
+cl /nologo /MT /O1 /I.cache\%LUA_NAME%\src /c %SCRIPT%\yap_lua.c /Fo:%SCRIPT%\yap_lua.obj || exit /b 1
+lib /nologo /out:%SCRIPT%\yap_lua.lib %SCRIPT%\yap_lua.obj || exit /b 1
+del %SCRIPT%\yap_lua.obj
 exit /b 0
 
 :build_opus

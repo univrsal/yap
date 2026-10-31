@@ -79,6 +79,17 @@ if c_lib_stale $dialogs dialogs deps/thirdparty/tinydialogs/tinydialogs.h; then
 	c_lib_build $dialogs dialogs -std=c11 -Os $dialogs_flags
 fi
 
+# Lua, for the client's scripts (src/client/script): the language and the
+# libraries scripts may use, compiled as one file against the source
+# scripts/build/fetch.sh unpacks (scripts/build/lua.version). Again when
+# the version changes.
+script=src/client/script
+if c_lib_stale $script lua scripts/build/lua.version; then
+	. scripts/build/lua.version
+	sh scripts/build/fetch.sh lua .cache
+	c_lib_build $script lua -std=c99 -Os -I".cache/lua-$lua_version/src"
+fi
+
 # tinyaac, for sharing an application's audio. On Linux it needs the
 # libpipewire-0.3 dev headers to compile against (dlopen'd at runtime,
 # not linked -- see yap_aac.c); on macOS it's Core Audio and AppKit, so

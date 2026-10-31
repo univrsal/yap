@@ -39,6 +39,13 @@ if [ ! -f "$opus_lib" ]; then
 	cmake --build "$opus_build" --parallel
 fi
 
+# Lua, for the client's scripts (src/client/script). The source is fetched
+# into web/deps too (scripts/build/lua.version) and compiled below with the
+# page, as is everything in C.
+. scripts/build/lua.version
+lua_src=$deps/lua-$lua_version/src
+sh scripts/build/fetch.sh lua "$deps"
+
 # What web/touch.js calls (src/client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_touch_scroll_end,_web_text_rune,_web_text_backspace,_web_text_enter
 # What web/field.js calls (src/client/ui_field_web.odin).
@@ -74,6 +81,8 @@ emcc "$out/yap.obj" \
 	web/shell.c \
 	src/client/audio/miniaudio/yap_audio.c \
 	src/client/audio/rnn/yap_rnn.c \
+	src/client/script/yap_lua.c \
+	-I"$lua_src" \
 	"$opus_lib" \
 	"$stb/stb_truetype.c" \
 	"$stb/stb_image.c" \

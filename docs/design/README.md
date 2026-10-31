@@ -19,6 +19,7 @@ comments cite them by file name (for example "D12 in hq-share.md").
 | [moderation.md](moderation.md) | Moving, muting and disconnecting people in voice, and bans |
 | [next.md](next.md) | Traffic split, multi-server, registration, email and more |
 | [screen-audio.md](screen-audio.md) | Audio of a shared screen on the desktop |
+| [scripting.md](scripting.md) | Lua scripts in the client |
 | [security.md](security.md) | The security review of 2026-10-15 |
 | [sounds.md](sounds.md) | A sound for every event |
 | [ui-refresh.md](ui-refresh.md) | The UI refresh |
