@@ -87,6 +87,12 @@ Script :: struct {
 	limits:    Limits,
 	perms:     Permissions,
 	host:      ^Host,
+	// The values of its settings (info.odin), for yap.setting: the user's choices,
+	// the defaults where there are none. Scalars; the strings are owned.
+	settings:  map[string]Value,
+	// Being read for its get_info only: every yap.* function does nothing, so that
+	// what it does when it loads (registering commands, say) is harmless.
+	meta:      bool,
 	timers:    [dynamic]Timer,
 	// The /commands it registered (api.odin).
 	commands:  [dynamic]Command,
@@ -204,6 +210,7 @@ create :: proc(
 	s.timers.allocator = allocator
 	s.commands.allocator = allocator
 	s.store.allocator = allocator
+	s.settings.allocator = allocator
 	if runtime.arena_init(&s.scratch, 64 * 1024, allocator) != nil {
 		delete(s.name, allocator)
 		free(s, allocator)
@@ -242,6 +249,8 @@ destroy :: proc(s: ^Script) {
 	delete(s.commands)
 	store_clear(s)
 	delete(s.store)
+	settings_clear(s)
+	delete(s.settings)
 	state_close(s.state)
 	runtime.arena_destroy(&s.scratch)
 	allocator := s.allocator
@@ -344,13 +353,70 @@ Filter_Outcome :: enum {
 	Replace, // a string
 }
 
-// filter calls the global function `handler` and waits for what it returns:
+// call_sync calls the global function `handler` with `arg` and waits for what
+// it returns: its first result as a Value (nil, a boolean, a number, a string, or
+// a table of those as a List or a Map), copied into `allocator`. It runs to the end
+// now and can't be suspended, so it is killed after `limit`. `found` is false if
+// there is no such function, and `err` says what went wrong if it did.
+call_sync :: proc(
+	s: ^Script,
+	handler: string,
+	arg: Value,
+	server := Server_Id(0),
+	limit := FILTER_LIMIT,
+	allocator := context.temp_allocator,
+) -> (
+	result: Value,
+	found: bool,
+	err: string,
+) {
+	cname, _ := strings.clone_to_cstring(handler, context.temp_allocator)
+	buf: [ERROR_LEN]u8
+	thread: State
+	ref, nargs: c.int
+	arena := runtime.arena_allocator(&s.scratch)
+	free_all(arena)
+	defer free_all(arena)
+	value := to_c(arg, arena)
+	#partial switch spawn_global(s.state, cname, &value, &thread, &ref, &nargs, &buf[0], len(buf)) {
+	case .Missing:
+		return nil, false, ""
+	case .Error:
+		return nil, true, message_of(buf[:])
+	}
+	defer release(s.state, ref)
+
+	saved := s.run
+	s.run = Run {
+		thread = thread,
+		server = server,
+		began  = time.tick_now(),
+		sync   = true,
+		limit  = limit,
+	}
+	raw: C_Value
+	status := resume(s.state, thread, nargs, &buf[0], len(buf), &raw)
+	killed := s.run.killed
+	s.run = saved
+	switch {
+	case killed:
+		return nil, true, "ran for too long"
+	case status == .Error:
+		return nil, true, message_of(buf[:])
+	case status == .Yield:
+		return nil, true, "it cannot wait (it yielded)"
+	}
+	result = from_c(raw, allocator)
+	value_free(&raw)
+	return result, true, ""
+}
+
+// filter is call_sync for a handler that answers a question about a message:
 // nothing or true leaves things as they are, false hides, a string replaces.
-// Unlike call it runs to the end now, so it can't be suspended, and it is
-// killed after FILTER_LIMIT. A filter that fails or runs too long counts as a
-// strike, and after MAX_FILTER_STRIKES in a row the script's filters are off
-// (a good one clears them). `err` says what went wrong. The replacement is in
-// `allocator`.
+// Unlike call it runs to the end now, and is killed after FILTER_LIMIT. A filter
+// that fails or runs too long counts as a strike, and after MAX_FILTER_STRIKES in
+// a row the script's filters are off (a good one clears them). `err` says what
+// went wrong. The replacement is in `allocator`.
 filter :: proc(
 	s: ^Script,
 	handler: string,
@@ -365,51 +431,22 @@ filter :: proc(
 	if s.filters_off {
 		return
 	}
-	cname, _ := strings.clone_to_cstring(handler, context.temp_allocator)
-	buf: [ERROR_LEN]u8
-	thread: State
-	ref, nargs: c.int
-	arena := runtime.arena_allocator(&s.scratch)
-	free_all(arena)
-	defer free_all(arena)
-	value := to_c(arg, arena)
-	#partial switch spawn_global(s.state, cname, &value, &thread, &ref, &nargs, &buf[0], len(buf)) {
-	case .Missing:
+	result, found, why := call_sync(s, handler, arg, server, FILTER_LIMIT, allocator)
+	if !found {
 		return
-	case .Error:
-		return .Unchanged, "", strike(s, handler, message_of(buf[:]))
 	}
-	defer release(s.state, ref)
-
-	saved := s.run
-	s.run = Run {
-		thread = thread,
-		server = server,
-		began  = time.tick_now(),
-		sync   = true,
-		limit  = FILTER_LIMIT,
-	}
-	result: C_Value
-	status := resume(s.state, thread, nargs, &buf[0], len(buf), &result)
-	killed := s.run.killed
-	s.run = saved
-	switch {
-	case killed:
-		return .Unchanged, "", strike(s, handler, "ran for too long")
-	case status == .Error:
-		return .Unchanged, "", strike(s, handler, message_of(buf[:]))
-	case status == .Yield:
-		return .Unchanged, "", strike(s, handler, "a filter cannot wait (it yielded)")
+	if why != "" {
+		return .Unchanged, "", strike(s, handler, why)
 	}
 	s.filter_strikes = 0
-	switch result.type {
-	case C_BOOL:
-		if result.i == 0 {
+	switch x in result {
+	case bool:
+		if !x {
 			outcome = .Hide
 		}
-	case C_STR:
-		outcome = .Replace
-		text = strings.clone(string(result.s[:result.len]), allocator) if result.len > 0 else ""
+	case string:
+		outcome, text = .Replace, x
+	case i64, f64, List, Map, Function:
 	}
 	return
 }

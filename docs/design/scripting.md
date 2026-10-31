@@ -568,6 +568,67 @@ global function `get_info()` that returns a table:
    metadata sandbox, schema validation (tests: malformed entries, clamping,
    unknown choice), the form, `yap.setting`, `on_setting`, the permission
    prompt, web storage and loading.
+   *As built (phase 5):* metadata, settings, approval, reload and the page.
+   - **`get_info()`** is read by `read_info` (`catalog.odin`) in a state of its own
+     where every `yap.*` function does nothing (`Script.meta`). Deviation from the
+     plan: they **do nothing** rather than raise, because scripts register their
+     commands at the top level and would not load otherwise. The returned table
+     comes back through `yap_lua_resume` as a value tree (nil, booleans, numbers,
+     strings, lists and maps, at most 8 deep and 4096 values; a table with holes
+     or mixed keys is nil). `parse_info` (`info.odin`) checks all of it: limits on
+     every length, at most 32 settings, unique keys, a type that exists, a default
+     that fits, choices for a choice; what is no good is left out and listed in
+     `problems`, and a script with no `get_info` is simply listed by its file name.
+   - **Setting types**: `bool`, `int`, `number`, `string`, `choice`, with `min` and
+     `max` (clamped), `max_length` (cut at a character boundary), `secret` (masked
+     on the page) and `description`. `setting_value` is the one place a value is
+     checked, whoever sets it. A script reads them with `yap.setting(key)` and is
+     told with `on_load{settings}` and `on_setting{key, value}`. Kept in
+     `<dir>/data/<file>.settings.json`.
+   - **Approval** is for the text: `config.json` has a `hash` (FNV-64) with the
+     permissions the user approved. A script whose text has changed does not run
+     and says so ("changed since you approved it") until it is switched on again,
+     which approves the new text. A script written into the config by hand, with
+     no hash, is not tied to a text (as before).
+   - **The runtime knows every script** (`items.odin`), running or not: found in
+     the scripts folder (a desktop; `runtime_native.odin`) or in the browser's
+     storage under an index (`runtime_web.odin`), at most 64, 60 KiB each. It
+     offers `runtime_set_enabled`, `runtime_set_scope`, `runtime_set_value`,
+     `runtime_reload`, `runtime_add_source`, `runtime_remove_source` and a
+     `runtime_snapshot` (a deep copy for the page), all under the runtime's mutex.
+   - **The Scripts page** (`ui_script_settings.odin`, a client category): each
+     script is a node with its description, what it asks for, a "Switch on..." that
+     shows what it will be able to do before it is approved, the servers it runs
+     for (all, or a tick box per joined server), its settings drawn from the
+     descriptions (checkbox, dropdown, slider for a range, text box otherwise;
+     applied on Enter or when the box loses the focus), a delete button, and at the
+     top Reload and an "Add a script" form (a name and pasted text) for browsers,
+     which have no folder. The page always exists now, whether or not scripts run.
+   - **Headless** has `/script`, `/script on|off <file>`, `/script reload`,
+     `/script settings <file>`, `/script set <file> <key> <value>` and
+     `/script servers <file> all|<address>...`.
+   - A fix to phase 4, found by linking the web build (a type-check had not shown
+     it): `lock_for` slept while waiting for the lock, and a page has no
+     `time.sleep` (WASI's `poll_oneoff` is undefined there). A page has one thread,
+     so the lock can't be held by another and it is taken or not at once.
+   - Found by trying the page: microui knows a checkbox by the *address of its
+     bool*, and the page's checkboxes use locals, which are all at one address, so
+     they shared an identity (ticking one ticked others). Each setting and each
+     server in the scope list now has an id of its own (`mu.push_id`). Also, "all
+     servers" unticked with nothing picked came back as "all", since an empty list
+     means all in a hand-written config; `config.json` now has `"scoped": true` for
+     "only these, even if none", and unticking starts from every joined server.
+   - A fix on the way: `yap.setting(k)` and `yap.store.get(k)` returned *no value*
+     for a missing key, so `tostring(yap.setting("x"))` failed; every `yap.*`
+     function now returns at least nil.
+   - Checked: unit tests for the table results, `parse_info` and its limits, value
+     checking, discovery, approval and the changed-text rule, settings and their
+     events, scope, adding, removing and reloading; and live in headless mode:
+     found, approved, `on_load` with the settings, a value clamped, a bad one
+     refused, `on_setting`, kept across a restart, and a script that was edited
+     afterwards not running until switched on again. The page itself is only
+     compiled (native and wasm): there is no display here, so the layout, the
+     approval step and the text boxes need a look on a real screen.
 6. **HTTP (M).** tinyrequests built into `libyap_requests.a`, the size cap
    patch, scheme check, the libcurl-found log line and `http_available`,
    `web/http.js` for the web, permission `net`.

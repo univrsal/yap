@@ -417,3 +417,381 @@ test_send_filters :: proc(t: ^testing.T) {
 	text, cancel, by = runtime_filter_send(r.rt, r.b, "general", "my password is x")
 	testing.expect(t, !cancel)
 }
+
+// A folder of scripts for a test, removed at its end.
+@(private = "file")
+File :: struct {
+	name, text: string,
+}
+
+@(private = "file")
+Folder :: struct {
+	dir: string,
+}
+
+@(private = "file")
+folder_make :: proc(files: ..File) -> (f: Folder) {
+	tmp := os.get_env("TMPDIR", context.temp_allocator)
+	f.dir = fmt.aprintf("%s/yap-script-test-%d", tmp if tmp != "" else "/tmp", time.tick_now()._nsec)
+	_ = os.make_directory_all(f.dir)
+	for file in files {
+		_ = os.write_entire_file(fmt.tprintf("%s/%s", f.dir, file.name), transmute([]u8)file.text)
+	}
+	return
+}
+
+@(private = "file")
+folder_destroy :: proc(f: ^Folder) {
+	os.remove_all(f.dir)
+	delete(f.dir)
+}
+
+@(private = "file")
+view_of :: proc(rt: ^Runtime, file: string) -> (v: Item_View, ok: bool) {
+	for x in runtime_snapshot(rt) {
+		if x.file == file {
+			return x, true
+		}
+	}
+	return {}, false
+}
+
+KEYWORDS :: `
+function get_info()
+	return {
+		name = "Keywords", description = "Tells you.", version = "1.0",
+		permissions = { "send" },
+		settings = {
+			{ key = "word", type = "string", default = "yap" },
+			{ key = "count", type = "int", default = 2, min = 1, max = 5 },
+		},
+	}
+end
+seen = {}
+function on_load(ev) yap.send("c", "loaded with " .. ev.settings.word .. " " .. ev.settings.count, "a.example:7777") end
+function on_setting(ev) yap.send("c", "changed " .. ev.key .. " to " .. tostring(ev.value), "a.example:7777") end
+function on_message(ev) yap.send("c", "word is " .. yap.setting("word") .. ", " .. tostring(yap.setting("count")) .. ", " .. tostring(yap.setting("nothing"))) end
+`
+
+@(test)
+test_scripts_are_found_but_do_not_run_until_approved :: proc(t: ^testing.T) {
+	f := folder_make(File{"keywords.lua", KEYWORDS}, File{"plain.lua", "function on_message() end"}, File{"notes.txt", "not a script"}, File{"broken.lua", "function ("})
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	runtime_load(r.rt)
+	testing.expect_value(t, runtime_scripts(r.rt), 0) // nothing is running
+
+	views := runtime_snapshot(r.rt)
+	testing.expect_value(t, len(views), 3) // the three .lua files, by name
+	v, ok := view_of(r.rt, "keywords.lua")
+	testing.expect(t, ok)
+	testing.expect_value(t, v.name, "Keywords")
+	testing.expect_value(t, v.requested, Permissions{.Send})
+	testing.expect(t, !v.enabled && !v.running)
+	testing.expect_value(t, len(v.settings), 2)
+	testing.expect_value(t, v.settings[0].value.(string), "yap")
+	plain, _ := view_of(r.rt, "plain.lua")
+	testing.expect_value(t, plain.name, "plain.lua") // no name of its own
+	broken, _ := view_of(r.rt, "broken.lua")
+	testing.expect(t, broken.problem != "")
+
+	// Approving it starts it, with what it was approved for.
+	testing.expect_value(t, runtime_set_enabled(r.rt, "keywords.lua", true, {.Send}), "")
+	testing.expect_value(t, runtime_scripts(r.rt), 1)
+	runtime_step(r.rt, 10 * time.Millisecond)
+	texts := posted(r.a)
+	defer delete(texts)
+	testing.expect_value(t, len(texts), 1)
+	if len(texts) == 1 {
+		testing.expect_value(t, texts[0], "c: loaded with yap 2") // on_load got the settings
+	}
+	// A script that can't be read can't be switched on.
+	testing.expect(t, runtime_set_enabled(r.rt, "broken.lua", true, {}) != "")
+	testing.expect_value(t, runtime_set_enabled(r.rt, "nothing.lua", true, {}), "there is no such script")
+}
+
+@(test)
+test_approval_is_for_the_text_that_was_approved :: proc(t: ^testing.T) {
+	f := folder_make(File{"keywords.lua", KEYWORDS})
+	defer folder_destroy(&f)
+	{
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		testing.expect_value(t, runtime_set_enabled(r.rt, "keywords.lua", true, {.Send}), "")
+		rig_destroy(&r)
+	}
+	// A new run starts it by itself, as it was approved.
+	{
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		testing.expect_value(t, runtime_scripts(r.rt), 1)
+		v, _ := view_of(r.rt, "keywords.lua")
+		testing.expect(t, v.enabled && v.running && !v.changed)
+		testing.expect_value(t, v.granted, Permissions{.Send})
+		rig_destroy(&r)
+	}
+	// Changed, it is not: it asks again, and gets nothing until it is.
+	_ = os.write_entire_file(fmt.tprintf("%s/keywords.lua", f.dir), transmute([]u8)string(KEYWORDS + "\n-- now it does something else\n"))
+	{
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		testing.expect_value(t, runtime_scripts(r.rt), 0)
+		v, _ := view_of(r.rt, "keywords.lua")
+		testing.expect(t, v.changed && !v.enabled && !v.running)
+		testing.expect(t, v.problem != "")
+		testing.expect_value(t, v.granted, Permissions{})
+		// Switching it on again approves the new text, with whatever is granted now.
+		testing.expect_value(t, runtime_set_enabled(r.rt, "keywords.lua", true, {}), "")
+		v, _ = view_of(r.rt, "keywords.lua")
+		testing.expect(t, v.running && !v.changed)
+		testing.expect_value(t, v.granted, Permissions{})
+		rig_destroy(&r)
+	}
+	// And that is kept.
+	{
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		testing.expect_value(t, runtime_scripts(r.rt), 1)
+		rig_destroy(&r)
+	}
+}
+
+@(test)
+test_settings_are_checked_kept_and_told_to_the_script :: proc(t: ^testing.T) {
+	f := folder_make(File{"keywords.lua", KEYWORDS})
+	defer folder_destroy(&f)
+	for run in 1 ..= 2 {
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		if run == 1 {
+			testing.expect_value(t, runtime_set_enabled(r.rt, "keywords.lua", true, {.Send}), "")
+			testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "word", "tea"), "")
+			testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "count", i64(99)), "") // clamped
+			testing.expect(t, runtime_set_value(r.rt, "keywords.lua", "count", "many") != "")
+			testing.expect(t, runtime_set_value(r.rt, "keywords.lua", "nothing", i64(1)) != "")
+			runtime_step(r.rt, 10 * time.Millisecond)
+			texts := posted(r.a)
+			// on_load with the defaults, and a on_setting for each of the two changes.
+			testing.expect_value(t, len(texts), 3)
+			if len(texts) == 3 {
+				testing.expect_value(t, texts[0], "c: loaded with yap 2")
+				testing.expect_value(t, texts[1], "c: changed word to tea")
+				testing.expect_value(t, texts[2], "c: changed count to 5")
+			}
+			delete(texts)
+		} else {
+			// Kept: the script starts with them.
+			runtime_step(r.rt, 10 * time.Millisecond)
+			texts := posted(r.a)
+			testing.expect_value(t, len(texts), 1)
+			if len(texts) == 1 {
+				testing.expect_value(t, texts[0], "c: loaded with tea 5")
+			}
+			delete(texts)
+			emit(r.a, message("x"))
+			runtime_step(r.rt, 10 * time.Millisecond)
+			texts = posted(r.a)
+			testing.expect_value(t, len(texts), 2)
+			if len(texts) == 2 {
+				testing.expect_value(t, texts[1], "c: word is tea, 5, nil")
+			}
+			delete(texts)
+		}
+		rig_destroy(&r)
+	}
+}
+
+@(test)
+test_scope_is_kept :: proc(t: ^testing.T) {
+	f := folder_make(File{"plain.lua", "function on_message() end"})
+	defer folder_destroy(&f)
+	{
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		runtime_set_scope(r.rt, "plain.lua", false, {"a.example:7777"})
+		testing.expect_value(t, runtime_set_enabled(r.rt, "plain.lua", true, {}), "")
+		rig_destroy(&r)
+	}
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	runtime_load(r.rt)
+	v, _ := view_of(r.rt, "plain.lua")
+	testing.expect(t, !v.all_servers)
+	testing.expect_value(t, len(v.servers), 1)
+	list_a := runtime_commands(r.rt, r.a)
+	_ = list_a
+	runtime_set_scope(r.rt, "plain.lua", true, nil)
+	v, _ = view_of(r.rt, "plain.lua")
+	testing.expect(t, v.all_servers)
+}
+
+@(test)
+test_adding_removing_and_reloading :: proc(t: ^testing.T) {
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	runtime_load(r.rt)
+	testing.expect_value(t, len(runtime_snapshot(r.rt)), 0)
+
+	testing.expect(t, runtime_add_source(r.rt, "../escape.lua", "x") != "")
+	testing.expect(t, runtime_add_source(r.rt, "noext", "x") != "")
+	testing.expect(t, runtime_add_source(r.rt, "big.lua", strings.repeat("x", MAX_SCRIPT_SIZE + 1, context.temp_allocator)) != "")
+	testing.expect_value(t, runtime_add_source(r.rt, "new.lua", `function get_info() return { name = "New" } end`), "")
+	v, ok := view_of(r.rt, "new.lua")
+	testing.expect(t, ok)
+	testing.expect_value(t, v.name, "New")
+	testing.expect(t, !v.enabled)
+
+	// A file put in the folder by hand is found by a reload.
+	_ = os.write_entire_file(fmt.tprintf("%s/hand.lua", f.dir), transmute([]u8)string("x = 1"))
+	testing.expect_value(t, len(runtime_snapshot(r.rt)), 1)
+	runtime_reload(r.rt)
+	testing.expect_value(t, len(runtime_snapshot(r.rt)), 2)
+
+	testing.expect_value(t, runtime_set_enabled(r.rt, "new.lua", true, {}), "")
+	testing.expect_value(t, runtime_scripts(r.rt), 1)
+	runtime_remove_source(r.rt, "new.lua")
+	testing.expect_value(t, runtime_scripts(r.rt), 0)
+	testing.expect_value(t, len(runtime_snapshot(r.rt)), 1)
+	runtime_reload(r.rt)
+	testing.expect_value(t, len(runtime_snapshot(r.rt)), 1) // it is gone for good
+}
+
+// The example script in docs/examples/scripts, which people try the Scripts page
+// with: it has to work.
+SHOWCASE :: #load("../../../docs/examples/scripts/showcase.lua", string)
+
+@(test)
+test_the_showcase_example :: proc(t: ^testing.T) {
+	info, has, err := read_info("showcase.lua", SHOWCASE)
+	defer info_destroy(&info)
+	testing.expect(t, has)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, info.name, "Showcase")
+	testing.expect_value(t, info.permissions, Permissions{.Send, .Notify})
+	testing.expect_value(t, len(info.settings), 8)
+	testing.expect_value(t, len(info.problems), 0)
+	types: [Setting_Type]int
+	for d in info.settings {
+		types[d.type] += 1
+	}
+	// Every kind of setting is there, and a number with and without a range.
+	testing.expect_value(t, types[.Bool], 2)
+	testing.expect_value(t, types[.Int], 1)
+	testing.expect_value(t, types[.Number], 2)
+	testing.expect_value(t, types[.String], 2)
+	testing.expect_value(t, types[.Choice], 1)
+
+	f := folder_make()
+	defer folder_destroy(&f)
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	testing.expect(t, runtime_add(r.rt, "showcase.lua", SHOWCASE, Script_Config{permissions = {"send", "notify"}}))
+	cmds := runtime_commands(r.rt, r.a)
+	testing.expect_value(t, len(cmds), 3)
+	if len(cmds) == 3 {
+		testing.expect_value(t, cmds[0].name, "hello")
+		testing.expect_value(t, cmds[1].name, "remind")
+		testing.expect_value(t, cmds[2].name, "roll")
+	}
+
+	// /roll posts to the channel; bad dice, or too many sides, don't.
+	testing.expect(t, runtime_run_command(r.rt, r.a, "/roll 2d6", "general"))
+	testing.expect(t, runtime_run_command(r.rt, r.a, "/roll nonsense", "general"))
+	testing.expect(t, runtime_run_command(r.rt, r.a, "/roll 1d500", "general"))
+	testing.expect(t, runtime_run_command(r.rt, r.a, "/hello Ann", "general"))
+	runtime_step(r.rt, 20 * time.Millisecond)
+	texts := posted(r.a)
+	testing.expect_value(t, len(texts), 1)
+	if len(texts) == 1 {
+		testing.expectf(t, strings.has_prefix(texts[0], "general: 2d6: ") && strings.contains(texts[0], " = "), "%q", texts[0])
+	}
+	delete(texts)
+	// The largest die is a setting.
+	testing.expect_value(t, runtime_set_value(r.rt, "showcase.lua", "dice", i64(4)), "")
+	testing.expect(t, runtime_run_command(r.rt, r.a, "/roll 1d6", "general"))
+	runtime_step(r.rt, 20 * time.Millisecond)
+	texts = posted(r.a)
+	testing.expect_value(t, len(texts), 1) // still only the first
+	delete(texts)
+
+	// /remind keeps the reminder and sets a timer for it.
+	testing.expect(t, runtime_run_command(r.rt, r.a, "/remind 5 tea", "general"))
+	runtime_step(r.rt, 20 * time.Millisecond)
+	s := r.rt.entries[0].script
+	testing.expect_value(t, s.store["reminder"].(string), "tea")
+	testing.expect_value(t, len(s.timers), 1)
+
+	// What others send.
+	r.a.auth.me = 1
+	shown, hidden := incoming(r.a, "well, darn it")
+	testing.expect_value(t, shown, "well, **** it")
+	testing.expect(t, !hidden)
+	shown, hidden = incoming(r.a, "Darn!")
+	testing.expect_value(t, shown, "****!")
+	_, hidden = incoming(r.a, "buy now !spam")
+	testing.expect(t, hidden)
+	shown, hidden = incoming(r.a, "hello")
+	testing.expect_value(t, shown, "hello")
+	testing.expect(t, !hidden)
+	testing.expect_value(t, runtime_set_value(r.rt, "showcase.lua", "censor", false), "")
+	shown, _ = incoming(r.a, "darn")
+	testing.expect_value(t, shown, "darn") // switched off
+
+	// And what is sent.
+	text, cancel, _ := runtime_filter_send(r.rt, r.a, "general", "!shout hello there")
+	testing.expect_value(t, text, "HELLO THERE")
+	testing.expect(t, !cancel)
+	by: string
+	_, cancel, by = runtime_filter_send(r.rt, r.a, "general", "my secret plan")
+	testing.expect(t, cancel)
+	testing.expect_value(t, by, "showcase.lua")
+	text, cancel, _ = runtime_filter_send(r.rt, r.a, "general", "just a message")
+	testing.expect_value(t, text, "just a message")
+	testing.expect(t, !cancel)
+
+	// A mention gives a notice (which, with no window, goes to the log).
+	emit(r.a, message("hey @you", true))
+	runtime_step(r.rt, 20 * time.Millisecond)
+}
+
+@(test)
+test_a_script_can_run_for_no_server :: proc(t: ^testing.T) {
+	f := folder_make(File{"echo.lua", `function on_message(ev) yap.send("c", "got it") end`})
+	defer folder_destroy(&f)
+	{
+		r := rig_new(f.dir)
+		runtime_load(r.rt)
+		runtime_set_scope(r.rt, "echo.lua", false, nil) // "all servers" unticked, none picked
+		v, _ := view_of(r.rt, "echo.lua")
+		testing.expect(t, !v.all_servers)
+		testing.expect_value(t, len(v.servers), 0)
+		testing.expect_value(t, runtime_set_enabled(r.rt, "echo.lua", true, {.Send}), "")
+		emit(r.a, message("x"))
+		runtime_step(r.rt, 10 * time.Millisecond)
+		texts := posted(r.a)
+		testing.expect_value(t, len(texts), 0) // it runs for nothing
+		delete(texts)
+		// Ticking one server makes it run for that one.
+		runtime_set_scope(r.rt, "echo.lua", false, {"a.example:7777"})
+		emit(r.a, message("x"))
+		runtime_step(r.rt, 10 * time.Millisecond)
+		texts = posted(r.a)
+		testing.expect_value(t, len(texts), 1)
+		delete(texts)
+		runtime_set_scope(r.rt, "echo.lua", false, nil)
+		rig_destroy(&r)
+	}
+	// It stays so after a restart; it is not "all" again.
+	r := rig_new(f.dir)
+	defer rig_destroy(&r)
+	runtime_load(r.rt)
+	v, _ := view_of(r.rt, "echo.lua")
+	testing.expect(t, !v.all_servers)
+	testing.expect_value(t, len(v.servers), 0)
+	runtime_set_scope(r.rt, "echo.lua", true, nil)
+	v, _ = view_of(r.rt, "echo.lua")
+	testing.expect(t, v.all_servers)
+}

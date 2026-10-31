@@ -162,7 +162,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		due := time.duration_seconds(time.tick_diff(time.tick_now(), ui.redraw_at))
 		wait = clamp(due, 0.001, wait)
 	}
-	if ui.scripts != nil {
+	if ui.scripts != nil && script.runtime_scripts(ui.scripts) > 0 {
 		// Scripts have timers, which nothing else wakes the loop for.
 		wait = min(wait, SCRIPT_TICK)
 	}
@@ -417,6 +417,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	script.runtime_destroy(ui.scripts)
 	ui.scripts = nil
+	scripts_ui_destroy(ui)
 	delete(ui.sessions)
 	delete(ui.relay_server)
 	delete(ui.window_title)

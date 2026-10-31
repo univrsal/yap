@@ -87,10 +87,26 @@ to_c :: proc(v: Value, allocator: runtime.Allocator, depth := 0) -> (out: C_Valu
 	return
 }
 
-// from_c reads a scalar passed to a host function (the C code passes nothing
-// else). Strings are copied into `allocator`.
+// from_c reads a value from C: a scalar passed to a host function, or a table a
+// script returned. Everything is copied into `allocator`.
 from_c :: proc(v: C_Value, allocator: runtime.Allocator) -> Value {
 	switch v.type {
+	case C_LIST:
+		list := make([]Value, int(v.count), allocator)
+		for i in 0 ..< int(v.count) {
+			list[i] = from_c(v.items[i], allocator)
+		}
+		return List(list)
+	case C_MAP:
+		pairs := make([]Pair, int(v.count), allocator)
+		for i in 0 ..< int(v.count) {
+			key := v.items[2 * i]
+			pairs[i] = {
+				key   = strings.clone(string(key.s[:key.len]), allocator) if key.len > 0 else "",
+				value = from_c(v.items[2 * i + 1], allocator),
+			}
+		}
+		return Map(pairs)
 	case C_BOOL:
 		return v.i != 0
 	case C_INT:

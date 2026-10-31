@@ -24,12 +24,8 @@ scripts_start :: proc(ui: ^UI) {
 	}
 	rt := script.runtime_create(dir)
 	script.runtime_load(rt)
-	if script.runtime_scripts(rt) == 0 {
-		// Nothing to run, so nothing to wake up for.
-		script.runtime_destroy(rt)
-		return
-	}
 	ui.scripts = rt
+	ui.script_ui.dir = strings.clone(dir) if !platform.WEB else ""
 }
 
 scripts_frame :: proc(ui: ^UI) {

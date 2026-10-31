@@ -21,6 +21,7 @@ Op :: enum c.int {
 	Store_Delete,
 	Register_Command,
 	Unregister_Command,
+	Setting,
 }
 
 // The names the functions get in the yap table. Op is the index.
@@ -36,6 +37,7 @@ OP_NAMES := [?]cstring {
 	int(Op.Store_Delete) = "store.delete",
 	int(Op.Register_Command) = "register_command",
 	int(Op.Unregister_Command) = "unregister_command",
+	int(Op.Setting) = "setting",
 }
 
 // Limits on what a script may hold or ask for.
@@ -76,7 +78,7 @@ host_call :: proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, re
 		ret^ = to_c(message, scratch)
 		return 1
 	}
-	if Op(op) == .Register_Command {
+	if Op(op) == .Register_Command && !s.meta {
 		args[len(values) - 1].type = C_NIL // the command keeps the function
 	}
 	ret^ = to_c(result, scratch)
@@ -125,6 +127,9 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 		a.name = "log"
 	}
 	server := s.run.server
+	if s.meta {
+		return nil, nil
+	}
 	switch op {
 	case .Log:
 		text := arg_string(a, 0, MAX_TEXT, true) or_return
@@ -227,6 +232,9 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 			help = arg_string(a, 1, MAX_HELP) or_return
 		}
 		command_register(s, name, help, c.int(fn)) or_return
+	case .Setting:
+		key := arg_string(a, 0, MAX_SETTING_KEY) or_return
+		result = s.settings[key] or_else nil
 	case .Unregister_Command:
 		name := arg_string(a, 0, MAX_COMMAND_NAME) or_return
 		command_unregister(s, strings.to_lower(name, context.temp_allocator))
@@ -446,4 +454,32 @@ store_load :: proc(s: ^Script, values: map[string]Value) {
 		store_set(s, k, v)
 	}
 	s.store_dirty = false
+}
+
+// settings_clear forgets the values of the settings.
+@(private)
+settings_clear :: proc(s: ^Script) {
+	for k, v in s.settings {
+		if str, is_string := v.(string); is_string {
+			delete(str, s.allocator)
+		}
+		delete(k, s.allocator)
+	}
+	clear(&s.settings)
+}
+
+// setting_set gives the script a setting's value (a scalar).
+setting_set :: proc(s: ^Script, key: string, v: Value) {
+	stored := v
+	if str, is_string := v.(string); is_string {
+		stored = strings.clone(str, s.allocator)
+	}
+	if old, ok := s.settings[key]; ok {
+		if str, is_string := old.(string); is_string {
+			delete(str, s.allocator)
+		}
+		s.settings[key] = stored
+		return
+	}
+	s.settings[strings.clone(key, s.allocator)] = stored
 }

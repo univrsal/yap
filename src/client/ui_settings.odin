@@ -33,6 +33,7 @@ Settings_Tab :: enum {
 Client_Category :: enum {
 	Audio,
 	Sounds,
+	Scripts,
 	Interface,
 	Hotkeys,
 	Screen_Sharing,
@@ -50,6 +51,7 @@ Client_Category :: enum {
 CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Audio           = "Audio",
 	.Sounds          = "Sounds",
+	.Scripts         = "Scripts",
 	.Interface       = "User interface",
 	.Hotkeys         = "Global hotkeys",
 	.Screen_Sharing  = "Screen sharing",
@@ -218,6 +220,8 @@ settings_body :: proc(ui: ^UI) {
 		}
 	case .Sounds:
 		sound_settings(ui) // ui_sounds.odin
+	case .Scripts:
+		script_settings(ui) // ui_script_settings.odin
 	case .Interface:
 		ui_settings(ui)
 	case .Hotkeys:

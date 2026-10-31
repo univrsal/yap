@@ -32,4 +32,6 @@ foreign _ {
 	// is released).
 	resume :: proc(s: State, thread: State, nargs: c.int, err: [^]u8, errlen: c.size_t, result: ^C_Value) -> Lua_Status ---
 	release :: proc(s: State, ref: c.int) ---
+	// Frees what resume allocated for a table in its result.
+	value_free :: proc(v: ^C_Value) ---
 }

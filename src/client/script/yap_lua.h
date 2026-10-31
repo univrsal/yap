@@ -126,13 +126,19 @@ int yap_lua_spawn_ref(void *state, int fn, const yap_value *arg,
 
 /*
  * Run a task until it finishes, fails or is suspended. With `result`, a task
- * that finishes gives the first value it returned there (only nil, a boolean or
- * a string; anything else is nil). A string stays valid until the task is
- * released (yap_lua_release).
+ * that finishes gives the first value it returned there: nil, a boolean, a
+ * number, a string, or a table of those (nested at most 8 deep, 4096 values; a
+ * table whose keys are 1..n is a LIST, one with string keys a MAP, anything
+ * else nil; functions and the like are nil). Strings stay valid until the task
+ * is released (yap_lua_release); give the result to yap_lua_value_free before
+ * that.
  */
 int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errlen, yap_value *result);
 
 void yap_lua_release(void *state, int ref);
+
+/* Frees what yap_lua_resume allocated for a table result. */
+void yap_lua_value_free(yap_value *v);
 
 #ifdef __cplusplus
 }

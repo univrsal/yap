@@ -323,19 +323,110 @@ int yap_lua_spawn_ref(void *state, int fn, const yap_value *arg,
     return spawn((lua_State *)state, &a, err, errlen);
 }
 
+#define MAX_RESULT_NODES 4096
+
+/* How a table is read: kinds of key. */
+#define KEYS_NONE 0
+#define KEYS_INT 1
+#define KEYS_STR 2
+
+/*
+ * The first of a table's two passes: checks that it can be read (it is nested
+ * and large enough within limits, and is a list or a map), and adds the number of
+ * values it needs room for to `nodes`. No allocation, and nothing that can raise
+ * an error.
+ */
+static int count_value(lua_State *L, int idx, int depth, size_t *nodes) {
+    int kind = KEYS_NONE;
+    size_t count = 0, max_key = 0;
+    if (lua_type(L, idx) != LUA_TTABLE) return 1;
+    idx = lua_absindex(L, idx);
+    if (depth >= MAX_VALUE_DEPTH || !lua_checkstack(L, 5)) return 0;
+    lua_pushnil(L);
+    while (lua_next(L, idx)) {
+        int kt = lua_type(L, -2);
+        if (kind == KEYS_NONE) kind = kt == LUA_TSTRING ? KEYS_STR : KEYS_INT;
+        if (kind == KEYS_STR && kt != LUA_TSTRING) { lua_pop(L, 2); return 0; }
+        if (kind == KEYS_INT) {
+            if (kt != LUA_TNUMBER || !lua_isinteger(L, -2) || lua_tointeger(L, -2) < 1) { lua_pop(L, 2); return 0; }
+            if ((size_t)lua_tointeger(L, -2) > max_key) max_key = (size_t)lua_tointeger(L, -2);
+        }
+        count++;
+        if (!count_value(L, lua_gettop(L), depth + 1, nodes)) { lua_pop(L, 2); return 0; }
+        lua_pop(L, 1);
+    }
+    if (kind == KEYS_INT && max_key != count) return 0; /* holes: not a list */
+    *nodes += kind == KEYS_STR ? 2 * count : count;
+    return *nodes <= MAX_RESULT_NODES;
+}
+
+/* The second pass: reads the value at idx into *out; tables take their room from pool. */
+static void fill_value(lua_State *L, int idx, yap_value *out, yap_value *pool, size_t *pos) {
+    memset(out, 0, sizeof *out);
+    idx = lua_absindex(L, idx);
+    switch (lua_type(L, idx)) {
+    case LUA_TBOOLEAN: out->type = YAP_BOOL; out->i = lua_toboolean(L, idx); break;
+    case LUA_TNUMBER:
+        if (lua_isinteger(L, idx)) { out->type = YAP_INT; out->i = lua_tointeger(L, idx); }
+        else { out->type = YAP_NUM; out->n = lua_tonumber(L, idx); }
+        break;
+    case LUA_TSTRING: out->type = YAP_STR; out->s = lua_tolstring(L, idx, &out->len); break;
+    case LUA_TTABLE: {
+        size_t count = 0, j = 0;
+        int map = 0;
+        yap_value *items;
+        lua_pushnil(L);
+        while (lua_next(L, idx)) {
+            map = lua_type(L, -2) == LUA_TSTRING;
+            count++;
+            lua_pop(L, 1);
+        }
+        out->type = map ? YAP_MAP : YAP_LIST;
+        out->count = count;
+        if (count == 0) break;
+        items = pool + *pos;
+        *pos += map ? 2 * count : count;
+        out->items = items;
+        lua_pushnil(L);
+        while (lua_next(L, idx)) {
+            if (map) {
+                memset(&items[2 * j], 0, sizeof items[0]);
+                items[2 * j].type = YAP_STR;
+                items[2 * j].s = lua_tolstring(L, -2, &items[2 * j].len);
+                fill_value(L, lua_gettop(L), &items[2 * j + 1], pool, pos);
+                j++;
+            } else {
+                fill_value(L, lua_gettop(L), &items[lua_tointeger(L, -2) - 1], pool, pos);
+            }
+            lua_pop(L, 1);
+        }
+        break;
+    }
+    default: break;
+    }
+}
+
+static void read_result(lua_State *co, yap_value *result) {
+    size_t nodes = 0, pos = 0;
+    yap_value *pool;
+    if (!count_value(co, 1, 0, &nodes)) return; /* stays nil */
+    if (nodes == 0) { fill_value(co, 1, result, NULL, &pos); return; }
+    pool = (yap_value *)malloc(nodes * sizeof *pool);
+    if (!pool) return;
+    fill_value(co, 1, result, pool, &pos);
+}
+
+void yap_lua_value_free(yap_value *v) {
+    if (v && (v->type == YAP_LIST || v->type == YAP_MAP)) free(v->items);
+}
+
 int yap_lua_resume(void *state, void *thread, int nargs, char *err, size_t errlen, yap_value *result) {
     lua_State *co = (lua_State *)thread;
     int nres = 0;
     int status = lua_resume(co, (lua_State *)state, nargs, &nres);
     if (result) memset(result, 0, sizeof *result);
     if (status == LUA_OK) {
-        if (result && nres > 0) {
-            switch (lua_type(co, 1)) {
-            case LUA_TBOOLEAN: result->type = YAP_BOOL; result->i = lua_toboolean(co, 1); break;
-            case LUA_TSTRING: result->type = YAP_STR; result->s = lua_tolstring(co, 1, &result->len); break;
-            default: break;
-            }
-        }
+        if (result && nres > 0) read_result(co, result);
         if (!result) lua_settop(co, 0); /* else the string is kept until the task is released */
         return YAP_LUA_OK;
     }
@@ -399,7 +490,8 @@ static int api_call(lua_State *L) {
         return luaL_error(L, "%s", ret.type == YAP_STR && ret.s ? ret.s : "error");
     }
     release_funcs(L, args, n);
-    if (ret.type == YAP_NIL) return 0;
+    /* Always one result, so that yap.setting("x") is nil and not nothing (tostring would fail). */
+    if (ret.type == YAP_NIL) { lua_pushnil(L); return 1; }
     if (!push_value(L, &ret, 0)) return luaL_error(L, "result too large");
     return 1;
 }

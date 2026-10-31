@@ -270,6 +270,7 @@ UI :: struct {
 	// The scripts that are running, nil if there is nowhere to keep them
 	// (see client/script).
 	scripts:             ^script.Runtime,
+	script_ui:           UI_Scripts, // the Scripts page (ui_script_settings.odin)
 	// Memory usage: the settings page and the line in the log
 	// (see ui_memory.odin).
 	memory:              UI_Memory,

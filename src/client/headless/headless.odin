@@ -92,10 +92,6 @@ start_scripts :: proc(c: ^conn.Server_Conn) -> ^script.Runtime {
 	}
 	rt := script.runtime_create(dir)
 	script.runtime_load(rt)
-	if script.runtime_scripts(rt) == 0 {
-		script.runtime_destroy(rt)
-		return nil
-	}
 	script.runtime_attach(rt, c)
 	script.runtime_inline_conns(rt)
 	return rt

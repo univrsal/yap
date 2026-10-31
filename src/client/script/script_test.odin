@@ -9,7 +9,6 @@ import "core:time"
 // Runs the script's tasks to the end, in frames of `frame`, and returns the
 // results and how many frames it took. Gives up after a few seconds, so that
 // a bug here fails a test rather than hanging it.
-@(private = "file")
 run_to_end :: proc(
 	s: ^Script,
 	frame: time.Duration = 2 * time.Millisecond,
@@ -28,20 +27,17 @@ run_to_end :: proc(
 	return
 }
 
-@(private = "file")
 finish :: proc(results: ^[dynamic]Result) {
 	results_clear(results)
 	delete(results^)
 }
 
-@(private = "file")
 new_script :: proc(t: ^testing.T, limits := DEFAULT_LIMITS) -> ^Script {
 	s := create("test", limits)
 	testing.expect(t, s != nil)
 	return s
 }
 
-@(private = "file")
 load :: proc(t: ^testing.T, s: ^Script, source: string) {
 	err, ok := run_source(s, source)
 	testing.expectf(t, ok, "loading failed: %v", err)

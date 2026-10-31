@@ -38,16 +38,6 @@ CONFIG_FILE :: "config.json"
 LOAD_TIME :: time.Second
 SAVE_EVERY :: 5 * time.Second
 
-Script_Config :: struct {
-	enabled:     bool,
-	permissions: []string,
-	servers:     []string,
-}
-
-Config :: struct {
-	scripts: map[string]Script_Config,
-}
-
 // A connection scripts hear from.
 @(private)
 Attached :: struct {
@@ -58,14 +48,13 @@ Attached :: struct {
 	filter: conn.Message_Filter,
 }
 
+// A script that is running.
 @(private)
 Entry :: struct {
-	file:        string, // owned; also the script's name
-	script:      ^Script,
-	all_servers: bool,
-	servers:     []string, // owned; the addresses or keys it runs for
-	store_path:  string, // owned; "" if it isn't kept
-	saved:       time.Tick,
+	item:       ^Item,
+	script:     ^Script,
+	store_path: string, // owned; "" if it isn't kept
+	saved:      time.Tick,
 }
 
 // Everything that runs Lua, or changes what runs it, holds `mutex`: the step,
@@ -79,7 +68,8 @@ Runtime :: struct {
 	dir:      string, // owned
 	host:     Host,
 	attached: [dynamic]^Attached,
-	entries:  [dynamic]Entry,
+	items:    [dynamic]^Item, // the scripts it knows of (items.odin)
+	entries:  [dynamic]Entry, // those that are running
 	next_id:  Server_Id,
 	results:  [dynamic]Result,
 	// Command lines typed on another thread (runtime_queue_command), run by
@@ -121,6 +111,10 @@ runtime_destroy :: proc(rt: ^Runtime) {
 		entry_destroy(&e)
 	}
 	delete(rt.entries)
+	for it in rt.items {
+		item_destroy(it)
+	}
+	delete(rt.items)
 	for a in rt.attached {
 		a.c.events = nil
 		conn.sink_destroy(&a.sink)
@@ -137,114 +131,21 @@ runtime_destroy :: proc(rt: ^Runtime) {
 @(private)
 entry_destroy :: proc(e: ^Entry) {
 	destroy(e.script)
-	delete(e.file)
-	for s in e.servers {
-		delete(s)
-	}
-	delete(e.servers)
 	delete(e.store_path)
 }
 
-// runtime_load reads the config and starts the scripts it enables. It is
-// quiet when there is no config (there are no scripts then).
-runtime_load :: proc(rt: ^Runtime) {
-	path := fmt.tprintf("%s/%s", rt.dir, CONFIG_FILE)
-	if !common.store_exists(path) {
-		return
-	}
-	text, ok := common.store_read(path, context.temp_allocator)
-	if !ok {
-		return
-	}
-	cfg: Config
-	if err := json.unmarshal(transmute([]u8)text, &cfg); err != nil {
-		log.warnf("script: %s is not valid: %v", path, err)
-		return
-	}
-	defer {
-		for name, c in cfg.scripts {
-			delete(name)
-			for p in c.permissions {delete(p)}
-			delete(c.permissions)
-			for sv in c.servers {delete(sv)}
-			delete(c.servers)
-		}
-		delete(cfg.scripts)
-	}
-	for file, c in cfg.scripts {
-		if !c.enabled {
-			continue
-		}
-		source, read := common.store_read(fmt.tprintf("%s/%s", rt.dir, file), context.temp_allocator)
-		if !read {
-			log.warnf("script %s: could not be read", file)
-			continue
-		}
-		runtime_add(rt, file, source, c)
-	}
-}
-
-// runtime_add starts a script, running its own code to the end first so that
-// its handlers exist when the first event comes. It is false if it could not
-// be started.
+// runtime_add starts a script from its text, with the choices in `cfg`, as if it
+// were in the config. It is false if it could not be started. (For tests, and for
+// anything that has a script in hand.)
 runtime_add :: proc(rt: ^Runtime, file, source: string, cfg: Script_Config) -> bool {
-	s := create(file)
-	if s == nil {
-		log.warnf("script %s: out of memory", file)
+	sync.guard(&rt.mutex)
+	cfg := cfg
+	cfg.enabled = true
+	it := item_load(rt, file, cfg, source)
+	if it.problem != "" {
 		return false
 	}
-	s.host = &rt.host
-	for p in cfg.permissions {
-		switch p {
-		case "send":
-			s.perms += {.Send}
-		case "notify":
-			s.perms += {.Notify}
-		case:
-			log.warnf("script %s: no permission called %q", file, p)
-		}
-	}
-	e := Entry {
-		file        = strings.clone(file),
-		script      = s,
-		all_servers = len(cfg.servers) == 0,
-		servers     = make([]string, len(cfg.servers)),
-	}
-	for sv, i in cfg.servers {
-		e.servers[i] = strings.clone(sv)
-	}
-	e.store_path = fmt.aprintf("%s/data/%s.json", rt.dir, file)
-	store_read_file(s, e.store_path)
-	e.saved = time.tick_now()
-
-	if err, ok := run_source(s, source); !ok {
-		log.warnf("script %s: %s", file, err)
-		entry_destroy(&e)
-		return false
-	}
-	results: [dynamic]Result
-	defer {
-		report(rt, &results)
-		delete(results)
-	}
-	began := time.tick_now()
-	for pending(s) > 0 && time.tick_since(began) < LOAD_TIME {
-		step(s, 5 * time.Millisecond, &results)
-	}
-	if pending(s) > 0 {
-		log.warnf("script %s: its own code took too long", file)
-		entry_destroy(&e)
-		return false
-	}
-	for r in results {
-		if r.status != .Finished {
-			entry_destroy(&e)
-			return false
-		}
-	}
-	append(&rt.entries, e)
-	log.infof("script %s: running", file)
-	return true
+	return item_start(rt, it)
 }
 
 // runtime_attach lets the runtime hear from a connection, which stays attached
@@ -323,7 +224,7 @@ drain :: proc(a: ^Attached) {
 }
 
 // report logs the handlers that went wrong, and forgets the results.
-@(private = "file")
+@(private)
 report :: proc(rt: ^Runtime, results: ^[dynamic]Result) {
 	for r in results {
 		switch r.status {
@@ -410,11 +311,11 @@ message_value :: proc(a: ^Attached, m: conn.Event_Message) -> Value {
 // in_scope reports whether the script runs for the server.
 @(private = "file")
 in_scope :: proc(e: ^Entry, a: ^Attached) -> bool {
-	if e.all_servers {
+	if e.item.all_servers {
 		return true
 	}
 	key := server_key(a)
-	for s in e.servers {
+	for s in e.item.servers {
 		if strings.equal_fold(s, a.c.server_addr) || strings.equal_fold(s, key) {
 			return true
 		}
@@ -501,7 +402,7 @@ forget_server :: proc(s: ^Script, id: Server_Id) {
 }
 
 // The store as a file: a JSON object of the values.
-@(private = "file")
+@(private)
 store_read_file :: proc(s: ^Script, path: string) {
 	if !common.store_exists(path) {
 		return
@@ -533,7 +434,7 @@ store_read_file :: proc(s: ^Script, path: string) {
 	store_load(s, values)
 }
 
-@(private = "file")
+@(private)
 entry_save :: proc(e: ^Entry, force := false) {
 	s := e.script
 	if !s.store_dirty || e.store_path == "" {
@@ -597,7 +498,7 @@ runtime_commands :: proc(
 			continue
 		}
 		for cmd in e.script.commands {
-			append(&list, Command_Info{script = e.file, name = cmd.name, help = cmd.help})
+			append(&list, Command_Info{script = e.item.file, name = cmd.name, help = cmd.help})
 		}
 	}
 	slice.sort_by(list[:], proc(x, y: Command_Info) -> bool {return x.name < y.name})
@@ -651,7 +552,7 @@ run_command :: proc(rt: ^Runtime, c: ^conn.Server_Conn, line, channel: string) -
 		if err, ok := call_command(e.script, name, event, a.id); ok {
 			return true
 		} else if err != "" {
-			log.warnf("script %s: /%s: %s", e.file, name, err)
+			log.warnf("script %s: /%s: %s", e.item.file, name, err)
 			return true
 		}
 	}
@@ -747,7 +648,7 @@ filter_incoming :: proc(data: rawptr, c: ^conn.Server_Conn, info: conn.Event_Mes
 		}
 		outcome, text, err := filter(e.script, "on_incoming", message_value(a, info), a.id)
 		if err != "" {
-			log.warnf("script %s: %s", e.file, err)
+			log.warnf("script %s: %s", e.item.file, err)
 		}
 		switch outcome {
 		case .Unchanged:
@@ -767,14 +668,19 @@ filter_incoming :: proc(data: rawptr, c: ^conn.Server_Conn, info: conn.Event_Mes
 // lock_for takes the runtime's mutex, waiting at most `wait` for it.
 @(private = "file")
 lock_for :: proc(rt: ^Runtime, wait: time.Duration) -> bool {
-	began := time.tick_now()
-	for !sync.mutex_try_lock(&rt.mutex) {
-		if time.tick_since(began) > wait {
-			return false
+	when ODIN_OS == .WASI {
+		// A page has one thread, so nobody else can be holding it.
+		return sync.mutex_try_lock(&rt.mutex)
+	} else {
+		began := time.tick_now()
+		for !sync.mutex_try_lock(&rt.mutex) {
+			if time.tick_since(began) > wait {
+				return false
+			}
+			time.sleep(50 * time.Microsecond)
 		}
-		time.sleep(50 * time.Microsecond)
+		return true
 	}
-	return true
 }
 
 // runtime_filter_send lets the scripts that run for the connection look at a
@@ -816,12 +722,12 @@ filter_send :: proc(
 		event := map_of({"server", server_value(a)}, {"channel", channel}, {"text", out})
 		outcome, replaced, err := filter(e.script, "on_send", event, a.id)
 		if err != "" {
-			log.warnf("script %s: %s", e.file, err)
+			log.warnf("script %s: %s", e.item.file, err)
 		}
 		switch outcome {
 		case .Unchanged:
 		case .Hide:
-			return out, true, e.file
+			return out, true, e.item.file
 		case .Replace:
 			out = replaced
 		}

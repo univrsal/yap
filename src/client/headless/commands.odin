@@ -921,6 +921,8 @@ read_commands :: proc(reader: ^Reader) {
 					topic = strings.clone(topic),
 				},
 			)
+		case reader.scripts != nil && (line == "/script" || strings.has_prefix(line, "/script ")):
+			script_command(reader.scripts, line)
 		case reader.scripts != nil && strings.has_prefix(line, "/"):
 			script.runtime_queue_command(reader.scripts, reader.c, line)
 		case:
