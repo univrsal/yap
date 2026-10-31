@@ -28,7 +28,7 @@ Server :: struct {
 @(private = "file")
 server_start :: proc() -> (s: ^Server, ok: bool) {
 	s = new(Server)
-	socket, err := net.listen_tcp({address = net.IP4_Loopback, port = 0})
+	socket, err := net.listen_tcp(net.Endpoint{address = net.IP4_Loopback, port = 0})
 	if err != nil {
 		free(s)
 		return nil, false
@@ -44,7 +44,7 @@ server_start :: proc() -> (s: ^Server, ok: bool) {
 server_stop :: proc(s: ^Server) {
 	s.stop = true
 	// Wake the accept with a connection of our own.
-	if c, err := net.dial_tcp({address = net.IP4_Loopback, port = s.port}); err == nil {
+	if c, err := net.dial_tcp(net.Endpoint{address = net.IP4_Loopback, port = s.port}); err == nil {
 		net.close(c)
 	}
 	thread.join(s.thread)
