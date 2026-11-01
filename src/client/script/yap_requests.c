@@ -7,8 +7,35 @@
 
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <time.h>
+#endif
 
 #include "yap_requests.h"
+
+/*
+ * A request is a tinyrequests handle and the time by which it has to be over. The
+ * library has timeouts of its own, but they are not the same in all three backends
+ * (WinHTTP does not apply its timeout to this kind of request), so this one is the
+ * same everywhere: it is set a little after the library's, which normally gets there
+ * first and says why.
+ */
+typedef struct yap_req {
+    tr_async *async;
+    unsigned long long deadline; /* now_ms() time; 0 for none */
+} yap_req;
+
+#define DEADLINE_GRACE_MS 1000
+
+static unsigned long long now_ms(void) {
+#ifdef _WIN32
+    return (unsigned long long)GetTickCount64();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long long)ts.tv_sec * 1000ULL + (unsigned long long)ts.tv_nsec / 1000000ULL;
+#endif
+}
 
 struct yap_http {
     tr_client *client;
@@ -41,6 +68,7 @@ void *yap_http_begin(yap_http *h, const char *method, const char *url, const voi
     tr_request request;
     tr_header *list = NULL;
     tr_async *async = NULL;
+    yap_req *req;
     int i, rc;
     memset(&request, 0, sizeof request);
     if (header_count > 0) {
@@ -70,18 +98,36 @@ void *yap_http_begin(yap_http *h, const char *method, const char *url, const voi
         }
         return NULL;
     }
-    return async;
+    req = (yap_req *)calloc(1, sizeof *req);
+    if (!req) {
+        tr_async_destroy(async);
+        if (errlen) strncpy(err, "out of memory", errlen - 1);
+        return NULL;
+    }
+    req->async = async;
+    if (timeout_ms > 0) req->deadline = now_ms() + (unsigned long long)timeout_ms + DEADLINE_GRACE_MS;
+    return req;
 }
 
 int yap_http_poll(yap_http *h, void *handle, yap_http_result *out) {
+    yap_req *req = (yap_req *)handle;
     tr_response *response;
     int rc;
     tr_client_poll(h->client);
     response = (tr_response *)calloc(1, sizeof *response);
     if (!response) return 0;
-    rc = tr_async_poll(h->client, (tr_async *)handle, response);
+    rc = tr_async_poll(h->client, req->async, response);
     if (rc == TR_IN_PROGRESS) {
         free(response);
+        if (req->deadline && now_ms() > req->deadline) {
+            /* Over time, whatever the library thinks: give up on it. */
+            tr_async_destroy(req->async);
+            free(req);
+            memset(out, 0, sizeof *out);
+            out->code = TR_ERROR_TIMEOUT;
+            strncpy(out->error, "timeout", sizeof out->error - 1);
+            return 1;
+        }
         return 0;
     }
     memset(out, 0, sizeof *out);
@@ -93,7 +139,8 @@ int yap_http_poll(yap_http *h, void *handle, yap_http_result *out) {
     out->header_count = response->header_count;
     strncpy(out->error, response->error, sizeof out->error - 1);
     out->priv = response;
-    tr_async_destroy((tr_async *)handle);
+    tr_async_destroy(req->async);
+    free(req);
     return 1;
 }
 
@@ -106,6 +153,10 @@ void yap_http_result_free(yap_http_result *r) {
 }
 
 void yap_http_cancel(yap_http *h, void *handle) {
+    yap_req *req = (yap_req *)handle;
     (void)h;
-    if (handle) tr_async_destroy((tr_async *)handle);
+    if (req) {
+        tr_async_destroy(req->async);
+        free(req);
+    }
 }

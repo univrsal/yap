@@ -8,6 +8,8 @@
  *     collected whole (tr__append_bytes).
  *   - libcurl backend: only http and https, also after a redirect, and at most 5
  *     redirects (CURLOPT_PROTOCOLS, CURLOPT_REDIR_PROTOCOLS, CURLOPT_MAXREDIRS).
+ *   - CFNetwork backend: a request that passes its deadline is TR_ERROR_TIMEOUT, as
+ *     in the other backends, instead of TR_ERROR_BACKEND (two places).
  *   - WinHTTP backend, tr__url_parse: a URL with a port ("http://host:8080/") was
  *     read with the port starting at the colon, so the port was 0 and the host
  *     lost its last character ("host" -> "hos", "127.0.0.1" -> "127.0.0.", which
@@ -1689,7 +1691,7 @@ winhttp_cleanup:
         }
         while (fake_async.status == TR_IN_PROGRESS) {
             if (fake_async.has_deadline && CFAbsoluteTimeGetCurrent() >= fake_async.deadline) {
-                tr__apple_set_error(&fake_async, TR_ERROR_BACKEND, "request timed out");
+                tr__apple_set_error(&fake_async, TR_ERROR_TIMEOUT, "timeout"); /* yap: was BACKEND */
                 tr__apple_close_stream(&fake_async);
                 break;
             }
@@ -2003,7 +2005,7 @@ size_t tr_client_poll(tr_client *client) {
         for (cursor = client->async_head; cursor; cursor = cursor->next) {
             if (cursor->status == TR_IN_PROGRESS) {
                 if (cursor->has_deadline && CFAbsoluteTimeGetCurrent() >= cursor->deadline) {
-                    tr__apple_set_error(cursor, TR_ERROR_BACKEND, "request timed out");
+                    tr__apple_set_error(cursor, TR_ERROR_TIMEOUT, "timeout"); /* yap: was BACKEND */
                     tr__apple_close_stream(cursor);
                 } else {
                     tr__apple_read_available(cursor);

@@ -232,20 +232,33 @@ test_web_requests_for_real :: proc(t: ^testing.T) {
 			yap.http_get("http://127.0.0.1:1/refused", save("refused"))
 			yap.http_get(BASE .. "/slow", save("slow"), { timeout = 1 })
 		end
+		-- What an answer was, for the message of a failed check.
+		local function describe(r)
+			if not r then return "no answer" end
+			return "ok=" .. tostring(r.ok) .. " status=" .. tostring(r.status) .. " error=" .. tostring(r.error)
+				.. " body=" .. tostring(r.body and #r.body) .. " bytes"
+		end
 		function check_first()
 			local a = answers.small
-			assert(a and a.ok and a.status == 200 and a.body == "hello from the server", "small")
-			assert(a.headers["content-type"] == "text/plain" and a.headers["x-multi"] == "1, 2", "its headers")
-			assert(answers.missing.ok and answers.missing.status == 404 and answers.missing.body == "nothing here", "missing")
-			assert(answers.echo.body == 'application/json|abc|{"a":1}', answers.echo.body)
-			assert(answers.hop.ok and answers.hop.body == "hello from the server", "a redirect is followed")
+			assert(a and a.ok and a.status == 200 and a.body == "hello from the server", "small: " .. describe(a))
+			-- A header that comes twice is joined; how is up to the library the system has.
+			local multi = a.headers["x-multi"] or ""
+			assert(a.headers["content-type"] == "text/plain", "content-type is " .. tostring(a.headers["content-type"]))
+			assert(multi:find("1", 1, true) and multi:find("2", 1, true), "x-multi is " .. multi)
+			local m = answers.missing
+			assert(m and m.ok and m.status == 404 and m.body == "nothing here", "missing: " .. describe(m))
+			assert(answers.echo and answers.echo.body == 'application/json|abc|{"a":1}', "echo: " .. describe(answers.echo) .. " " .. tostring(answers.echo and answers.echo.body))
+			assert(answers.hop and answers.hop.ok and answers.hop.body == "hello from the server", "a redirect is followed: " .. describe(answers.hop))
 		end
 		function check_more()
-			assert(answers.big and not answers.big.ok and answers.big.error:find("too large"), "big")
-			assert(answers.big.body == nil)
-			assert(answers.to_file and not answers.to_file.ok and answers.to_file.status ~= 200, "a redirect to a file")
-			assert(answers.refused and not answers.refused.ok and answers.refused.error ~= "", "refused")
-			assert(answers.slow and not answers.slow.ok and answers.slow.error == "timed out", "slow")
+			local big = answers.big
+			assert(big and not big.ok and big.error:find("too large") and big.body == nil, "big: " .. describe(big))
+			local file = answers.to_file
+			assert(file and not file.ok and file.status ~= 200, "a redirect to a file: " .. describe(file))
+			local refused = answers.refused
+			assert(refused and not refused.ok and refused.error ~= "", "refused: " .. describe(refused))
+			local slow = answers.slow
+			assert(slow and not slow.ok and slow.error == "timed out", "slow: " .. describe(slow))
 		end
 		yap.log("net available:", yap.http_available())
 		`,

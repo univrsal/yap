@@ -392,7 +392,7 @@ own (and for the server the request was made for). It gets:
 | `ok` | `true` if the server answered, **whatever its status**; `false` if no answer came |
 | `status` | the HTTP status, when one came (absent if none did) |
 | `body` | the answer as a Lua string (only if `ok`) |
-| `headers` | a table of the answer's headers, names in lower case; a header that came twice is joined with `, ` |
+| `headers` | a table of the answer's headers, names in lower case; a header that came twice is one value, usually joined with `, ` (how exactly is up to the system's HTTP library) |
 | `error` | why there was no answer: `timed out`, `the answer is too large (more than 1024 KiB)`, `Could not connect to server`, `requests can't be made here`, ... |
 
 So a `404` is `ok = true, status = 404`; check `status` for what you care about.

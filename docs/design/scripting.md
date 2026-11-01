@@ -234,7 +234,11 @@ step, never inside a host call.
   redirects. It also fixes a bug in its WinHTTP URL parser, which read a URL with a
   port (`http://host:8080/`) as port 0 and a host one character short, so on Windows
   every such request failed with "name not resolved" (found by the tests on a Windows
-  runner, since they all use a port). Without a libcurl `tr_client_create` fails; the client logs it once, the
+  runner, since they all use a port), and makes CFNetwork's deadline a timeout like the
+  others' instead of a generic failure. A request also has a deadline of its own in
+  `yap_requests.c`, a second after the library's, because WinHTTP does not apply its
+  timeout to this kind of request; whichever comes first ends it with `timed out`.
+  Without a libcurl `tr_client_create` fails; the client logs it once, the
   Scripts page and `/script` say so, `yap.http_available()` is false, and a request is
   still answered, at once, with `ok = false`.
 - **Web**: the page's `fetch` (`web/http.js`): no cookies, no referrer, redirects
