@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import "base:intrinsics"
 import "client:render"
@@ -78,20 +79,20 @@ connect_screen :: proc(ui: ^UI) {
 	case v.status == .Failed && v.error != "":
 		error_note(ctx, v.error)
 	case v.status == .Failed:
-		with_text_color(ctx, theme.error, "Could not connect.", mu.text)
+		with_text_color(ctx, core.theme.error, "Could not connect.", mu.text)
 	case:
-		with_text_color(ctx, theme.dim, "Not connected.", mu.text)
+		with_text_color(ctx, core.theme.dim, "Not connected.", mu.text)
 	}
 	if v.retrying {
 		mu.layout_row(ctx, {-1})
 		if v.retry_at == {} {
-			with_text_color(ctx, theme.dim, "Connecting...", mu.text)
+			with_text_color(ctx, core.theme.dim, "Connecting...", mu.text)
 		} else {
 			// Counted down one second at a time.
 			left := time.tick_diff(time.tick_now(), v.retry_at)
 			secs := max(int(math.ceil(time.duration_seconds(left))), 1)
-			with_text_color(ctx, theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
-			ui_redraw_in(ui, left - time.Duration(secs - 1) * time.Second)
+			with_text_color(ctx, core.theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
+			core.redraw_in(ui, left - time.Duration(secs - 1) * time.Second)
 		}
 	}
 	key_change := v.status == .Failed && v.key_change.changed
@@ -220,7 +221,7 @@ log_panel :: proc(ui: ^UI) {
 
 	mu.begin_panel(ctx, "log")
 	cnt := mu.get_current_container(ctx)
-	select_begin(ui, .Log)
+	core.select_begin(ui, .Log)
 	total: int
 	{
 		// No logging in here, because the log sink takes this same lock.
@@ -247,14 +248,14 @@ log_panel :: proc(ui: ^UI) {
 			color := ctx.style.colors[.TEXT]
 			switch {
 			case line.level >= .Error:
-				color = theme.error
+				color = core.theme.error
 			case line.level >= .Warning:
-				color = theme.warning
+				color = core.theme.warning
 			case line.level < .Info:
-				color = theme.dim
+				color = core.theme.dim
 			}
 			item := first + i64(i)
-			select_item(ui, item, text)
+			core.select_item(ui, item, text)
 			// One row for each part of the line, the whole of it if it fits
 			// (which is measured first, as most lines do).
 			start, x := 0, i32(0)
@@ -280,6 +281,6 @@ log_panel :: proc(ui: ^UI) {
 			}
 		}
 	}
-	select_end(ui)
+	core.select_end(ui)
 	mu.end_panel(ctx)
 }

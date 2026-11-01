@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "core"
 import "core:strings"
 import mu "vendor:microui"
 
@@ -94,7 +95,7 @@ web_drag :: proc "c" (over: i32, fx, fy: f64) {
 	d := &g_ui.drag
 	pos := mu.Vec2{i32(fx * f64(g_ui.metrics.logical_w)), i32(fy * f64(g_ui.metrics.logical_h))}
 	if (over != 0) != d.over || pos != d.pos {
-		ui_redraw(g_ui)
+		core.redraw_now(g_ui)
 	}
 	d.over, d.pos, d.known = over != 0, pos, true
 }
@@ -114,7 +115,7 @@ web_file_dropped :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64
 		size     = u64(size),
 	}
 	attach_add(g_ui, drop_target(g_ui), {picked})
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 }
 
 // picked_file_read reads a picked file into its `preview`, for its chip

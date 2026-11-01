@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
@@ -93,7 +94,7 @@ author_color :: proc(v: ^conn.View, sender: proto.Account_Id) -> mu.Color {
 	if c, ok := name_color(v, sender); ok {
 		return c
 	}
-	return theme.chat_own if sender == v.me else theme.chat_name
+	return core.theme.chat_own if sender == v.me else core.theme.chat_name
 }
 
 @(private = "file")
@@ -225,7 +226,7 @@ role_detail :: proc(ui: ^UI) {
 		return
 	}
 	mu.layout_row(&ui.ctx, {-1})
-	with_text_color(&ui.ctx, theme.dim, "Pick a role to see and change it.", label_proc)
+	with_text_color(&ui.ctx, core.theme.dim, "Pick a role to see and change it.", label_proc)
 	notice_row(ui, ui.roles.notice, ui.view)
 }
 
@@ -252,7 +253,7 @@ role_list :: proc(ui: ^UI) {
 		id := mu.get_id(ctx, "role")
 		rect := mu.layout_next(ctx)
 		mu.update_control(ctx, id, rect)
-		keyed := nav_control(ctx, id, rect, list = true, current = r.role == role.id)
+		keyed := core.nav_control(ctx, id, rect, list = true, current = r.role == role.id)
 		switch {
 		case r.role == role.id:
 			mu.draw_rect(ctx, rect, ctx.style.colors[.BUTTON_FOCUS])
@@ -350,7 +351,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	case above:
 		with_text_color(
 			ctx,
-			theme.warning,
+			core.theme.warning,
 			"It allows more than you may, so you can't change, give or take it.",
 			label_proc,
 		)
@@ -445,10 +446,10 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 		keyed := false
 		if editable {
 			mu.update_control(ctx, id, cell)
-			keyed = nav_control(ctx, id, cell)
+			keyed = core.nav_control(ctx, id, cell)
 		}
 		if r.color == color {
-			mu.draw_rect(ctx, cell, theme.strong)
+			mu.draw_rect(ctx, cell, core.theme.strong)
 		}
 		mu.draw_rect(ctx, mu.expand_rect(cell, -2), role_rgb(c))
 		if editable && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {

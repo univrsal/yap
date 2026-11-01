@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:unicode"
@@ -309,7 +310,7 @@ rich_link_id :: proc(item: i64, start: int) -> uintptr {
 rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 	ctx := &ui.ctx
 	h := ctx.text_height(ctx.style.font)
-	select_item(ui, item, r.text)
+	core.select_item(ui, item, r.text)
 	width := mu.get_layout(ctx).body.w
 	for vl in rich_layout(ctx, r, width) {
 		row := mu.layout_next(ctx)
@@ -317,13 +318,13 @@ rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 		// What is behind the text: a code block's box and the quotes' bars.
 		if l.kind == .Code {
 			qx := i32(l.quote) * QUOTE_STEP
-			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, h}, theme.code_block)
+			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, h}, core.theme.code_block)
 		}
 		for q in 0 ..< l.quote {
 			mu.draw_rect(
 				ctx,
 				{row.x + i32(q) * QUOTE_STEP + QUOTE_BAR_X, row.y, QUOTE_BAR_W, h},
-				theme.quote_bar,
+				core.theme.quote_bar,
 			)
 		}
 		// Then what is behind its pieces, the selection over that, and then the
@@ -430,23 +431,23 @@ rich_pieces :: proc(
 
 		if pass == .Back {
 			if .Code in styles && !code_line {
-				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, theme.code_span)
+				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, core.theme.code_span)
 			}
 			if m, ok := mention.?; ok && m.me {
-				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, theme.mention_me_bg)
+				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, core.theme.mention_me_bg)
 			}
 			continue
 		}
 		c := color
 		if _, ok := mention.?; ok {
-			c = theme.mention
+			c = core.theme.mention
 		}
 		id: uintptr
 		hovered := false
 		if link_start >= 0 {
 			id = rich_link_id(item, link_start)
 			hovered = ui.chat.hover == id
-			c = theme.link_hover if hovered else theme.link
+			c = core.theme.link_hover if hovered else core.theme.link
 		}
 		mu.draw_text(ctx, font, piece, {rect.x, rect.y}, c)
 		// Underlined just below the baseline, and struck through the middle of
@@ -474,7 +475,7 @@ rich_pieces :: proc(
 		if .LEFT in ctx.mouse_released_bits &&
 		   ui.select.dragging &&
 		   ui.select.panel == ui.select.drawing &&
-		   !has_selection(&ui.select, ui.select.drawing) &&
+		   !core.has_selection(&ui.select, ui.select.drawing) &&
 		   ui.chat.open == "" {
 			if is_message {
 				ui.forward.go_conv, ui.forward.go_id = to_message.conv, to_message.id

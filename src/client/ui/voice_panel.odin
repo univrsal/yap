@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -130,7 +131,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 			   "watch peer",
 			   .Screen_Off if watching else .Screen,
 			   "Stop watching" if watching else "Watch their screen",
-			   theme.speaking if watching else mu.Color{},
+			   core.theme.speaking if watching else mu.Color{},
 		   ) {
 			watch(ui, 0 if watching else num)
 		}
@@ -261,7 +262,7 @@ voice_panel :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {-1}, height - ctx.style.spacing)
 	r := mu.layout_next(ctx)
-	mu.draw_rect(ctx, r, theme.panel)
+	mu.draw_rect(ctx, r, core.theme.panel)
 	pad := ctx.style.padding
 	mu.layout_set_next(ctx, {r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad}, false)
 	mu.layout_begin_column(ctx)
@@ -271,7 +272,7 @@ voice_panel :: proc(ui: ^UI) {
 	}
 
 	if state != .Idle {
-		what, color := "", theme.connected
+		what, color := "", core.theme.connected
 		where_ := ""
 		switch state {
 		case .Idle:
@@ -279,22 +280,22 @@ voice_panel :: proc(ui: ^UI) {
 			what = "Voice connected"
 			if server_muted(v, v.me) {
 				// Nobody hears us here, whatever the mic button says.
-				what, color = "Muted by a moderator", theme.warning
+				what, color = "Muted by a moderator", core.theme.warning
 			} else if !v.may_speak {
-				what, color = "Listening only", theme.warning
+				what, color = "Listening only", core.theme.warning
 			}
 			where_ = fmt.tprintf("# %s", voice_room_name(v))
 		case .Call:
 			what = "In a call"
 			where_ = call_peer_name(v)
 		case .Ringing_In:
-			what, color = "Incoming call", theme.ringing
+			what, color = "Incoming call", core.theme.ringing
 			where_ = call_peer_name(v)
 		case .Ringing_Out:
-			what, color = "Calling...", theme.ringing
+			what, color = "Calling...", core.theme.ringing
 			where_ = call_peer_name(v)
 		case .Elsewhere:
-			what, color = "In a call on another device", theme.dim
+			what, color = "In a call on another device", core.theme.dim
 			where_ = call_peer_name(v)
 		}
 		mu.layout_row(ctx, {-1})
@@ -394,10 +395,10 @@ voice_panel :: proc(ui: ^UI) {
 	id := mu.get_id(ctx, "me in panel")
 	me_r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, me_r)
-	if nav_control(ctx, id, me_r) {
+	if core.nav_control(ctx, id, me_r) {
 		open_status_editor(ui)
 	}
-	if nav_focused(ctx, id) {
+	if core.nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = "Set your status", me_r
 	}
 	if ctx.hover_id == id {
@@ -423,13 +424,13 @@ mute_button :: proc(ui: ^UI) {
 	mic_icon, mic_hint, mic_color :=
 		render.Icon.Mic_Off if ui.muted else render.Icon.Mic,
 		"Unmute" if ui.muted else "Mute",
-		theme.off if ui.muted else mu.Color{}
+		core.theme.off if ui.muted else mu.Color{}
 	if server_muted(v, v.me) {
-		mic_icon, mic_color = .Mic_Off, theme.warning
+		mic_icon, mic_color = .Mic_Off, core.theme.warning
 		mic_hint =
 			"Muted by a moderator here (click to unmute yourself elsewhere)" if ui.muted else "Muted by a moderator here (click to mute yourself elsewhere too)"
 	} else if panel_state(v) == .Voice && !v.may_speak {
-		mic_icon, mic_color = .Mic_Off, theme.warning
+		mic_icon, mic_color = .Mic_Off, core.theme.warning
 		mic_hint =
 			"You may only listen in this room (click to unmute yourself elsewhere)" if ui.muted else "You may only listen in this room (click to mute yourself elsewhere too)"
 	}
@@ -447,7 +448,7 @@ deafen_button :: proc(ui: ^UI) {
 		   "deafen",
 		   .Sound_Off if ui.deafened else .Sound,
 		   "Undeafen" if ui.deafened else "Deafen (hear nobody)",
-		   theme.off if ui.deafened else mu.Color{},
+		   core.theme.off if ui.deafened else mu.Color{},
 	   ) {
 		set_deafened(ui, !ui.deafened)
 	}
@@ -475,11 +476,11 @@ answer_buttons :: proc(
 	}
 	mu.push_id(ctx, id_name)
 	defer mu.pop_id(ctx)
-	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", theme.connected)
+	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", core.theme.connected)
 	if video {
 		with_video =
 			.SUBMIT in
-			icon_button(ui, "accept video", .Camera, "Answer with video", theme.connected)
+			icon_button(ui, "accept video", .Camera, "Answer with video", core.theme.connected)
 	}
 	decline = hang_up_button(ui, "decline", "Decline")
 	return
@@ -489,7 +490,7 @@ answer_buttons :: proc(
 // ringing: a red receiver put down, with `hint` saying what it does.
 @(private = "file")
 hang_up_button :: proc(ui: ^UI, id_name, hint: string) -> bool {
-	return .SUBMIT in icon_button(ui, id_name, .Hang_Up, hint, theme.off)
+	return .SUBMIT in icon_button(ui, id_name, .Hang_Up, hint, core.theme.off)
 }
 
 // voice_elsewhere_part is the panel's part for voice, or a call that is
@@ -500,7 +501,7 @@ hang_up_button :: proc(ui: ^UI, id_name, hint: string) -> bool {
 voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	ctx := &ui.ctx
 	cmds := &e.ns.client.commands
-	what, color := "", theme.connected
+	what, color := "", core.theme.connected
 	switch e.state {
 	case .Idle, .Elsewhere:
 	case .Voice:
@@ -508,9 +509,9 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	case .Call:
 		what = "In a call"
 	case .Ringing_In:
-		what, color = "Incoming call", theme.ringing
+		what, color = "Incoming call", core.theme.ringing
 	case .Ringing_Out:
-		what, color = "Calling...", theme.ringing
+		what, color = "Calling...", core.theme.ringing
 	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, color, fmt.tprintf("%s on %s", what, e.server), label_proc)
@@ -558,6 +559,6 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 @(private = "file")
 call_length_shown :: proc(ui: ^UI, since: time.Tick) -> string {
 	d := time.tick_since(since)
-	ui_redraw_in(ui, time.Second - d % time.Second)
+	core.redraw_in(ui, time.Second - d % time.Second)
 	return conn.call_length(int(d / time.Second))
 }

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -277,7 +278,7 @@ drop_hint :: proc(ui: ^UI) {
 	defer mu.end_window(ctx)
 
 	// The area tinted and outlined in the links' color.
-	accent := theme.link
+	accent := core.theme.link
 	mu.draw_rect(ctx, r, {accent.r, accent.g, accent.b, 40})
 	edge: i32 = 2
 	mu.draw_rect(ctx, {r.x, r.y, r.w, edge}, accent)
@@ -432,7 +433,7 @@ chip_preview_bytes :: proc(ui: ^UI, f: ^Picked_File) -> (data: []u8, ready: bool
 	}
 	if !picked_file_read(f) {
 		if !f.preview_failed {
-			ui_redraw(ui)
+			core.redraw_now(ui)
 		}
 		return nil, false
 	}
@@ -739,28 +740,28 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 			ctx,
 			render.icon_id(file_icon(f.name)),
 			r,
-			theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
+			core.theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
 		)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
 		name := cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding)
 		with_text_color(
 			ctx,
-			theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
+			core.theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
 			name,
 			label_proc,
 		)
 
-		state, color := conn.format_bytes(f.size), theme.dim
+		state, color := conn.format_bytes(f.size), core.theme.dim
 		switch {
 		case f.blob == 0:
 			state = "removed"
 		case has_save && saving(s):
 			state = fmt.tprintf("%d%%", int(f64(s.done) * 100 / f64(max(s.size, 1))))
 		case has_save && s.state == .Done:
-			state, color = "saved", theme.speaking
+			state, color = "saved", core.theme.speaking
 		case has_save && s.state == .Failed:
-			state, color = "not saved", theme.error
+			state, color = "not saved", core.theme.error
 		}
 		with_text_color(ctx, color, state, label_proc)
 
@@ -818,12 +819,12 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 			bar := mu.layout_next(ctx)
 			bar.x += ICON_SIZE_CELL + ctx.style.spacing
 			bar.w = min(bar.w - ICON_SIZE_CELL - ctx.style.spacing, 300)
-			mu.draw_rect(ctx, bar, theme.track)
+			mu.draw_rect(ctx, bar, core.theme.track)
 			done := f32(s.done) / f32(max(s.size, 1))
 			mu.draw_rect(
 				ctx,
 				{bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h},
-				theme.speaking,
+				core.theme.speaking,
 			)
 		}
 		if previewed(f) {
@@ -986,7 +987,7 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 			{ICON_SIZE_CELL, -(FILES_STATE_W + ctx.style.spacing + 1), FILES_STATE_W},
 			control_height(ctx),
 		)
-		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), theme.dim)
+		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), core.theme.dim)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
 		dim_label(ctx, cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding))
@@ -1002,12 +1003,12 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 		bar := mu.layout_next(ctx)
 		bar.x += ICON_SIZE_CELL + ctx.style.spacing
 		bar.w = min(bar.w - ICON_SIZE_CELL - ctx.style.spacing, 300)
-		mu.draw_rect(ctx, bar, theme.track)
+		mu.draw_rect(ctx, bar, core.theme.track)
 		done := f32(f.done) / f32(max(f.size, 1))
 		mu.draw_rect(
 			ctx,
 			{bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h},
-			theme.speaking,
+			core.theme.speaking,
 		)
 	}
 	if p.uploading {

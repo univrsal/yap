@@ -20,7 +20,7 @@ Env :: struct {
 	keys_queued:         [Extra_Key]u8,
 	// Text selected in the chat or the log (ui/select.odin).
 	select:              Selection,
-	// The keyboard focus (ui/nav.odin), and the command palette (ui/palette.odin).
+	// The keyboard focus (ui/core/nav.odin), and the command palette (ui/palette.odin).
 	nav:                 Nav,
 	dropdown:            Dropdown_State,
 	// What the icon button under the pointer does, and where it is, for
@@ -32,7 +32,7 @@ Env :: struct {
 	// Where this frame's text boxes are, and whether one has the focus,
 	// for a phone's keyboard in a web build (see ui/text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
-	// Each panel's and window's scrollbar (ui/scrollbars.odin).
+	// Each panel's and window's scrollbar (ui/core/scrollbar.odin).
 	scrollbar_fades:     map[^mu.Container]Scrollbar_Fade,
 	// Icon buttons are drawn flat, with a background only while the pointer
 	// is on them (the composer's, inside its box, see composer_buttons).
@@ -44,3 +44,7 @@ Env :: struct {
 	// window_metrics).
 	input_scale:         f32,
 }
+
+// The UI's Env, for the code that is handed only a mu.Context (nav_of). Set when
+// the UI starts, and nil in a test that has no UI.
+g_env: ^Env

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -57,7 +58,7 @@ search_button :: proc(ui: ^UI) {
 		   "search",
 		   .Search,
 		   "Close the search" if s.open else "Search messages",
-		   theme.chat_name if s.open else {},
+		   core.theme.chat_name if s.open else {},
 	   ) {
 		s.open = !s.open
 		s.placed = false
@@ -96,7 +97,7 @@ search_box :: proc(ui: ^UI) {
 	// of a click, which would take the focus from the box again.
 	if s.open && !s.placed && ctx.mouse_pressed_bits == {} {
 		s.placed = true
-		focus_at(ctx, id, s.query.len)
+		core.focus_at(ctx, id, s.query.len)
 	}
 	if .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len) {
 		s.submit = true
@@ -110,9 +111,9 @@ search_box :: proc(ui: ^UI) {
 	pad := ctx.style.padding
 	if s.query.len == 0 && ctx.focus_id != id {
 		y := r.y + (r.h - ctx.text_height(ctx.style.font)) / 2
-		mu.draw_text(ctx, ctx.style.font, "Search messages", {r.x + pad, y}, theme.dim)
+		mu.draw_text(ctx, ctx.style.font, "Search messages", {r.x + pad, y}, core.theme.dim)
 	}
-	mu.draw_icon(ctx, render.icon_id(.Search), {r.x + r.w - r.h, r.y, r.h, r.h}, theme.dim)
+	mu.draw_icon(ctx, render.icon_id(.Search), {r.x + r.w - r.h, r.y, r.h, r.h}, core.theme.dim)
 }
 
 search_window :: proc(ui: ^UI, window_w, window_h: i32) {
@@ -165,7 +166,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	// that opened it, which would take the focus from the box again.
 	if s.focus && ctx.mouse_pressed_bits == {} {
 		s.focus = false
-		focus_at(ctx, mu.get_id(ctx, uintptr(&s.query.buf[0])), s.query.len)
+		core.focus_at(ctx, mu.get_id(ctx, uintptr(&s.query.buf[0])), s.query.len)
 	}
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
 	find := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
@@ -186,7 +187,7 @@ search_dropdown :: proc(ui: ^UI, box: mu.Rect, window_h: i32, submit: bool) {
 	if cnt == nil {
 		return
 	}
-	if key_take(ui, .Escape) {
+	if core.key_take(ui, .Escape) {
 		s.open = false
 		mu.set_focus(ctx, 0) // which would open it again
 		return
@@ -303,14 +304,14 @@ search_results :: proc(ui: ^UI, submit: bool) {
 			mu.layout_row(ctx, {-1})
 			with_text_color(
 				ctx,
-				theme.dim,
+				core.theme.dim,
 				fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
 				mu.text,
 			)
 		}
 		if i < len(found.found) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
-			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
+			mu.draw_rect(ctx, mu.layout_next(ctx), core.theme.divider)
 		}
 	}
 	if found.loading {

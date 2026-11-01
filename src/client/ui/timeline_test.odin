@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import "core:testing"
 import mu "vendor:microui"
 
@@ -54,7 +55,7 @@ timeline_test_end :: proc(tt: ^Timeline_Test) {
 	delete(tt.ui.view.timelines)
 	delete(tt.st.layouts)
 	delete(tt.st.roots_asked)
-	ui_select_destroy(tt.ui)
+	core.select_destroy(tt.ui)
 	free(tt.ui)
 	free(tt)
 }

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "client:platform"
 import "client:settings"
@@ -69,7 +70,7 @@ join_frame :: proc(ui: ^UI) {
 	// started without any server, or the last one was left or given up.
 	if ui.session == nil && ui.page != .Settings && !j.open {
 		join_open(ui)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	if j.connect {
 		j.connect = false
@@ -106,7 +107,7 @@ join_frame :: proc(ui: ^UI) {
 	ui.join = {}
 	settings.join_server(&ui.settings, ns.server, ns.password)
 	save_settings(ui)
-	ui_redraw(ui)
+	core.redraw_now(ui)
 }
 
 // join_connect connects the page to `server`. It creates and shows a new

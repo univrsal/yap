@@ -220,7 +220,7 @@ fields_after_frame :: proc(ui: ^UI) {
 		}
 		if covered != g_covered[p.id] {
 			g_covered[p.id] = covered
-			ui_redraw(ui) // drawn on the canvas, or no longer
+			core.redraw_now(ui) // drawn on the canvas, or no longer
 		}
 		flags: bit_set[Field_Flag;i32]
 		if p.focused {
@@ -297,7 +297,7 @@ web_field_input :: proc "c" (id: u32, text: [^]u8, n: i32, caret, anchor: i32) {
 	append(&input.text, ..text[:n])
 	input.sel = {int(caret), int(anchor)}
 	g_input[mu.Id(id)] = input
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	ui_wake()
 }
 
@@ -309,7 +309,7 @@ web_field_focus :: proc "c" (id: u32) {
 		return
 	}
 	g_focus = mu.Id(id)
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	ui_wake()
 }
 
@@ -321,7 +321,7 @@ web_field_lines :: proc "c" (id: u32, lines: i32) {
 		return
 	}
 	g_lines[mu.Id(id)] = int(lines)
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	ui_wake()
 }
 
@@ -334,6 +334,6 @@ web_field_touched :: proc "c" () {
 		return
 	}
 	g_ui.touched = true
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	ui_wake()
 }

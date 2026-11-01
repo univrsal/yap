@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import "chrome"
 import glfw "client:wglfw"
 import log "common:wlog"
@@ -124,7 +125,7 @@ tray_update :: proc(ui: ^UI) {
 	request := t.request
 	t.request = .None
 	if request != .None {
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	switch request {
 	case .None:

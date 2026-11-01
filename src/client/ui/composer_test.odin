@@ -37,7 +37,7 @@ composer_test_start :: proc(text: string) -> ^Composer_Test {
 
 @(private = "file")
 composer_test_end :: proc(ct: ^Composer_Test) {
-	ui_select_destroy(ct.ui)
+	core.select_destroy(ct.ui)
 	free(ct.ui)
 	free(ct)
 }
@@ -103,10 +103,10 @@ test_composer_send_accent :: proc(t: ^testing.T) {
 	ct := composer_test_start("   ")
 	defer composer_test_end(ct)
 	composer_test_frame(ct)
-	testing.expect(t, !draws_color(&ct.ui.ctx, theme.accent))
+	testing.expect(t, !draws_color(&ct.ui.ctx, core.theme.accent))
 	ct.n = copy(ct.buf[:], "hello")
 	composer_test_frame(ct)
-	testing.expect(t, draws_color(&ct.ui.ctx, theme.accent))
+	testing.expect(t, draws_color(&ct.ui.ctx, core.theme.accent))
 }
 
 // Pressing in the strip along the box's bottom, beside the buttons, leaves the
@@ -273,7 +273,7 @@ test_picture_placeholder_shape :: proc(t: ^testing.T) {
 		mu.end(ctx)
 		cmd: ^mu.Command
 		for variant in mu.next_command_iterator(ctx, &cmd) {
-			if r, ok := variant.(^mu.Command_Rect); ok && r.color == theme.image_bg {
+			if r, ok := variant.(^mu.Command_Rect); ok && r.color == core.theme.image_bg {
 				got = r.rect
 			}
 		}
@@ -309,7 +309,7 @@ test_scrollbar_fades :: proc(t: ^testing.T) {
 			if fade, ok := &ui.scrollbar_fades[cnt]; ok && ago > 0 {
 				fade.moved = time.tick_add(time.tick_now(), -ago)
 			}
-			scrollbar_frame(ui, strip, .SCROLL_BASE)
+			core.scrollbar_frame(ui, strip, .SCROLL_BASE)
 			f = ui.scrollbar_fades[cnt]
 			mu.end_window(ctx)
 		}
@@ -321,10 +321,10 @@ test_scrollbar_fades :: proc(t: ^testing.T) {
 	f = step(ui, strip, 40, 0)
 	testing.expect_value(t, f.alpha, 1)
 	testing.expect(t, ui.redraw.at != {}) // for when it starts to fade
-	f = step(ui, strip, 40, SCROLLBAR_SHOWN + SCROLLBAR_FADE / 2)
+	f = step(ui, strip, 40, core.SCROLLBAR_SHOWN + core.SCROLLBAR_FADE / 2)
 	testing.expect(t, f.alpha > 0.3 && f.alpha < 0.7)
 	testing.expect(t, ui.redraw.at != {})
-	f = step(ui, strip, 40, SCROLLBAR_SHOWN + SCROLLBAR_FADE + time.Millisecond)
+	f = step(ui, strip, 40, core.SCROLLBAR_SHOWN + core.SCROLLBAR_FADE + time.Millisecond)
 	testing.expect_value(t, f.alpha, 0)
 	f = step(ui, strip, 40, 0)
 	testing.expect_value(t, f.alpha, 0) // and stays gone

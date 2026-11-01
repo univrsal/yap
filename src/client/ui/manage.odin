@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:strconv"
@@ -255,7 +256,7 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		theme.warning,
+		core.theme.warning,
 		fmt.tprintf(
 			"Delete %s for good? What they wrote stays, under \"%s\".",
 			acc.username,
@@ -604,7 +605,7 @@ accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 		mu.layout_row(ctx, {-1})
 		saved := ctx.style.colors[.TEXT]
 		if .Disabled in acc.flags {
-			ctx.style.colors[.TEXT] = theme.dim
+			ctx.style.colors[.TEXT] = core.theme.dim
 		}
 		_, banned := ban_of(v, id)
 		if .SUBMIT in list_row(ctx, "account", account_line(acc, banned), a.picked == id) {
@@ -745,7 +746,7 @@ account_password :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) 
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		theme.warning,
+		core.theme.warning,
 		fmt.tprintf(
 			"It logs %s's devices out, and they have to choose their own on logging in.",
 			acc.username,

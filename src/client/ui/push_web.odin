@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "core"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
@@ -161,7 +162,7 @@ push_open_step :: proc(ui: ^UI) {
 		sync.lock(&ui.view.mutex)
 		go_to_message(ui, g_pending_open.conv, g_pending_open.msg)
 		sync.unlock(&ui.view.mutex)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 		break
 	}
 	delete(g_pending_open.server)

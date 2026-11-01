@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
@@ -155,7 +156,7 @@ palette_connected :: proc(ui: ^UI, v: ^conn.View) -> bool {
 palette_set_theme :: proc(ui: ^UI, choice: Theme_Choice) {
 	settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
 	save_settings(ui)
-	ui_redraw(ui)
+	core.redraw_now(ui)
 }
 
 // Palette_Entry is a row the palette may show: a command from COMMANDS, or
@@ -185,7 +186,7 @@ Palette_Kind :: enum {
 palette_window :: proc(ui: ^UI, w, h: i32) {
 	ctx := &ui.ctx
 	p := &ui.palette
-	if key_take(ui, .Palette) {
+	if core.key_take(ui, .Palette) {
 		if p.open {
 			palette_close(ui)
 		} else {
@@ -223,23 +224,23 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
-	nav_trap(ui)
+	core.nav_trap(ui)
 
 	// The keys, before the box sees them.
 	box := mu.get_id(ctx, uintptr(&p.query.buf[0]))
 	if p.focus_box {
 		p.focus_box = false
-		focus_at(ctx, box, p.query.len)
+		core.focus_at(ctx, box, p.query.len)
 	}
-	if key_take(ui, .Escape) {
+	if core.key_take(ui, .Escape) {
 		palette_close(ui)
 		return
 	}
 	if n := len(matches); n > 0 && ctx.focus_id == box {
-		if key_take(ui, .Up) {
+		if core.key_take(ui, .Up) {
 			p.selected = (p.selected + n - 1) % n
 		}
-		if key_take(ui, .Down) {
+		if core.key_take(ui, .Down) {
 			p.selected = (p.selected + 1) % n
 		}
 	}
@@ -257,7 +258,7 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 			run = p.selected
 		} else {
 			// Nothing to run: keep typing (microui's box lets go on Enter).
-			focus_at(ctx, box, p.query.len)
+			core.focus_at(ctx, box, p.query.len)
 		}
 	}
 
@@ -278,7 +279,7 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 			tw := ctx.text_width(ctx.style.font, e.detail)
 			x := r.x + r.w - tw - ctx.style.padding
 			y := r.y + (r.h - ctx.text_height(ctx.style.font)) / 2
-			mu.draw_text(ctx, ctx.style.font, e.detail, {x, y}, theme.dim)
+			mu.draw_text(ctx, ctx.style.font, e.detail, {x, y}, core.theme.dim)
 		}
 	}
 
@@ -287,7 +288,7 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 		palette_close(ui)
 		palette_remember(p, e.name)
 		palette_run(ui, v, e)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 }
 

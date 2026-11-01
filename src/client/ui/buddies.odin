@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import log "common:wlog"
 import "core:fmt"
@@ -157,11 +158,11 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 		return
 	}
 	if b.view_asked == want && b.view_back == back && time.tick_since(b.view_at) < VIEW_RETRY {
-		ui_redraw_at(ui, time.tick_add(b.view_at, VIEW_RETRY)) // so that it asks again
+		core.redraw_at(ui, time.tick_add(b.view_at, VIEW_RETRY)) // so that it asks again
 		return
 	}
 	b.view_asked, b.view_back, b.view_at = want, back, time.tick_now()
-	ui_redraw_in(ui, VIEW_RETRY)
+	core.redraw_in(ui, VIEW_RETRY)
 	command(ui, conn.View_Command{conv = conv, back = back})
 }
 
@@ -327,7 +328,7 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 		mu.layout_row(ctx, {-1}, -1)
 		with_text_color(
 			ctx,
-			theme.dim,
+			core.theme.dim,
 			"You have no buddies yet. Click someone in the channel list and add them from the menu.",
 			text_proc,
 		)
@@ -376,7 +377,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	case b.group:
 		// The members' icon, the same on every server: the others'
 		// pictures are only known on the shown one.
-		color := ctx.style.colors[.TEXT] if b.online else theme.dim
+		color := ctx.style.colors[.TEXT] if b.online else core.theme.dim
 		mu.draw_icon(ctx, render.icon_id(.Buddies), pic_r, color)
 	case here:
 		avatar(ui, b.account, pic_r)
@@ -394,11 +395,11 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
 	selected := entry_open(ui, b)
-	keyed := nav_control(ctx, id, r, list = true, current = selected)
+	keyed := core.nav_control(ctx, id, r, list = true, current = selected)
 	// The open one in the accent color, like the open channel (list_row).
 	switch {
 	case selected:
-		color := theme.accent_hover if ctx.hover_id == id else theme.accent
+		color := core.theme.accent_hover if ctx.hover_id == id else core.theme.accent
 		render.draw_rounded(ctx, r, color, render.CONTROL_RADIUS)
 	case ctx.hover_id == id:
 		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_HOVER], render.CONTROL_RADIUS)
@@ -407,17 +408,17 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	if servers {
 		text_r.w -= server_tag(ui, r, b.server, b.ns.server)
 	}
-	color := ctx.style.colors[.TEXT] if b.online else theme.dim
+	color := ctx.style.colors[.TEXT] if b.online else core.theme.dim
 	text := b.name
 	if b.unread > 0 {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
-		color = theme.speaking
+		color = core.theme.speaking
 	}
 	status_color: mu.Color
 	saved_text := ctx.style.colors[.TEXT]
 	defer ctx.style.colors[.TEXT] = saved_text
 	if selected {
-		color = theme.accent_text
+		color = core.theme.accent_text
 		status_color = {color.r, color.g, color.b, 190}
 		ctx.style.colors[.TEXT] = color // the phone icon
 	}
@@ -517,7 +518,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	// How they are and what is going on, at the right end of the line.
 	status := "" if deleted else "here now" if entry.online else last_seen_text(ui, account)
-	status_color := theme.speaking if entry.online else theme.dim
+	status_color := core.theme.speaking if entry.online else core.theme.dim
 	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
 		status = "typing..."
 	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
@@ -527,14 +528,14 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		status = "reading the clipboard..."
 	}
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status, status_color = editing, theme.dim
+		status, status_color = editing, core.theme.dim
 	}
 	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
-		status, status_color = notice, theme.off
+		status, status_color = notice, core.theme.off
 	}
 	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
-		status, status_color = ui.buddies.notice, theme.off
-		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
+		status, status_color = ui.buddies.notice, core.theme.off
+		core.redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
 	}
 	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
 	// Calling them, while they are online and we are in no call.
@@ -566,7 +567,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			   "dm hide",
 			   .Trash,
 			   "Remove this conversation from the list until something new is said in it",
-			   theme.off,
+			   core.theme.off,
 		   ) {
 		last: proto.Msg_Id
 		for dm in v.dms {
@@ -673,18 +674,18 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 		)
 	}
 	status := entry.status
-	status_color := theme.dim
+	status_color := core.theme.dim
 	if typing := typing_text(v); typing != "" && v.viewing == entry.conv {
-		status, status_color = typing, theme.speaking
+		status, status_color = typing, core.theme.speaking
 	}
 	if ui.paste != nil {
 		status = "reading the clipboard..."
 	}
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status, status_color = editing, theme.dim
+		status, status_color = editing, core.theme.dim
 	}
 	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
-		status, status_color = notice, theme.off
+		status, status_color = notice, core.theme.off
 	}
 	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
 	if .SUBMIT in icon_button(ui, "group members", .Buddies, "Who is in it") {
@@ -698,7 +699,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 		   "group hide",
 		   .Trash,
 		   "Remove this group from the list until something new is said in it",
-		   theme.off,
+		   core.theme.off,
 	   ) {
 		settings.hide_dm(&ui.settings, v.server_key, entry.conv, max(dm.last, 1))
 		shared_hidden_changed(ui.session, entry.conv, max(dm.last, 1))
@@ -827,12 +828,12 @@ ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 	due := ns.seen_asked == {} || time.tick_since(ns.seen_asked) >= LAST_SEEN_REFRESH
 	if cmd.count == 0 || !(due || someone_left) {
 		if cmd.count != 0 {
-			ui_redraw_at(ui, time.tick_add(ns.seen_asked, LAST_SEEN_REFRESH))
+			core.redraw_at(ui, time.tick_add(ns.seen_asked, LAST_SEEN_REFRESH))
 		}
 		return
 	}
 	ns.seen_asked = time.tick_now()
-	ui_redraw_in(ui, LAST_SEEN_REFRESH)
+	core.redraw_in(ui, LAST_SEEN_REFRESH)
 	conn.push_command(&ns.client.commands, cmd)
 }
 

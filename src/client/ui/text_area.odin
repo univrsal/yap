@@ -79,7 +79,7 @@ text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> 
 		res += {.CHANGE}
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
-	nav_control(ctx, id, r, textlen^)
+	core.nav_control(ctx, id, r, textlen^)
 	tr := txt.area_text_rect(r, area)
 	if .LEFT in ctx.mouse_pressed_bits {
 		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)
@@ -99,7 +99,7 @@ text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> 
 	if area.width != full {
 		// The next frame's height is worked out at this width.
 		area.width = full
-		ui_redraw(env)
+		core.redraw_now(env)
 	}
 	// Beyond the maximum number of lines, a scrollbar takes its width from
 	// the text's. (The box is as tall either way.)
@@ -274,7 +274,7 @@ text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> 
 	}
 	if i32(txt.area_rows(area, n)) != rows {
 		// The box is the height that the text had before this frame's typing.
-		ui_redraw(env)
+		core.redraw_now(env)
 	}
 	when platform.WEB {
 		field_place(env, id, text, area, tr, top, single - lh - top, focused)
@@ -365,8 +365,8 @@ text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> 
 	if area.bar.w > 0 {
 		// Thin like the panels' scrollbars, but always shown while there is one.
 		hovered := area.dragging || mu.mouse_over(ctx, area.bar)
-		scrollbar_draw(ctx, area.bar, .SCROLL_BASE, 1, hovered)
-		scrollbar_draw(ctx, thumb, .SCROLL_THUMB, 1, hovered)
+		core.scrollbar_draw(ctx, area.bar, .SCROLL_BASE, 1, hovered)
+		core.scrollbar_draw(ctx, thumb, .SCROLL_THUMB, 1, hovered)
 	}
 	return
 }

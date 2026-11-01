@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "client:platform"
 import "client:settings"
@@ -331,7 +332,7 @@ verify_screen :: proc(ui: ^UI) {
 		local := chat_local_time(ui, dt)
 		with_text_color(
 			ctx,
-			theme.warning,
+			core.theme.warning,
 			fmt.tprintf(
 				"Without it, the account is deleted on %d-%02d-%02d at %02d:%02d.",
 				local.year,
@@ -447,7 +448,7 @@ notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	case fresh:
 		with_text_color(
 			ctx,
-			theme.notice_ok if v.notice.ok else theme.error,
+			core.theme.notice_ok if v.notice.ok else core.theme.error,
 			v.notice.text,
 			label_proc,
 		)
@@ -652,7 +653,7 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		theme.warning,
+		core.theme.warning,
 		fmt.tprintf(
 			"This is permanent: your name, picture, status, roles and devices are deleted. What you wrote stays, under \"%s\".",
 			proto.DELETED_NAME,

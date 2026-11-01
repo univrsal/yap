@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "core:fmt"
 import "core:strings"
@@ -27,15 +28,15 @@ connection_indicator :: proc(ui: ^UI) {
 	s := v.connection
 
 	lit := 0
-	color := theme.unlit
+	color := core.theme.unlit
 	switch s.quality {
 	case .Unknown:
 	case .Poor:
-		lit, color = 1, theme.off
+		lit, color = 1, core.theme.off
 	case .Fair:
-		lit, color = 2, theme.warning
+		lit, color = 2, core.theme.warning
 	case .Good:
-		lit, color = 3, theme.speaking
+		lit, color = 3, core.theme.speaking
 	}
 
 	width := i32(len(BAR_HEIGHTS)) * BAR_WIDTH + i32(len(BAR_HEIGHTS) - 1) * BAR_GAP
@@ -44,13 +45,13 @@ connection_indicator :: proc(ui: ^UI) {
 	bottom := r.y + (r.h + tallest) / 2
 	for h, i in BAR_HEIGHTS {
 		bar := mu.Rect{x + i32(i) * (BAR_WIDTH + BAR_GAP), bottom - h, BAR_WIDTH, h}
-		mu.draw_rect(ctx, bar, color if i < lit else theme.unlit)
+		mu.draw_rect(ctx, bar, color if i < lit else core.theme.unlit)
 	}
 
 	if mu.mouse_over(ctx, r) {
 		ui.hint, ui.hint_of = connection_hint(v.status, s), r
 		// The figures change with every ping, and that doesn't wake the UI.
-		ui_redraw_in(ui, conn.PING_INTERVAL)
+		core.redraw_in(ui, conn.PING_INTERVAL)
 	}
 }
 

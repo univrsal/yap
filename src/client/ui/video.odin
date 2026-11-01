@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -106,13 +107,13 @@ share_button :: proc(ui: ^UI) {
 	if state != .Off {
 		// The page may change it (the browser's own Stop sharing), or the
 		// library may (a shared window was closed).
-		ui_redraw_in(ui, 250 * time.Millisecond)
+		core.redraw_in(ui, 250 * time.Millisecond)
 	}
 	hint := "Share your screen"
 	color := mu.Color{}
 	switch state {
 	case .Live:
-		hint, color = "Stop sharing your screen", theme.speaking
+		hint, color = "Stop sharing your screen", core.theme.speaking
 		s := ui.view.video_stats
 		if s.kbit_out > 0 {
 			hint = fmt.tprintf(
@@ -132,7 +133,7 @@ share_button :: proc(ui: ^UI) {
 			hint = fmt.tprintf("%s (one viewer is too far behind to go by)", hint)
 		}
 	case .Starting:
-		hint, color = "Starting to share...", theme.dim
+		hint, color = "Starting to share...", core.theme.dim
 		if !video.PICKER || system {
 			hint = "Choosing what to share (in the system's picker)..."
 		}
@@ -142,7 +143,7 @@ share_button :: proc(ui: ^UI) {
 			why = "the browser's console says why"
 		}
 		hint = fmt.tprintf("Sharing didn't work (%s); try again", why)
-		color = theme.off
+		color = core.theme.off
 	case .Off:
 	}
 	if .SUBMIT in icon_button(ui, "share", .Screen, hint, color) {
@@ -193,7 +194,7 @@ share_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !begin_popup(ui, SHARE_MENU) {
+	if !core.begin_popup(ui, SHARE_MENU) {
 		return
 	}
 	defer mu.end_popup(ctx)
@@ -276,7 +277,7 @@ allow_capture :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
 	with_text_color(
 		ctx,
-		theme.dim,
+		core.theme.dim,
 		"To share, allow yap to record the screen (System Settings, Privacy & Security, " +
 		"Screen Recording), then restart yap.",
 		mu.text,
@@ -489,7 +490,7 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 		vid.fps = f64(frames - vid.fps_frames) / time.duration_seconds(since)
 		vid.fps_at, vid.fps_frames = now, frames
 	}
-	ui_redraw_in(ui, time.Second)
+	core.redraw_in(ui, time.Second)
 
 	b := strings.builder_make(context.temp_allocator)
 	if vid.size.x > 0 {
@@ -512,12 +513,12 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 	case:
 		strings.write_string(&b, ", decoded by the CPU")
 	}
-	color := theme.dim
+	color := core.theme.dim
 	if s.asked > 0 || s.lost > 0 {
 		fmt.sbprintf(&b, "; %d fragments asked for again, %d frames saved", s.asked, s.saved)
 		if s.lost > 0 {
 			fmt.sbprintf(&b, ", %d lost: more than your connection takes", s.lost)
-			color = theme.warning
+			color = core.theme.warning
 		}
 	}
 	with_text_color(ctx, color, strings.to_string(b), label_proc)
@@ -550,7 +551,7 @@ picture :: proc(ui: ^UI, r: mu.Rect, key: video.Key) {
 	// The library wakes us for each new picture (video.set_wake), while
 	// a page has to look every frame.
 	when platform.WEB {
-		ui_redraw_at(ui, time.tick_now())
+		core.redraw_at(ui, time.tick_now())
 	}
 
 	mu.draw_rect(ctx, r, {0, 0, 0, 255})
@@ -563,7 +564,7 @@ picture :: proc(ui: ^UI, r: mu.Rect, key: video.Key) {
 			ctx.style.font,
 			waiting,
 			{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2},
-			theme.dim,
+			core.theme.dim,
 		)
 		return
 	}

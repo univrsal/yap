@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:unicode/utf8"
@@ -86,16 +87,16 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			id := mu.get_id(ctx, "chip")
 			rect := mu.layout_next(ctx)
 			mu.update_control(ctx, id, rect)
-			keyed := !readonly && nav_control(ctx, id, rect)
-			background := theme.track
+			keyed := !readonly && core.nav_control(ctx, id, rect)
+			background := core.theme.track
 			switch {
 			case c.r.me:
-				background = theme.highlight
+				background = core.theme.highlight
 			case ctx.hover_id == id:
 				background = ctx.style.colors[.BUTTON_HOVER]
 			}
 			if ctx.hover_id == id && c.r.me {
-				background = theme.highlight_more
+				background = core.theme.highlight_more
 			}
 			render.draw_rounded(ctx, rect, background, render.CONTROL_RADIUS)
 			font := ctx.style.font

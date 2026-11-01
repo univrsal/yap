@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -251,7 +252,7 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 	}
 	// To ask again, should no answer come.
 	if asked != {} {
-		ui_redraw_at(ui, time.tick_add(asked, LINK_ASK_AGAIN + time.Millisecond))
+		core.redraw_at(ui, time.tick_add(asked, LINK_ASK_AGAIN + time.Millisecond))
 	}
 	return richtext.LINK_TEXT
 }

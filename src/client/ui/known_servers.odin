@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import "core:strings"
@@ -85,7 +86,7 @@ key_change_panel :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		theme.warning,
+		core.theme.warning,
 		"A server's key normally stays the same. It changes when the server is set up again or its key file is replaced, but a changed key is also exactly what you would see if someone were intercepting the connection and pretending to be the server.",
 		text_proc,
 	)

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:sync"
 import "core:time"
@@ -38,7 +39,7 @@ pins_button :: proc(ui: ^UI) {
 		   "pins",
 		   .Pin,
 		   "Hide the pinned messages" if ui.pins.open else "Pinned messages",
-		   theme.chat_name if ui.pins.open else {},
+		   core.theme.chat_name if ui.pins.open else {},
 	   ) {
 		ui.pins.open = !ui.pins.open
 		ui.pins.placed = false
@@ -124,7 +125,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.text(ctx, richtext.one_line(text))
 		if i < len(pins.messages) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
-			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
+			mu.draw_rect(ctx, mu.layout_next(ctx), core.theme.divider)
 		}
 	}
 }

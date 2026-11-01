@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
@@ -139,7 +140,7 @@ channel_detail :: proc(ui: ^UI) {
 		return
 	}
 	mu.layout_row(&ui.ctx, {-1})
-	with_text_color(&ui.ctx, theme.dim, "Pick a channel to see and change it.", label_proc)
+	with_text_color(&ui.ctx, core.theme.dim, "Pick a channel to see and change it.", label_proc)
 	notice_row(ui, ui.channel_admin.notice, ui.view)
 }
 
@@ -205,7 +206,7 @@ channel_admin_list :: proc(ui: ^UI) {
 		saved := ctx.style.colors[.TEXT]
 		if !e.member {
 			// Ours to manage, but not one we're in.
-			ctx.style.colors[.TEXT] = theme.dim
+			ctx.style.colors[.TEXT] = core.theme.dim
 		}
 		if .SUBMIT in list_row(ctx, "channel", label, a.conv == e.id) {
 			a.conv = e.id
@@ -511,7 +512,7 @@ channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 			fixed := home && role == proto.EVERYONE_ROLE && r == .See
 			saved := ctx.style.colors[.TEXT]
 			if needs || fixed {
-				ctx.style.colors[.TEXT] = theme.dim
+				ctx.style.colors[.TEXT] = core.theme.dim
 			}
 			checkbox(ctx, "" if wide else RIGHT_LABELS[r], &row[r])
 			ctx.style.colors[.TEXT] = saved

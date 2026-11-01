@@ -103,7 +103,7 @@ message_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !begin_popup(ui, MENU) {
+	if !core.begin_popup(ui, MENU) {
 		mm.confirm = false
 		return
 	}
@@ -373,7 +373,7 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	if !has_files && c.editing^ == 0 {
 		// A /command of a script is not a message.
 		if scripts_command(ui, text) {
-			ui_redraw(ui)
+			core.redraw_now(ui)
 			txt.history_clear(&c.area.history)
 			c.len^ = 0
 			return true
@@ -388,13 +388,13 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 			)
 			if cancel {
 				conn.notice_set(ui.view, false, fmt.tprintf("%s stopped this message.", by))
-				ui_redraw(ui)
+				core.redraw_now(ui)
 				return false // what was typed stays
 			}
 			text = filtered
 		}
 	}
-	ui_redraw(ui) // so the box shrinks back to a single line
+	core.redraw_now(ui) // so the box shrinks back to a single line
 	c.area.preview = false
 	txt.history_clear(&c.area.history) // a sent message is not to be got back by undo
 	text = richtext.emoji_encode(

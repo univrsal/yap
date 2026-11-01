@@ -32,10 +32,10 @@ draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Typ
 	if colorid == .WINDOW_BG &&
 	   ctx.container_stack.idx > 0 &&
 	   mu.get_current_container(ctx).zindex >= 0 {
-		render.draw_shadow(ctx, rect, theme.shadow)
+		render.draw_shadow(ctx, rect, core.theme.shadow)
 	}
 	if colorid == .SCROLL_BASE || colorid == .SCROLL_THUMB {
-		scrollbar_frame(g_ui, rect, colorid)
+		core.scrollbar_frame(g_ui, rect, colorid)
 		return
 	}
 	if colorid != .BASE_FOCUS {
@@ -46,8 +46,8 @@ draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Typ
 	// on every side at any scale.
 	radius := i32(render.CONTROL_RADIUS - 1)
 	render.draw_rounded_outside(ctx, rect, ctx.style.colors[colorid], radius)
-	render.draw_rounded_outside(ctx, rect, theme.accent, radius, border = true)
-	render.draw_rounded_border(ctx, rect, theme.accent, radius)
+	render.draw_rounded_outside(ctx, rect, core.theme.accent, radius, border = true)
+	render.draw_rounded_border(ctx, rect, core.theme.accent, radius)
 }
 
 // icon_button is a button with an icon on it instead of a label. While the
@@ -67,7 +67,7 @@ icon_button :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r)
+	keyed := core.nav_control(ctx, id, r)
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.SUBMIT}
 	}
@@ -83,7 +83,7 @@ icon_button :: proc(
 		render.draw_rounded(ctx, r, ctx.style.colors[colorid], render.CONTROL_RADIUS)
 	}
 	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
-	if ctx.hover_id == id || nav_focused(ctx, id) {
+	if ctx.hover_id == id || core.nav_focused(ctx, id) {
 		env.hint, env.hint_of = hint, r
 	}
 	return
@@ -108,9 +108,9 @@ spinner :: proc(env: ^core.Env, r: mu.Rect, color := mu.Color{}) {
 		ctx,
 		render.spinner_id(int(step % render.SPINNER_STEPS)),
 		r,
-		color if color.a != 0 else theme.dim,
+		color if color.a != 0 else core.theme.dim,
 	)
-	ui_redraw_in(env, time.Duration(i64(SPINNER_STEP) - ns % i64(SPINNER_STEP)))
+	core.redraw_in(env, time.Duration(i64(SPINNER_STEP) - ns % i64(SPINNER_STEP)))
 }
 
 // spinner_row is a row of its own with a spinner in its middle.
@@ -276,7 +276,7 @@ stable_button :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r)
+	keyed := core.nav_control(ctx, id, r)
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.SUBMIT}
 	}
@@ -301,7 +301,7 @@ button :: proc(
 header :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) -> mu.Result_Set {
 	keyed_toggle(ctx, label)
 	res := mu.header(ctx, label, opt)
-	nav_control(ctx, mu.get_id(ctx, label), ctx.last_rect)
+	core.nav_control(ctx, mu.get_id(ctx, label), ctx.last_rect)
 	return res
 }
 
@@ -310,7 +310,7 @@ begin_treenode :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) ->
 	id := mu.get_id(ctx, label)
 	res := mu.begin_treenode(ctx, label, opt)
 	// An open tree node has pushed its id already: register it as it was.
-	nav_control(ctx, id, ctx.last_rect)
+	core.nav_control(ctx, id, ctx.last_rect)
 	return res
 }
 
@@ -319,7 +319,7 @@ begin_treenode :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) ->
 @(private = "file")
 keyed_toggle :: proc(ctx: ^mu.Context, label: string) {
 	id := mu.get_id(ctx, label)
-	if !nav_activated(ctx, id) {
+	if !core.nav_activated(ctx, id) {
 		return
 	}
 	if i, open := mu.pool_get(ctx, ctx.treenode_pool[:], id); open {
@@ -346,13 +346,13 @@ list_row :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r, list = true, current = selected)
+	keyed := core.nav_control(ctx, id, r, list = true, current = selected)
 	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		res += {.SUBMIT}
 	}
 	switch {
 	case selected && accent:
-		color := theme.accent_hover if ctx.hover_id == id else theme.accent
+		color := core.theme.accent_hover if ctx.hover_id == id else core.theme.accent
 		render.draw_rounded(ctx, r, color, render.CONTROL_RADIUS)
 	case selected:
 		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_FOCUS], render.CONTROL_RADIUS)
@@ -364,7 +364,7 @@ list_row :: proc(
 		ctx.style.font = render.font_with_style(saved, .Bold)
 	}
 	if selected && accent {
-		ctx.style.colors[.TEXT] = theme.accent_text
+		ctx.style.colors[.TEXT] = core.theme.accent_text
 	}
 	mu.draw_control_text(ctx, label, r, .TEXT, {})
 	ctx.style.font, ctx.style.colors[.TEXT] = saved, saved_text
@@ -381,7 +381,7 @@ checkbox :: proc(ctx: ^mu.Context, label: string, state: ^bool) -> (res: mu.Resu
 	r := mu.layout_next(ctx)
 	box := mu.Rect{r.x, r.y, r.h, r.h}
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r)
+	keyed := core.nav_control(ctx, id, r)
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.CHANGE}
 		state^ = !state^
@@ -414,19 +414,19 @@ with_text_color :: proc(
 // same wrapped to the row's width (wrap_text); error_label and error_note
 // show an error.
 dim_label :: proc(ctx: ^mu.Context, text: string) {
-	with_text_color(ctx, theme.dim, text, label_proc)
+	with_text_color(ctx, core.theme.dim, text, label_proc)
 }
 
 dim_note :: proc(ctx: ^mu.Context, text: string) {
-	with_text_color(ctx, theme.dim, text, wrap_text)
+	with_text_color(ctx, core.theme.dim, text, wrap_text)
 }
 
 error_label :: proc(ctx: ^mu.Context, text: string) {
-	with_text_color(ctx, theme.error, text, label_proc)
+	with_text_color(ctx, core.theme.error, text, label_proc)
 }
 
 error_note :: proc(ctx: ^mu.Context, text: string) {
-	with_text_color(ctx, theme.error, text, wrap_text)
+	with_text_color(ctx, core.theme.error, text, wrap_text)
 }
 
 // In a narrow window (a phone), a row of settings that wouldn't fit across
@@ -537,7 +537,7 @@ choice_button :: proc(env: ^core.Env, id, label: string, chosen: bool) -> bool {
 // section_label is the heading of one of the list's sections.
 section_label :: proc(env: ^core.Env, text: string) {
 	mu.layout_row(&env.ctx, {-1})
-	with_text_color(&env.ctx, theme.dim, text, label_proc)
+	with_text_color(&env.ctx, core.theme.dim, text, label_proc)
 }
 
 text_proc :: proc(ctx: ^mu.Context, text: string) {
@@ -582,10 +582,10 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 	// recognized at a glance.
 	saved := ctx.style.colors
 	saved_font := ctx.style.font
-	ctx.style.colors[.BUTTON] = theme.accent
-	ctx.style.colors[.BUTTON_HOVER] = theme.accent_hover
-	ctx.style.colors[.BUTTON_FOCUS] = theme.accent_hover
-	ctx.style.colors[.TEXT] = theme.accent_text
+	ctx.style.colors[.BUTTON] = core.theme.accent
+	ctx.style.colors[.BUTTON_HOVER] = core.theme.accent_hover
+	ctx.style.colors[.BUTTON_FOCUS] = core.theme.accent_hover
+	ctx.style.colors[.TEXT] = core.theme.accent_text
 	ctx.style.font = render.font_with_style(saved_font, .Bold)
 	defer ctx.style.colors = saved
 	defer ctx.style.font = saved_font
@@ -623,7 +623,7 @@ header_line :: proc(
 	}
 	if more != "" && end > x {
 		mu.push_clip_rect(ctx, {x, r.y, end - x, r.h})
-		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
+		mu.draw_text(ctx, font, more, {x, y}, core.theme.dim)
 		mu.pop_clip_rect(ctx)
 	}
 }
@@ -716,7 +716,7 @@ notice_row :: proc(env: ^core.Env, m: Notice_Mark, v: ^conn.View) {
 	}
 	ctx := &env.ctx
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.notice_ok if ok else theme.error, text, wrap_text)
+	with_text_color(ctx, core.theme.notice_ok if ok else core.theme.error, text, wrap_text)
 }
 
 // confirm_button is a button that has to be pressed twice, for what can't be
@@ -767,8 +767,8 @@ slider :: proc(
 ) {
 	res = mu.slider(ctx, value, low, high, step, format)
 	id := mu.get_id(ctx, uintptr(value))
-	nav_control(ctx, id, ctx.last_rect)
-	if !nav_focused(ctx, id) {
+	core.nav_control(ctx, id, ctx.last_rect)
+	if !core.nav_focused(ctx, id) {
 		return
 	}
 	by := step if step != 0 else (high - low) / 100

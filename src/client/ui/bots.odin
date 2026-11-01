@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import mu "vendor:microui"
 
@@ -29,7 +30,7 @@ bot_token_shown :: proc(ui: ^UI, v: ^conn.View) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		theme.warning,
+		core.theme.warning,
 		fmt.tprintf(
 			"This is the token for %s. It is only shown once, so copy it now. Anyone who has it can do everything the bot may do.",
 			whose,
@@ -99,8 +100,8 @@ bot_tag :: proc(ctx: ^mu.Context, x, y: i32) -> i32 {
 	font := ctx.style.font
 	w := bot_tag_width(ctx)
 	h := ctx.text_height(font)
-	mu.draw_rect(ctx, {x + 6, y + 1, w - 6, h - 2}, theme.muted_badge)
-	mu.draw_text(ctx, font, BOT_TAG, {x + 6 + 4, y}, theme.badge_text)
+	mu.draw_rect(ctx, {x + 6, y + 1, w - 6, h - 2}, core.theme.muted_badge)
+	mu.draw_text(ctx, font, BOT_TAG, {x + 6 + 4, y}, core.theme.badge_text)
 	return w
 }
 

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import glfw "client:wglfw"
 import log "common:wlog"
 import win "core:sys/windows"
@@ -169,12 +170,12 @@ thumbbar_update :: proc(ui: ^UI) {
 	if t.mute {
 		t.mute = false
 		set_muted(ui, !ui.muted)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	if t.deafen {
 		t.deafen = false
 		set_deafened(ui, !ui.deafened)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	if t.hwnd == nil || t.taskbar == nil {
 		return

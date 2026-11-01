@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import txt "text"
 import "core:fmt"
 import "core:testing"
@@ -20,7 +21,7 @@ test_composer_preview_fits :: proc(t: ^testing.T) {
 		}) {
 		ui := new(UI)
 		defer free(ui)
-		defer ui_select_destroy(ui)
+		defer core.select_destroy(ui)
 		ui.view = &ui.no_view
 		mu.init(&ui.ctx)
 		ui.ctx.text_width = proc(font: mu.Font, s: string) -> i32 {return i32(len(s)) * 8}

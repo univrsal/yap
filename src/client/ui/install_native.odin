@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import "chrome"
 import "client:settings"
 import log "common:wlog"
@@ -107,7 +108,7 @@ install_settings :: proc(ui: ^UI) {
 	case elsewhere:
 		with_text_color(
 			ctx,
-			theme.warning,
+			core.theme.warning,
 			fmt.tprintf("  Installed, but points to %s", st.target),
 			label_proc,
 		)

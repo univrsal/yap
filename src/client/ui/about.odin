@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import mu "vendor:microui"
@@ -182,7 +183,7 @@ about_settings :: proc(ui: ^UI) {
 			fmt.tprintf("%s.\n%s", p.use, p.url) if p.url != "" else fmt.tprintf("%s.", p.use),
 		)
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, p.text, about_text)
+		with_text_color(ctx, core.theme.dim, p.text, about_text)
 	}
 }
 

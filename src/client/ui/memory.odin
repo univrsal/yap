@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "client:render"
 import "common:memtrack"
@@ -82,7 +83,7 @@ memory_settings :: proc(ui: ^UI) {
 		m.report = memtrack.report(memory_extras())
 		m.taken = time.tick_now()
 	}
-	ui_redraw_at(ui, time.tick_add(m.taken, MEMORY_REFRESH))
+	core.redraw_at(ui, time.tick_add(m.taken, MEMORY_REFRESH))
 
 	mu.layout_row(ctx, {120, 120, -1})
 	if .SUBMIT in button(ctx, "Give back") {

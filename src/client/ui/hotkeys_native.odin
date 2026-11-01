@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import mu "vendor:microui"
@@ -144,7 +145,7 @@ hotkey_settings :: proc(ui: ^UI) {
 		text := hotkey_setting(ui, action)^
 		switch {
 		case capturing:
-			with_text_color(ctx, theme.warning, "Press the keys...", label_proc)
+			with_text_color(ctx, core.theme.warning, "Press the keys...", label_proc)
 		case text == "":
 			dim_label(ctx, "None")
 		case:
@@ -180,7 +181,7 @@ hotkey_settings :: proc(ui: ^UI) {
 	case .Starting, .Ok:
 		dim_note(ctx, note)
 	case .Limited:
-		with_text_color(ctx, theme.warning, note, wrap_text)
+		with_text_color(ctx, core.theme.warning, note, wrap_text)
 	case .Unavailable:
 		error_label(ctx, note)
 	}

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "client:render"
 import "client:settings"
@@ -143,7 +144,7 @@ channel_list :: proc(ui: ^UI) {
 		viewing := viewing_notes(v) && !ui.narrow
 		mu.layout_set_next(ctx, {foot.x, foot.y, icon_w, foot.h}, false)
 		if .SUBMIT in
-		   icon_button(ui, "notes", .Text_File, NOTES_NAME, theme.accent if viewing else {}) {
+		   icon_button(ui, "notes", .Text_File, NOTES_NAME, core.theme.accent if viewing else {}) {
 			view_notes(ui, v)
 		}
 		mu.layout_set_next(ctx, {foot.x + icon_w + pad, foot.y, icon_w, foot.h}, false)
@@ -153,7 +154,7 @@ channel_list :: proc(ui: ^UI) {
 			   "bookmarks",
 			   .Bookmark,
 			   BOOKMARKS_NAME,
-			   theme.accent if ui.bookmarks.open else {},
+			   core.theme.accent if ui.bookmarks.open else {},
 		   ) {
 			toggle_bookmarks(ui)
 		}
@@ -200,7 +201,7 @@ channel_rows :: proc(ui: ^UI) {
 		// Unread and not muted: brighter, as well as showing the count.
 		saved := ctx.style.colors[.TEXT]
 		if ch.unread > 0 && ch.notify != .None {
-			ctx.style.colors[.TEXT] = theme.unread_text
+			ctx.style.colors[.TEXT] = core.theme.unread_text
 		}
 		saved_font := ctx.style.font
 		ctx.style.font = render.LIST_FONT
@@ -295,14 +296,14 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 			ctx,
 			mu.layout_next(ctx),
 			NOTES_NAME,
-			theme.viewing,
+			core.theme.viewing,
 			"Only you see this",
 			status,
 			status_color,
 		)
 	case:
 		name := fmt.tprintf("# %s", ch.name)
-		header_line(ctx, mu.layout_next(ctx), name, theme.viewing, ch.topic, status, status_color)
+		header_line(ctx, mu.layout_next(ctx), name, core.theme.viewing, ch.topic, status, status_color)
 	}
 	if notes {
 		pins_button(ui)
@@ -337,7 +338,7 @@ voice_button :: proc(ui: ^UI, ch: conn.View_Channel, in_it: bool) {
 		hint = "Joining call..."
 	case in_it:
 		hint = "Stop talking in this channel"
-		color = theme.off
+		color = core.theme.off
 	case:
 		hint = "Talk in this channel"
 		if v.my_room != 0 {
@@ -395,8 +396,8 @@ unread_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, muted: bool) -> i
 		ctx,
 		r,
 		conn.unread_count(count),
-		theme.muted_badge if muted else theme.unread_badge,
-		theme.dim if muted else theme.badge_text,
+		core.theme.muted_badge if muted else core.theme.unread_badge,
+		core.theme.dim if muted else core.theme.badge_text,
 		0,
 	)
 }
@@ -410,8 +411,8 @@ mention_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, taken: i32) {
 		ctx,
 		r,
 		fmt.tprintf("@%s", conn.unread_count(count)),
-		theme.mention_badge,
-		theme.mention,
+		core.theme.mention_badge,
+		core.theme.mention,
 		taken,
 	)
 }
@@ -472,7 +473,7 @@ channel_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !begin_popup(ui, CHANNEL_MENU) {
+	if !core.begin_popup(ui, CHANNEL_MENU) {
 		return
 	}
 	defer mu.end_popup(ctx)
@@ -654,7 +655,7 @@ channel_label :: proc(ctx: ^mu.Context, name, topic: string) {
 	mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, ctx.style.colors[.TEXT])
 	if topic != "" {
 		x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
-		mu.draw_text(ctx, font, topic, {x, y}, theme.dim)
+		mu.draw_text(ctx, font, topic, {x, y}, core.theme.dim)
 	}
 	mu.pop_clip_rect(ctx)
 }

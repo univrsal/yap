@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -112,7 +113,7 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.layout_row(ctx, {-1})
 		bookmark_text(ui, m)
 		mu.layout_row(ctx, {-150, 70, -1})
-		with_text_color(ctx, theme.dim, bookmark_place(v, e.conv, m), label_proc)
+		with_text_color(ctx, core.theme.dim, bookmark_place(v, e.conv, m), label_proc)
 		if .SUBMIT in stable_button(ctx, "go", "Go to") {
 			go_to_message(ui, e.conv, m.id)
 			ui.channels.show_list = false
@@ -122,7 +123,7 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 		if i < len(bm.list) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
-			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
+			mu.draw_rect(ctx, mu.layout_next(ctx), core.theme.divider)
 		}
 	}
 	if bm.loading {
@@ -179,7 +180,7 @@ bookmark_text :: proc(ui: ^UI, m: conn.View_Message) {
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
-			theme.dim,
+			core.theme.dim,
 			fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
 			wrap_text,
 		)

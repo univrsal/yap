@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "core"
 import "core:unicode/utf8"
 
 import "client:platform"
@@ -68,7 +69,7 @@ touch_step :: proc(ui: ^UI) {
 	}
 	e := pop_front(&g_touch)
 	ui.touch_scrolling = false
-	ui_redraw(ui) // and with more events queued, draw the frames to handle them
+	core.redraw_now(ui) // and with more events queued, draw the frames to handle them
 	ctx := &ui.ctx
 	switch e.kind {
 	case .Move:

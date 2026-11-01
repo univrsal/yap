@@ -46,7 +46,7 @@ pager_search :: proc(env: ^core.Env, p: ^Pager, hint: string) -> (changed: bool)
 			font,
 			hint,
 			{r.x + ctx.style.padding, r.y + (r.h - ctx.text_height(font)) / 2},
-			theme.dim,
+			core.theme.dim,
 		)
 		mu.pop_clip_rect(ctx)
 	}
@@ -145,7 +145,7 @@ footer :: proc(env: ^core.Env, text: string, has_back, has_next: bool) -> (back,
 	} else {
 		mu.label(ctx, "")
 	}
-	with_text_color(ctx, theme.dim, text, proc(ctx: ^mu.Context, text: string) {
+	with_text_color(ctx, core.theme.dim, text, proc(ctx: ^mu.Context, text: string) {
 		r := mu.layout_next(ctx)
 		mu.draw_control_text(ctx, text, r, .TEXT, {.ALIGN_CENTER})
 	})

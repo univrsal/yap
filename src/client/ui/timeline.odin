@@ -426,7 +426,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	// msgs[first:last] are laid out.
 
 	mu.begin_panel(ctx, panel, {.NO_FRAME})
-	select_begin(ui, timeline_select_panel(st.slot))
+	core.select_begin(ui, timeline_select_panel(st.slot))
 	// Everything in one column of `width`.
 	mu.layout_row(ctx, {width}, 1)
 	mu.layout_begin_column(ctx)
@@ -464,7 +464,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 			mu.draw_rect(
 				ctx,
 				{block.x + REPLY_BAR_X, bar_top, REPLY_BAR_W, bar_bottom - bar_top},
-				theme.reply_bar,
+				core.theme.reply_bar,
 			)
 			bar_end, bar_root = bar_bottom, msgs[i].thread_root
 		} else {
@@ -505,7 +505,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	outbox_grew := layout.next_row - start != st.outbox_h
 	st.outbox_h = layout.next_row - start
 	mu.layout_end_column(ctx)
-	select_end(ui)
+	core.select_end(ui)
 	mu.end_panel(ctx)
 
 	// How far the panel moved itself in this frame: its scrollbar, or a
@@ -592,7 +592,7 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 		spinner_row(ui)
 		return
 	case thread && tl.have_oldest && n > 0:
-		rule(ui, "Replies", theme.day_line)
+		rule(ui, "Replies", core.theme.day_line)
 		return
 	case tl.have_oldest && n > 0:
 		text = "The start of the conversation."

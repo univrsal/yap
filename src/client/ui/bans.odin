@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -96,7 +97,7 @@ ban_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: boo
 		b.banning = false
 	}
 	saved := ctx.style.colors[.TEXT]
-	ctx.style.colors[.TEXT] = theme.error
+	ctx.style.colors[.TEXT] = core.theme.error
 	submit |= .SUBMIT in stable_button(ctx, "ban", "Ban")
 	ctx.style.colors[.TEXT] = saved
 	mu.layout_row(ctx, {width})
@@ -159,7 +160,7 @@ remove_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: 
 		b.removing = false
 	}
 	saved := ctx.style.colors[.TEXT]
-	ctx.style.colors[.TEXT] = theme.error
+	ctx.style.colors[.TEXT] = core.theme.error
 	remove := .SUBMIT in stable_button(ctx, "remove", "Remove")
 	ctx.style.colors[.TEXT] = saved
 	mu.layout_row(ctx, {width})

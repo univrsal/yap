@@ -41,7 +41,7 @@ dropdown :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r)
+	keyed := core.nav_control(ctx, id, r)
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		d.open, d.requested = id, true
 	}
@@ -163,12 +163,12 @@ dropdown_popup :: proc(env: ^core.Env, w, h: i32) {
 	defer mu.end_window(ctx)
 	// From the keyboard: Tab, Up and Down stay in the list, which starts at
 	// the current choice, and Escape closes it.
-	if key_take(env, .Escape) {
+	if core.key_take(env, .Escape) {
 		d.open = 0
 		mu.get_current_container(ctx).open = false
 		return
 	}
-	nav_trap(env)
+	core.nav_trap(env)
 	mu.layout_row(ctx, {-1})
 	first := opened
 	for item, i in d.items {
@@ -178,14 +178,14 @@ dropdown_popup :: proc(env: ^core.Env, w, h: i32) {
 		}
 		id_name := fmt.tprintf("dropdown item %d", i)
 		if first && (d.current < 0 || i == d.current) {
-			nav_focus_next(env, mu.get_id(ctx, id_name))
+			core.nav_focus_next(env, mu.get_id(ctx, id_name))
 			first = false
 		}
 		if .SUBMIT in list_row(ctx, id_name, item.label, i == d.current) {
 			d.picked, d.picked_id = i, d.open
 			d.open = 0
 			mu.get_current_container(ctx).open = false
-			ui_redraw(env)
+			core.redraw_now(env)
 		}
 	}
 }

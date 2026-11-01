@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "titlebar"
 import "client:audio"
 import "client:conn"
@@ -329,7 +330,7 @@ ui_settings :: proc(ui: ^UI) {
 	   ok {
 		settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
 		save_settings(ui)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 
 	// When animated pictures in the chat play (ui/images.odin).
@@ -341,7 +342,7 @@ ui_settings :: proc(ui: ^UI) {
 			settings.ANIMATE_PICTURES_NAMES[choice],
 		)
 		save_settings(ui)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 
 	mu.layout_row(ctx, {120, -1})
@@ -389,11 +390,11 @@ ui_settings :: proc(ui: ^UI) {
 		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
 			save_settings(ui)
 			titlebar.merge(ui.window, ui.settings.merge_title_bar)
-			ui_redraw(ui)
+			core.redraw_now(ui)
 		}
 		if note := titlebar.restart_note(ui.settings.merge_title_bar); note != "" {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.warning, fmt.tprintf("  %s", note), wrap_text)
+			with_text_color(ctx, core.theme.warning, fmt.tprintf("  %s", note), wrap_text)
 		}
 
 		mu.layout_row(ctx, {-1})
@@ -423,7 +424,7 @@ ui_settings :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-1})
 			with_text_color(
 				ctx,
-				theme.warning,
+				core.theme.warning,
 				"  Wayland doesn't tell a window that it has been minimized, so here it will just minimize.",
 				wrap_text,
 			)
@@ -535,7 +536,7 @@ device_choice :: proc(
 		mu.label(ctx, "")
 		with_text_color(
 			ctx,
-			theme.warning,
+			core.theme.warning,
 			fmt.tprintf("%s is not available, using the default", selected),
 			wrap_text,
 		)

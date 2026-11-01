@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "common:proto"
 import "core:fmt"
@@ -127,7 +128,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 		case:
 			state = "never expires"
 		}
-		with_text_color(ctx, ctx.style.colors[.TEXT] if usable else theme.dim, state, label_proc)
+		with_text_color(ctx, ctx.style.colors[.TEXT] if usable else core.theme.dim, state, label_proc)
 		by := ""
 		if inv.creator != v.me {
 			if acc, known := v.accounts[inv.creator]; known {

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import "core:slice"
@@ -71,17 +72,17 @@ sound_status :: proc(muted, deafened, speaking, server_muted: bool) -> (render.I
 	switch {
 	case server_muted:
 		// Not their own doing, so in a colour of its own.
-		return .Mic_Off, theme.warning
+		return .Mic_Off, core.theme.warning
 	case deafened:
 		// Someone who isn't listening is usually muted as well, and of the
 		// two, that is the one worth showing.
-		return .Sound_Off, theme.off
+		return .Sound_Off, core.theme.off
 	case muted:
-		return .Mic_Off, theme.off
+		return .Mic_Off, core.theme.off
 	case speaking:
-		return .Mic, theme.speaking
+		return .Mic, core.theme.speaking
 	}
-	return .Mic, theme.dim
+	return .Mic, core.theme.dim
 }
 
 // The mark at the end of a row for someone muted by ourselves. It sits at the
@@ -90,7 +91,7 @@ sound_status :: proc(muted, deafened, speaking, server_muted: bool) -> (render.I
 // would otherwise be easy to mix up.
 @(private = "file")
 local_mute_mark :: proc(ctx: ^mu.Context, row: mu.Rect) {
-	mu.draw_icon(ctx, render.icon_id(.Sound_Off), end_of_row(row, 0), theme.dim)
+	mu.draw_icon(ctx, render.icon_id(.Sound_Off), end_of_row(row, 0), core.theme.dim)
 }
 
 // end_of_row is the icon-sized square `slot` places in from a row's end.
@@ -110,9 +111,9 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case ui.view.watching == id:
-		color = theme.speaking
+		color = core.theme.speaking
 	case !can_watch_screens(ui) || id == ui.view.my_num:
-		color = theme.dim
+		color = core.theme.dim
 	}
 	mu.draw_icon(ctx, render.icon_id(.Screen), r, color)
 	return r
@@ -130,7 +131,7 @@ app_audio_mark :: proc(ctx: ^mu.Context, row: mu.Rect, slot: i32, heard: bool) {
 		ctx,
 		render.icon_id(.App_Audio),
 		end_of_row(row, slot),
-		theme.speaking if heard else theme.dim,
+		core.theme.speaking if heard else core.theme.dim,
 	)
 }
 
@@ -158,7 +159,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 
 	user, known := v.users[id]
 	if !known {
-		status_icon(ctx, .Mic, theme.dim)
+		status_icon(ctx, .Mic, core.theme.dim)
 		mu.label(ctx, "")
 		mu.label(ctx, fmt.tprintf("user #%d", id))
 		return
@@ -176,7 +177,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		mu.pop_id(ctx)
 		r := mu.layout_next(ctx)
 		mu.update_control(ctx, cid, r)
-		if nav_control(ctx, cid, r, list = true) {
+		if core.nav_control(ctx, cid, r, list = true) {
 			open_status_editor(ui)
 		}
 		if ctx.hover_id == cid {
@@ -190,7 +191,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			ctx,
 			r,
 			text,
-			theme.speaking if speaking else ctx.style.colors[.TEXT],
+			core.theme.speaking if speaking else ctx.style.colors[.TEXT],
 			status_line(acc),
 		)
 		slot: i32 = 0
@@ -226,9 +227,9 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case u.muted:
-		color = theme.dim // nothing of theirs reaches us
+		color = core.theme.dim // nothing of theirs reaches us
 	case speaking:
-		color = theme.speaking
+		color = core.theme.speaking
 	}
 
 	// A flat, full-width control: highlighted on hover, and any click opens
@@ -238,7 +239,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	cid := mu.get_id(ctx, "member")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, cid, r)
-	keyed := nav_control(ctx, cid, r, list = true)
+	keyed := core.nav_control(ctx, cid, r, list = true)
 	if ctx.hover_id == cid {
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
@@ -346,7 +347,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 		font,
 		fmt.tprintf("@%s, %s", acc.username, SEEN_AS[acc.activity]),
 		{r.x, top + line + 2},
-		theme.dim,
+		core.theme.dim,
 	)
 	if talking := talking_of(v, account); talking != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
@@ -367,7 +368,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	}
 	if .Server_Muted in acc.flags {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, theme.warning, "Muted by a moderator", label_proc)
+		with_text_color(ctx, core.theme.warning, "Muted by a moderator", label_proc)
 	}
 	if len(acc.roles) > 0 {
 		role_chips(ui, acc.roles, MENU_WIDTH)
@@ -397,7 +398,7 @@ user_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !begin_popup(ui, MENU) {
+	if !core.begin_popup(ui, MENU) {
 		return
 	}
 	defer mu.end_popup(ctx)
@@ -494,7 +495,7 @@ user_menu :: proc(ui: ^UI) {
 				"watch",
 				.Screen,
 				"Sharing their screen (watch in a browser)",
-				theme.dim,
+				core.theme.dim,
 			)
 		}
 	}

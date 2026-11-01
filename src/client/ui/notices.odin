@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -106,7 +107,7 @@ notice_open :: proc(ui: ^UI, target: Notice_Target) {
 			show_session(ui, ns)
 			sync.guard(&ui.view.mutex)
 			go_to_message(ui, target.conv, target.msg)
-			ui_redraw(ui)
+			core.redraw_now(ui)
 			return
 		}
 	}

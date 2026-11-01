@@ -78,7 +78,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	// doesn't (see set_cursor).
 	ui.cursor_shown = .Arrow
 	ui.metrics = {}
-	ui_redraw(ui)
+	core.redraw_now(ui)
 	return true
 }
 
@@ -236,14 +236,14 @@ iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 	if iconified != 0 {
 		g_ui.minimized = true
 	}
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 }
 
 // focus_callback draws a frame when the window gains or loses the focus,
 // because animated pictures only play while it has the focus (see anims_running).
 @(private = "file")
 focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 }
 
 // refresh_callback is called when the window needs its contents drawn again,
@@ -257,7 +257,7 @@ focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
 refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 	context = platform.callback_context()
 	context.logger = g_logger
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	when ODIN_OS == .Windows {
 		if g_ui.window == window && !g_ui.hidden {
 			draw_frame(g_ui)
@@ -275,7 +275,7 @@ when ODIN_OS == .Darwin {
 	resize_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
 		context = platform.callback_context()
 		context.logger = g_logger
-		ui_redraw(g_ui)
+		core.redraw_now(g_ui)
 		if g_ui.window == window && !g_ui.hidden {
 			render.gpu_resizing(&g_ui.renderer.gpu, true)
 			draw_frame(g_ui)
@@ -287,7 +287,7 @@ when ODIN_OS == .Darwin {
 @(private = "file")
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	titlebar.motion(window)
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
@@ -300,7 +300,7 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: i32) {
 	context = platform.callback_context()
 	if entered == 0 && g_ui.ctx.mouse_down_bits == {} {
-		ui_redraw(g_ui)
+		core.redraw_now(g_ui)
 		mu.input_mouse_move(&g_ui.ctx, -100_000, -100_000)
 	}
 }
@@ -309,7 +309,7 @@ cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: i32) {
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
 	context = platform.callback_context()
 	context.logger = g_logger
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	btn: mu.Mouse
 	switch button {
 	case glfw.MOUSE_BUTTON_LEFT:
@@ -364,7 +364,7 @@ WHEEL_NOTCH :: 60
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	// A wheel turns in whole notches, which are spread over a few frames
 	// (scroll_step). A touchpad scrolls in fractions of one, a little at a
 	// time already, so that goes to microui as it comes.
@@ -415,7 +415,7 @@ scroll_step :: proc(ui: ^UI) {
 	mu.input_scroll(&ui.ctx, give.x, give.y)
 	if ui.scroll_left != {} {
 		ui.scroll_at = now
-		ui_redraw_in(ui, SCROLL_FRAME)
+		core.redraw_in(ui, SCROLL_FRAME)
 	} else {
 		ui.scroll_at = {}
 	}
@@ -424,7 +424,7 @@ scroll_step :: proc(ui: ^UI) {
 @(private = "file")
 char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 	context = platform.callback_context()
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	if g_ui.drop_space && codepoint == ' ' {
 		g_ui.drop_space = false
 		return
@@ -439,7 +439,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key_code, scancode, action,
 	// The shortcuts go by the letters on the keys, not where a US keyboard
 	// has them (Colemak's Ctrl+Z is not the QWERTY Z's key).
 	key := glfw.LayoutKey(key_code, scancode)
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 	g_ui.drop_space = false
 	// The command palette: Cmd+K on macOS, where Ctrl+Space usually switches
 	// the input source, and in a browser (which may be on a Mac).
@@ -508,23 +508,23 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key_code, scancode, action,
 		if action == glfw.PRESS || action == glfw.REPEAT {
 			switch key {
 			case glfw.KEY_UP:
-				key_press(.Up)
+				core.key_press(.Up)
 			case glfw.KEY_DOWN:
-				key_press(.Down)
+				core.key_press(.Down)
 			case:
-				key_press(.Back_Tab if mods & glfw.MOD_SHIFT != 0 else .Tab)
+				core.key_press(.Back_Tab if mods & glfw.MOD_SHIFT != 0 else .Tab)
 			}
 		}
 		return
 	case glfw.KEY_F6:
 		if action == glfw.PRESS {
-			key_press(.Prev_Area if mods & glfw.MOD_SHIFT != 0 else .Next_Area)
+			core.key_press(.Prev_Area if mods & glfw.MOD_SHIFT != 0 else .Next_Area)
 		}
 		return
 	case glfw.KEY_SPACE:
 		// The space itself comes as text (char_callback).
 		if action == glfw.PRESS && mods & (glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SUPER) == 0 {
-			key_press(.Activate)
+			core.key_press(.Activate)
 		}
 		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:

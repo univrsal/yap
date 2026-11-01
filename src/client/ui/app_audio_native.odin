@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:os"
 import "core:strings"
@@ -113,10 +114,10 @@ app_audio_frame :: proc(ui: ^UI) {
 	if audio.app_share_ended(s) {
 		log.infof("app audio: %s stopped: %s", a.name, cstring(&s.why[0]))
 		app_audio_stop(ui)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	} else if state := video.share_state(); a.device && state != .Starting && state != .Live {
 		app_audio_stop(ui)
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 }
 
@@ -151,7 +152,7 @@ app_audio_button :: proc(ui: ^UI) {
 			{"Sharing the audio of ", a.name, " (with your screen)" if a.device else ""},
 			context.temp_allocator,
 		)
-		color = theme.speaking
+		color = core.theme.speaking
 	}
 	if .SUBMIT in icon_button(ui, "app audio", .App_Audio, hint, color) {
 		app_audio_refresh(ui)
@@ -174,7 +175,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !begin_popup(ui, MENU_NAME) {
+	if !core.begin_popup(ui, MENU_NAME) {
 		return
 	}
 	defer mu.end_popup(ctx)
@@ -236,7 +237,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 	if a.error != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, theme.off, a.error, label_proc)
+		with_text_color(ctx, core.theme.off, a.error, label_proc)
 	}
 }
 

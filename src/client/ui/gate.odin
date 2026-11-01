@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:audio"
 import "client:conn"
 import "client:settings"
@@ -209,7 +210,7 @@ level_meter :: proc(ui: ^UI) {
 
 	// Rise instantly and fall smoothly, so short peaks are readable. It
 	// moves for as long as it is on screen.
-	ui_redraw_in(ui, ANIMATION_FRAME)
+	core.redraw_in(ui, core.ANIMATION_FRAME)
 	now := time.tick_now()
 	dt := f32(time.duration_seconds(time.tick_diff(ui.meter_time, now)))
 	ui.meter_time = now
@@ -224,7 +225,7 @@ level_meter :: proc(ui: ^UI) {
 	open_color := mu.Color{45, 105, 55, 255}
 	if !s.voice_gate {
 		// The gate isn't doing anything, so keep the scale but dim it.
-		closed_color, between_color, open_color = theme.track, theme.divider, theme.unlit
+		closed_color, between_color, open_color = core.theme.track, core.theme.divider, core.theme.unlit
 	}
 	close_x, open_x := x_of(r, s.gate_close_db), x_of(r, s.gate_open_db)
 	mu.draw_rect(ctx, {r.x, r.y, close_x - r.x, r.h}, closed_color)
@@ -238,8 +239,8 @@ level_meter :: proc(ui: ^UI) {
 	mu.draw_rect(ctx, {r.x, r.y + bar_h, x_of(r, ui.meter_level) - r.x, bar_h}, bar_color)
 
 	// Threshold markers.
-	mu.draw_rect(ctx, {close_x - 1, r.y, 2, r.h}, theme.strong)
-	mu.draw_rect(ctx, {open_x - 1, r.y, 2, r.h}, theme.strong)
+	mu.draw_rect(ctx, {close_x - 1, r.y, 2, r.h}, core.theme.strong)
+	mu.draw_rect(ctx, {open_x - 1, r.y, 2, r.h}, core.theme.strong)
 
 	text: string
 	switch {

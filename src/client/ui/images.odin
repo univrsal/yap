@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "base:runtime"
 import log "common:wlog"
 import "core:fmt"
@@ -559,7 +560,7 @@ anim_drawn :: proc(ui: ^UI, t: Texture) {
 	case t.next != nil:
 		anim_redraw_at(ui, t.due)
 	case !t.asked:
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	case:
 		anim_redraw_at(ui, time.tick_add(time.tick_now(), time.Millisecond))
 	}
@@ -574,7 +575,7 @@ anim_redraw_at :: proc(ui: ^UI, at: time.Tick) {
 	tick := ANIM_MIN_SHOWN * time.Millisecond
 	since := max(time.tick_diff(ui.images.anim_epoch, at), 0)
 	ticks := (since + tick - 1) / tick
-	ui_redraw_at(ui, time.tick_add(ui.images.anim_epoch, ticks * tick))
+	core.redraw_at(ui, time.tick_add(ui.images.anim_epoch, ticks * tick))
 }
 
 // image_fitted draws a picture as large as fits `area`, at its left. It is for
@@ -608,7 +609,7 @@ image_fitted :: proc(
 	if !known || t.state != .Ready {
 		// One the server no longer has will never come.
 		if (known && t.state == .Failed) || state == .Gone {
-			mu.draw_rect(ctx, area, theme.image_bg)
+			mu.draw_rect(ctx, area, core.theme.image_bg)
 			mu.draw_control_text(ctx, "broken image", area, .TEXT, {.ALIGN_CENTER})
 			return
 		}
@@ -618,7 +619,7 @@ image_fitted :: proc(
 			fw, fh := conn.fit_box(w, h, int(area.w), int(area.h))
 			place.w, place.h = i32(fw), i32(fh)
 		}
-		mu.draw_rect(ctx, place, theme.image_bg)
+		mu.draw_rect(ctx, place, core.theme.image_bg)
 		spinner(ui, place)
 		return
 	}
@@ -761,7 +762,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		)
 		mu.pop_clip_rect(ctx)
 	} else {
-		mu.draw_rect(ctx, rect, theme.image_bg)
+		mu.draw_rect(ctx, rect, core.theme.image_bg)
 		spinner(ui, rect)
 	}
 

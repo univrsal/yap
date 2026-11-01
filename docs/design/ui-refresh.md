@@ -270,7 +270,7 @@ as without the change (28-31 ticks in 10 s, measured against a build of
   dark).
 - Thinner scrollbars that fade out when nothing scrolls.
 
-  *As built:* `ui/scrollbars.odin`. `draw_frame_themed` hands microui's
+  *As built:* `ui/core/scrollbar.odin`. `draw_frame_themed` hands microui's
   scrollbar tracks and thumbs to `scrollbar_frame`, which keeps each
   container's last scroll position (`UI.scrollbar_fades`). The thumb is a
   `SCROLLBAR_THIN` (4) pill at the strip's outer edge, `SCROLLBAR_WIDE`

@@ -5,10 +5,10 @@ Extra_Key :: enum {
 	Down,
 	Tab,
 	Back_Tab, // Shift+Tab
-	Next_Area, // F6: the keyboard focus to the next area (ui/nav.odin)
+	Next_Area, // F6: the keyboard focus to the next area (ui/core/nav.odin)
 	Prev_Area, // Shift+F6
 	Escape,
-	// Space, which presses the control with the keyboard focus (see ui/nav.odin).
+	// Space, which presses the control with the keyboard focus (see ui/core/nav.odin).
 	// It still types a space in a text box.
 	Activate,
 	// Ctrl+Space or Ctrl+K (Cmd+K on macOS): the command palette.

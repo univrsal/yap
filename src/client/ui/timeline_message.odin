@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -33,7 +34,7 @@ timeline_message :: proc(
 		day_line(ui, seconds)
 	}
 	if new_line {
-		rule(ui, "New messages", theme.new_line)
+		rule(ui, "New messages", core.theme.new_line)
 	}
 	// A reply is indented: everything of it from here on.
 	indent: i32 = REPLY_INDENT if is_indented(st, m) else 0
@@ -93,7 +94,7 @@ timeline_message :: proc(
 	defer ui.header_time = {}
 	header :=
 		"" if merged else fmt.tprintf("%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", forward_note(ui, m), fmt.tprintf("  - via %s", via) if persona else "")
-	header_color := theme.chat_name if persona else author_color(v, m.sender)
+	header_color := core.theme.chat_name if persona else author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
 		// The picture beside the header, or in the compact chat, the time on
@@ -130,7 +131,7 @@ timeline_message :: proc(
 	}
 	if .Deleted in m.flags {
 		text := rich_plain(DELETED_TEXT)
-		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
+		chat_message(ui, header, header_color, &text, core.theme.dim, merged, item, tight)
 		return from
 	}
 	#partial switch m.kind {
@@ -142,10 +143,10 @@ timeline_message :: proc(
 		message_files(ui, st.key.conv, m, width)
 	case .System:
 		text := rich_plain(system_line(ui, m))
-		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
+		chat_message(ui, header, header_color, &text, core.theme.dim, merged, item, tight)
 	case:
 		text := rich_plain(UNKNOWN_KIND_TEXT)
-		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
+		chat_message(ui, header, header_color, &text, core.theme.dim, merged, item, tight)
 	}
 	reaction_chips(ui, m, width, readonly)
 	return from
@@ -204,7 +205,7 @@ reply_line :: proc(
 		strings.concatenate({REPLY_MARK, text}, context.temp_allocator),
 		width,
 	)
-	if thread_link(ui, text, r, theme.dim) {
+	if thread_link(ui, text, r, core.theme.dim) {
 		open_thread(ui, key, readonly)
 	}
 }
@@ -226,7 +227,7 @@ thread_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, readonly :=
 			)
 		}
 	}
-	if thread_link(ui, text, r, theme.chat_name) {
+	if thread_link(ui, text, r, core.theme.chat_name) {
 		open_thread(ui, {st.key.conv, m.id}, readonly)
 	}
 }
@@ -239,7 +240,7 @@ thread_link :: proc(ui: ^UI, text: string, r: mu.Rect, color: mu.Color) -> bool 
 	font := ctx.style.font
 	hit := mu.Rect{r.x, r.y, min(ctx.text_width(font, text), r.w), r.h}
 	over := mu.mouse_over(ctx, hit)
-	mu.draw_text(ctx, font, text, {r.x, r.y}, theme.link_hover if over else color)
+	mu.draw_text(ctx, font, text, {r.x, r.y}, core.theme.link_hover if over else color)
 	if !over {
 		return false
 	}
@@ -312,7 +313,7 @@ message_mouse :: proc(
 	if lit {
 		if since := time.tick_since(st.lit_at); since < JUMP_HIGHLIGHT {
 			fade := 1 - f32(since) / f32(JUMP_HIGHLIGHT)
-			ui_redraw_in(ui, ANIMATION_FRAME)
+			core.redraw_in(ui, core.ANIMATION_FRAME)
 			mu.draw_rect(ctx, block, {255, 220, 120, u8(50 * fade)})
 		} else {
 			st.lit, st.lit_mentions = 0, false
@@ -342,11 +343,11 @@ message_marks :: proc(ui: ^UI, m: conn.View_Message, block: mu.Rect) {
 		return
 	}
 	if ui.view.bookmarks.ids[m.id] {
-		mu.draw_icon(ctx, render.icon_id(.Bookmark), {x, y, size, size}, theme.accent)
+		mu.draw_icon(ctx, render.icon_id(.Bookmark), {x, y, size, size}, core.theme.accent)
 		x -= size
 	}
 	if .Pinned in m.flags {
-		mu.draw_icon(ctx, render.icon_id(.Pin), {x, y, size, size}, theme.pinned)
+		mu.draw_icon(ctx, render.icon_id(.Pin), {x, y, size, size}, core.theme.pinned)
 	}
 }
 
@@ -370,7 +371,7 @@ day_line :: proc(ui: ^UI, seconds: proto.Unix_Time) {
 		weekday := datetime.day_of_week(ordinal)
 		text = fmt.tprintf("%v, %d-%02d-%02d", weekday, local.year, local.month, local.day)
 	}
-	rule(ui, text, theme.day_line)
+	rule(ui, text, core.theme.day_line)
 }
 
 // rule is a line across the timeline with `text` in the middle of it, in a row

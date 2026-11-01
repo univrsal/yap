@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import "core:math"
 import "core:strings"
 import "core:testing"
@@ -28,7 +29,7 @@ select_test_init :: proc(t: ^Select_Test, lines: []string) {
 
 @(private = "file")
 select_test_destroy :: proc(t: ^Select_Test) {
-	ui_select_destroy(t.ui)
+	core.select_destroy(t.ui)
 	delete(t.rects)
 	free(t.ui)
 }
@@ -42,15 +43,15 @@ frame :: proc(t: ^Select_Test) {
 	if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
 		mu.layout_row(ctx, {-1}, -1)
 		mu.begin_panel(ctx, "p")
-		select_begin(t.ui, .Log)
+		core.select_begin(t.ui, .Log)
 		for text, i in t.lines {
 			mu.layout_row(ctx, {-1}, 16)
 			r := mu.layout_next(ctx)
 			append(&t.rects, r)
-			select_item(t.ui, i64(i), text)
+			core.select_item(t.ui, i64(i), text)
 			select_line(t.ui, i64(i), text, 0, len(text), {r.x, r.y})
 		}
-		select_end(t.ui)
+		core.select_end(t.ui)
 		mu.end_panel(ctx)
 		mu.end_window(ctx)
 	}
@@ -88,7 +89,7 @@ test_select_within_a_line :: proc(t: ^testing.T) {
 	frame(&st)
 
 	drag(&st, 0, 6, 0, 11)
-	testing.expect(t, has_selection(&st.ui.select, .Log))
+	testing.expect(t, core.has_selection(&st.ui.select, .Log))
 	testing.expect_value(t, strings.to_string(st.ui.select.text), "world")
 }
 
@@ -124,9 +125,9 @@ test_click_clears_selection :: proc(t: ^testing.T) {
 	frame(&st)
 
 	drag(&st, 0, 0, 0, 5)
-	testing.expect(t, has_selection(&st.ui.select, .Log))
+	testing.expect(t, core.has_selection(&st.ui.select, .Log))
 	drag(&st, 0, 3, 0, 3)
-	testing.expect(t, !has_selection(&st.ui.select, .Log))
+	testing.expect(t, !core.has_selection(&st.ui.select, .Log))
 	testing.expect_value(t, strings.to_string(st.ui.select.text), "")
 }
 
@@ -145,7 +146,7 @@ fractional_width :: proc(font: mu.Font, s: string) -> i32 {
 selection_rect :: proc(t: ^Select_Test) -> (rect: mu.Rect, ok: bool) {
 	cmd: ^mu.Command
 	for variant in mu.next_command_iterator(&t.ui.ctx, &cmd) {
-		if r, is_rect := variant.(^mu.Command_Rect); is_rect && r.color == theme.selection {
+		if r, is_rect := variant.(^mu.Command_Rect); is_rect && r.color == core.theme.selection {
 			return r.rect, true
 		}
 	}

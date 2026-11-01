@@ -7,12 +7,12 @@ import mu "vendor:microui"
 
 @(test)
 test_nav_step :: proc(t: ^testing.T) {
-	testing.expect_value(t, nav_step(3, -1, false), 0)
-	testing.expect_value(t, nav_step(3, -1, true), 2)
-	testing.expect_value(t, nav_step(3, 0, false), 1)
-	testing.expect_value(t, nav_step(3, 2, false), 0)
-	testing.expect_value(t, nav_step(3, 0, true), 2)
-	testing.expect_value(t, nav_step(3, 1, true), 0)
+	testing.expect_value(t, core.nav_step(3, -1, false), 0)
+	testing.expect_value(t, core.nav_step(3, -1, true), 2)
+	testing.expect_value(t, core.nav_step(3, 0, false), 1)
+	testing.expect_value(t, core.nav_step(3, 2, false), 0)
+	testing.expect_value(t, core.nav_step(3, 0, true), 2)
+	testing.expect_value(t, core.nav_step(3, 1, true), 0)
 }
 
 // nav_test_frame stands in for a frame that drew three buttons and a text box,
@@ -30,14 +30,14 @@ nav_test_frame :: proc(ui: ^UI, keys: bit_set[core.Extra_Key]) {
 		core.Nav_Item{4, {}, nil, nil, -1, 0, false},
 	)
 	ui.keys = keys
-	nav_frame(ui)
+	core.nav_frame(ui)
 }
 
 @(test)
 test_nav_frame :: proc(t: ^testing.T) {
 	ui := new(UI)
 	defer free(ui)
-	defer ui_nav_destroy(ui)
+	defer core.nav_destroy(ui)
 
 	nav_test_frame(ui, {.Tab})
 	testing.expect_value(t, ui.nav.focus, 1)
@@ -88,7 +88,7 @@ test_nav_frame :: proc(t: ^testing.T) {
 test_nav_trap :: proc(t: ^testing.T) {
 	ui := new(UI)
 	defer free(ui)
-	defer ui_nav_destroy(ui)
+	defer core.nav_destroy(ui)
 	popup := new(mu.Container)
 	defer free(popup)
 
@@ -110,9 +110,9 @@ test_nav_trap :: proc(t: ^testing.T) {
 			ui.nav.trap = popup
 		}
 		ui.keys = keys
-		nav_frame(ui)
+		core.nav_frame(ui)
 	}
-	nav_focus_next(ui, 10)
+	core.nav_focus_next(ui, 10)
 	frame(ui, popup, true, {})
 	testing.expect_value(t, ui.nav.focus, 10)
 	frame(ui, popup, true, {.Tab})
@@ -134,7 +134,7 @@ test_nav_trap :: proc(t: ^testing.T) {
 test_nav_opened_window :: proc(t: ^testing.T) {
 	ui := new(UI)
 	defer free(ui)
-	defer ui_nav_destroy(ui)
+	defer core.nav_destroy(ui)
 	main, win := new(mu.Container), new(mu.Container)
 	defer free(main)
 	defer free(win)
@@ -155,7 +155,7 @@ test_nav_opened_window :: proc(t: ^testing.T) {
 			)
 		}
 		ui.keys = keys
-		nav_frame(ui)
+		core.nav_frame(ui)
 	}
 	// Space on button 2 opens a window a frame later: its first control gets
 	// the focus.
@@ -193,7 +193,7 @@ test_nav_opened_window :: proc(t: ^testing.T) {
 test_nav_list :: proc(t: ^testing.T) {
 	ui := new(UI)
 	defer free(ui)
-	defer ui_nav_destroy(ui)
+	defer core.nav_destroy(ui)
 
 	// A button, a list of three with the second selected, and a button.
 	frame := proc(ui: ^UI, keys: bit_set[core.Extra_Key]) {
@@ -203,7 +203,7 @@ test_nav_list :: proc(t: ^testing.T) {
 		append(&ui.nav.items, core.Nav_Item{12, {}, nil, nil, -1, 10, false})
 		append(&ui.nav.items, core.Nav_Item{2, {}, nil, nil, -1, 0, false})
 		ui.keys = keys
-		nav_frame(ui)
+		core.nav_frame(ui)
 	}
 	frame(ui, {.Tab})
 	testing.expect_value(t, ui.nav.focus, 1)
@@ -239,20 +239,23 @@ test_keys_queued :: proc(t: ^testing.T) {
 	saved := g_ui
 	g_ui = ui
 	defer g_ui = saved
+	saved_env := core.g_env
+	core.g_env = &ui.env
+	defer core.g_env = saved_env
 
 	// Three Tabs and two Escapes before a frame: the Tabs each get a frame,
 	// the Escapes are one.
-	key_press(.Tab)
-	key_press(.Tab)
-	key_press(.Tab)
-	key_press(.Escape)
-	key_press(.Escape)
+	core.key_press(.Tab)
+	core.key_press(.Tab)
+	core.key_press(.Tab)
+	core.key_press(.Escape)
+	core.key_press(.Escape)
 	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{.Tab, .Escape})
-	keys_next_frame(ui)
+	core.keys_next_frame(ui)
 	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{.Tab})
-	keys_next_frame(ui)
+	core.keys_next_frame(ui)
 	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{.Tab})
-	keys_next_frame(ui)
+	core.keys_next_frame(ui)
 	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{})
 }
 
@@ -260,7 +263,7 @@ test_keys_queued :: proc(t: ^testing.T) {
 test_nav_scroll_into_view :: proc(t: ^testing.T) {
 	ui := new(UI)
 	defer free(ui)
-	defer ui_nav_destroy(ui)
+	defer core.nav_destroy(ui)
 	panel := new(mu.Container)
 	defer free(panel)
 	panel.body = {0, 0, 100, 100}
@@ -270,7 +273,7 @@ test_nav_scroll_into_view :: proc(t: ^testing.T) {
 	// Below the panel's body: scrolled down by as much as it sticks out.
 	append(&ui.nav.items, core.Nav_Item{1, {0, 150, 100, 20}, nil, panel, -1, 0, false})
 	ui.keys = {.Tab}
-	nav_frame(ui)
+	core.nav_frame(ui)
 	testing.expect_value(t, ui.nav.focus, 1)
 	testing.expect_value(t, panel.scroll.y, 150 + 20 - 100)
 
@@ -279,7 +282,7 @@ test_nav_scroll_into_view :: proc(t: ^testing.T) {
 	append(&ui.nav.items, core.Nav_Item{1, {0, 150, 100, 20}, nil, panel, -1, 0, false})
 	append(&ui.nav.items, core.Nav_Item{2, {0, -50, 100, 20}, nil, panel, -1, 0, false})
 	ui.keys = {.Tab}
-	nav_frame(ui)
+	core.nav_frame(ui)
 	testing.expect_value(t, ui.nav.focus, 2)
 	testing.expect_value(t, panel.scroll.y, 0)
 }

@@ -2,7 +2,6 @@ package ui
 
 import "core"
 import "titlebar"
-import "redraw"
 import "base:intrinsics"
 import "client:audio"
 import "client:clipboard"
@@ -45,6 +44,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 
 ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	g_ui = ui
+	core.g_env = &ui.env
 	g_logger = context.logger
 	ui.opts = opts
 	ui.log_drawn = -1
@@ -133,7 +133,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	free_all(context.temp_allocator)
 
 	if ui.action != .None {
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	switch ui.action {
 	case .None:
@@ -282,7 +282,7 @@ draw_frame :: proc(ui: ^UI) {
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
-	nav_frame(ui)
+	core.nav_frame(ui)
 	mu.end(&ui.ctx)
 	clock_redraws(ui)
 	settle(ui)
@@ -307,18 +307,15 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	camera_after_frame(ui)
-	keys_next_frame(ui)
+	core.keys_next_frame(ui)
 	// The window's buttons keep their size at 100%. Only the display's
 	// density scales them, not the UI's zoom.
 	ui.renderer.control_scale = m.scale / settings.ui_scale_factor(&ui.settings)
-	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
+	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, core.theme.background)
 	render.gpu_present(&ui.renderer.gpu)
 	// A camera turned off in this frame no longer has its preview drawn.
 	video.frame_done()
 }
-
-// How often things that move smoothly (a fade, the level meter) are redrawn.
-ANIMATION_FRAME :: redraw.ANIMATION_FRAME
 
 // ui_wake asks for a frame from any thread, for a change that no input
 // event reports: from the network side (View.wake) and from threads that
@@ -329,26 +326,11 @@ ui_wake :: proc "c" () {
 	}
 }
 
-// ui_redraw asks for frames right now, from the UI's own thread.
-ui_redraw :: proc "contextless" (env: ^core.Env) {
-	redraw.now(&env.redraw)
-}
-
-// ui_redraw_at asks for a frame by `at`, for things that change with the clock
-// alone. The layout asks again in every frame that still needs it.
-ui_redraw_at :: proc(env: ^core.Env, at: time.Tick) {
-	redraw.at(&env.redraw, at)
-}
-
-ui_redraw_in :: proc(env: ^core.Env, after: time.Duration) {
-	redraw.after(&env.redraw, after)
-}
-
 // frame_due says whether the loop should draw a frame in this turn.
 @(private = "file")
 frame_due :: proc(ui: ^UI) -> bool {
 	if intrinsics.atomic_exchange(&g_wake, false) {
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	if ui.redraw.frames > 0 {
 		return true
@@ -379,20 +361,20 @@ clock_redraws :: proc(ui: ^UI) {
 		v := ui.view
 		sync.guard(&v.mutex)
 		if t := conn.speaking_until(v); t != {} {
-			ui_redraw_at(ui, t)
+			core.redraw_at(ui, t)
 		}
 		if t := conn.typing_until(v); t != {} {
-			ui_redraw_at(ui, t)
+			core.redraw_at(ui, t)
 		}
 		if t := notice_until(v); t != {} {
-			ui_redraw_at(ui, t)
+			core.redraw_at(ui, t)
 		}
 	}
 	// Message times, "Today" and "last seen 5 minutes ago" all
 	// change on the minute.
 	MINUTE :: i64(time.Minute)
 	into := time.time_to_unix_nano(time.now()) % MINUTE
-	ui_redraw_in(ui, time.Duration(MINUTE - into))
+	core.redraw_in(ui, time.Duration(MINUTE - into))
 }
 
 // settle asks for another frame when this frame's draw commands differ
@@ -432,7 +414,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	app_audio_destroy(ui)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
-	ui_nav_destroy(ui)
+	core.nav_destroy(ui)
 	ui_palette_destroy(ui)
 	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
@@ -454,7 +436,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	known_servers_destroy(ui)
 	install_destroy(ui)
 	ui_chat_destroy(ui)
-	ui_select_destroy(ui)
+	core.select_destroy(ui)
 	conn.view_destroy(ui.view)
 }
 

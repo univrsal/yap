@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import mu "vendor:microui"
 
 import "client:conn"
@@ -76,7 +77,7 @@ voice_drag_target :: proc(ui: ^UI, ch: conn.View_Channel, block: mu.Rect) {
 		return
 	}
 	d.target = ch.id
-	accent := theme.link
+	accent := core.theme.link
 	mu.draw_rect(ctx, block, {accent.r, accent.g, accent.b, 40})
 	edge: i32 = 2
 	mu.draw_rect(ctx, {block.x, block.y, block.w, edge}, accent)
@@ -124,7 +125,7 @@ voice_drag_frame :: proc(ui: ^UI) {
 	ui.voice_drag = {}
 	if !drag.dragging {
 		open_user_menu(ui, drag.num, drag.account)
-		ui_redraw(ui) // user_menu opens it in the next frame
+		core.redraw_now(ui) // user_menu opens it in the next frame
 		return
 	}
 	if target != 0 {
@@ -157,7 +158,7 @@ drag_label :: proc(ui: ^UI, name: string, over_target: bool) {
 		return
 	}
 	defer mu.end_window(ctx)
-	border := theme.link if over_target else ctx.style.colors[.BORDER]
+	border := core.theme.link if over_target else ctx.style.colors[.BORDER]
 	render.draw_rounded(ctx, r, ctx.style.colors[.BASE], render.CONTROL_RADIUS)
 	render.draw_rounded_border(ctx, r, border, render.CONTROL_RADIUS)
 	mu.draw_icon(

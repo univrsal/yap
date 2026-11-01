@@ -62,7 +62,7 @@ camera_settings :: proc(ui: ^UI) {
 			ctx,
 			"This browser can't use a camera." when platform.WEB else "No cameras found.",
 		)
-		ui_redraw_in(ui, time.Second)
+		core.redraw_in(ui, time.Second)
 		return
 	}
 
@@ -178,5 +178,5 @@ camera_preview :: proc(ui: ^UI, quality: conn.Camera_Quality) {
 		self_view(ui, r, waiting)
 	}
 	// The preview moves.
-	ui_redraw_in(ui, 33 * time.Millisecond)
+	core.redraw_in(ui, 33 * time.Millisecond)
 }

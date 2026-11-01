@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:strings"
 import "core:sync"
@@ -324,7 +325,7 @@ activity_dot :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 	d := max(r.w / 3, 7)
 	edge := mu.Rect{r.x + r.w - d + 1, r.y + r.h - d + 1, d + 1, d + 1}
-	disc(ui, edge, theme.dot_ring)
+	disc(ui, edge, core.theme.dot_ring)
 	disc(ui, edge, ACTIVITY_COLORS[acc.activity], inset = 1)
 }
 

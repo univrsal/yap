@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "titlebar"
 
 import "client:render"
@@ -62,7 +63,7 @@ window_buttons :: proc(ui: ^UI, w: i32, gap: f32, maximized: bool) -> int {
 		id := mu.get_id(ctx, b.id)
 		r := mu.Rect{w - size * i32(titlebar.BUTTON_COUNT - i), 0, size, ui.titlebar_height}
 		mu.update_control(ctx, id, r)
-		if nav_control(ctx, id, r) {
+		if core.nav_control(ctx, id, r) {
 			clicked = i
 		}
 		color := ctx.style.colors[.TEXT]

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:sync"
@@ -126,22 +127,22 @@ camera_button :: proc(ui: ^UI) {
 	if state != .Off {
 		// The page may change it (the browser's own prompt, a camera that is
 		// unplugged).
-		ui_redraw_in(ui, 250 * time.Millisecond)
+		core.redraw_in(ui, 250 * time.Millisecond)
 	}
 	hint := "Turn your camera on"
 	color := mu.Color{}
 	icon := render.Icon.Camera
 	switch state {
 	case .Live:
-		hint, color = "Turn your camera off", theme.speaking
+		hint, color = "Turn your camera off", core.theme.speaking
 	case .Starting:
-		hint, color = "Turning your camera on...", theme.dim
+		hint, color = "Turning your camera on...", core.theme.dim
 	case .Failed:
 		hint = "Your camera didn't start (it isn't allowed, or another program has it); try again"
 		if why := video.camera_error(); why != "" {
 			hint = fmt.tprintf("Your camera didn't start: %s. Try again", why)
 		}
-		color, icon = theme.off, .Camera_Off
+		color, icon = core.theme.off, .Camera_Off
 	case .Off:
 	}
 	if .SUBMIT in icon_button(ui, "camera", icon, hint, color) {
@@ -520,7 +521,7 @@ video_body :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 	mu.draw_rect(&ui.ctx, r, {0, 0, 0, 255})
 	// A page draws its pictures every frame (the library wakes us instead).
 	when platform.WEB {
-		ui_redraw_at(ui, time.tick_now())
+		core.redraw_at(ui, time.tick_now())
 	}
 	if in_call(v) {
 		call_video(ui, v, r)
@@ -563,10 +564,10 @@ call_video :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 	small := mu.Rect{r.x + r.w - w - SELF_VIEW_GAP, r.y + r.h - h - SELF_VIEW_GAP, w, h}
 	id := mu.get_id(ctx, "video corner")
 	mu.update_control(ctx, id, small)
-	if nav_control(ctx, id, small) {
+	if core.nav_control(ctx, id, small) {
 		cam.swapped = !cam.swapped
 	}
-	if ctx.hover_id == id || nav_focused(ctx, id) {
+	if ctx.hover_id == id || core.nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = "Swap the pictures", small
 		if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
 			cam.swapped = !cam.swapped
@@ -707,10 +708,10 @@ tile :: proc(ui: ^UI, r: mu.Rect, t: Tile, large: bool) {
 	id := mu.get_id(ctx, "tile")
 	mu.pop_id(ctx)
 	mu.update_control(ctx, id, r)
-	if nav_control(ctx, id, r) {
+	if core.nav_control(ctx, id, r) {
 		ui.camera.focus = 0 if large else t.user
 	}
-	if ctx.hover_id == id || nav_focused(ctx, id) {
+	if ctx.hover_id == id || core.nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = "Back to all cameras" if large else "Make larger", r
 		if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
 			ui.camera.focus = 0 if large else t.user
@@ -724,8 +725,8 @@ tile :: proc(ui: ^UI, r: mu.Rect, t: Tile, large: bool) {
 	mu.draw_text(ctx, ctx.style.font, t.name, {band.x + 6, band.y + 3}, {255, 255, 255, 255})
 	mu.pop_clip_rect(ctx)
 	if t.speaking {
-		mu.draw_box(ctx, r, theme.speaking)
-		mu.draw_box(ctx, mu.expand_rect(r, -1), theme.speaking)
+		mu.draw_box(ctx, r, core.theme.speaking)
+		mu.draw_box(ctx, mu.expand_rect(r, -1), core.theme.speaking)
 	}
 }
 
@@ -772,7 +773,7 @@ centred_text :: proc(ui: ^UI, r: mu.Rect, text: string) {
 		ctx.style.font,
 		text,
 		{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2},
-		theme.dim,
+		core.theme.dim,
 	)
 }
 

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "client:conn"
 import "client:platform"
 import "client:render"
@@ -446,7 +447,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 	}
 	defer mu.end_window(ctx)
 	// The darkest of the surfaces (see theme.rail), without a border.
-	mu.draw_rect(ctx, {0, 0, RAIL_WIDTH, h}, theme.rail)
+	mu.draw_rect(ctx, {0, 0, RAIL_WIDTH, h}, core.theme.rail)
 	// With the title bar merged on macOS, the window's buttons sit over the
 	// rail's top left (see ui/titlebar/titlebar_darwin.odin), so start below them.
 	if ui.titlebar_left > 0 && ui.titlebar_height > 0 {
@@ -481,7 +482,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		text := mu.Color{255, 255, 255, 255}
 		switch status {
 		case .Failed, .Disconnected:
-			color, text = theme.failed_disc, theme.failed_text
+			color, text = core.theme.failed_disc, core.theme.failed_text
 			label = fmt.tprintf("%s\nnot connected", label)
 		case .Connecting:
 			color = dimmed(color)
@@ -512,7 +513,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 			ui.switch_to, ui.switching = ns, true
 		}
 		if !shown && ns.unread > 0 {
-			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, theme.mark)
+			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, core.theme.mark)
 		}
 		if ns.mentions > 0 {
 			mentions_badge(ui, r, ns.mentions)
@@ -532,7 +533,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		ui,
 		RAIL_PLUS,
 		"",
-		theme.plus_disc,
+		core.theme.plus_disc,
 		white,
 		"Join a server",
 		ui.join.open,
@@ -564,7 +565,7 @@ inbox_icon :: proc(ui: ^UI) {
 		hint = fmt.tprintf("Direct messages\n%s unread", conn.unread_count(ui.dm_unread))
 	}
 	white := mu.Color{255, 255, 255, 255}
-	r, id, keyed := rail_icon(ui, RAIL_INBOX, "", theme.plus_disc, white, hint, open)
+	r, id, keyed := rail_icon(ui, RAIL_INBOX, "", core.theme.plus_disc, white, hint, open)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	mu.draw_icon(ctx, render.icon_id(.Yap), icon, white)
 	if ui.dm_unread > 0 {
@@ -576,7 +577,7 @@ inbox_icon :: proc(ui: ^UI) {
 	mu.draw_rect(
 		ctx,
 		{line.x + (line.w - RAIL_ICON) / 2 + 6, line.y, RAIL_ICON - 12, 2},
-		theme.unlit,
+		core.theme.unlit,
 	)
 	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		// Logged in nowhere, so there is nothing to show in it.
@@ -648,10 +649,10 @@ rail_me :: proc(ui: ^UI, r: mu.Rect) {
 	avatar_ringed(ui, v.me, r, talking)
 	id := mu.get_id(ctx, "me in rail")
 	mu.update_control(ctx, id, r)
-	if nav_control(ctx, id, r) {
+	if core.nav_control(ctx, id, r) {
 		open_status_editor(ui)
 	}
-	if ctx.hover_id == id || nav_focused(ctx, id) {
+	if ctx.hover_id == id || core.nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = "Set your status", r
 	}
 	if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
@@ -718,7 +719,7 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 			line_y :=
 				middles[to] - RAIL_SLOT / 2 if to < len(middles) else middles[len(middles) - 1] + RAIL_SLOT / 2
 			x := i32((RAIL_WIDTH - RAIL_ICON) / 2)
-			mu.draw_rect(ctx, {x, line_y - 1, RAIL_ICON, 3}, theme.mark)
+			mu.draw_rect(ctx, {x, line_y - 1, RAIL_ICON, 3}, core.theme.mark)
 		}
 		return
 	}
@@ -767,8 +768,8 @@ mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	icon_right := r.x + (r.w + RAIL_ICON) / 2
 	icon_bottom := r.y + 3 + RAIL_ICON
 	b := mu.Rect{icon_right + 2 - w, icon_bottom + 2 - h, w, h}
-	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, theme.rail)
-	pill(ui, b, theme.mentions)
+	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, core.theme.rail)
+	pill(ui, b, core.theme.mentions)
 	mu.draw_text(ctx, font, text, {b.x + (w - tw) / 2, b.y}, {255, 255, 255, 255})
 }
 
@@ -801,7 +802,7 @@ rail_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !begin_popup(ui, RAIL_MENU) {
+	if !core.begin_popup(ui, RAIL_MENU) {
 		rl.confirm = .None
 		return
 	}
@@ -952,18 +953,18 @@ rail_icon :: proc(
 ) -> (
 	r: mu.Rect,
 	id: mu.Id,
-	keyed: bool, // pressed from the keyboard (ui/nav.odin)
+	keyed: bool, // pressed from the keyboard (ui/core/nav.odin)
 ) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, RAIL_SLOT)
 	r = mu.layout_next(ctx)
 	id = mu.get_id(ctx, key)
 	mu.update_control(ctx, id, r)
-	keyed = nav_control(ctx, id, r)
-	hinted := ctx.hover_id == id || nav_focused(ctx, id)
+	keyed = core.nav_control(ctx, id, r)
+	hinted := ctx.hover_id == id || core.nav_focused(ctx, id)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {
-		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.accent)
+		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, core.theme.accent)
 	}
 	if pic, ok := picture.?; ok {
 		mu.draw_icon(ctx, pic, icon, text_color)

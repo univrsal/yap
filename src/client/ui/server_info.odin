@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import "core:hash"
 import "core:strings"
@@ -137,7 +138,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	case p.pick != nil && p.pick_for == .Server_Icon:
 		dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "" && p.pick_for == .Server_Icon:
-		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
+		with_text_color(ctx, core.theme.off, p.pick_notice, label_proc)
 	case v.server_icon != 0:
 		if .SUBMIT in stable_button(ctx, "icon remove", "Remove", {.ALIGN_CENTER}) {
 			s.asked = true

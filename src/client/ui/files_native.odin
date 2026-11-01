@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:c"
 import "core:os"
@@ -192,7 +193,7 @@ drop_callback :: proc "c" (window: glfw.WindowHandle, count: c.int, paths: [^]cs
 	for i in 0 ..< int(count) {
 		append(&g_ui.dropped, strings.clone_from_cstring(paths[i]))
 	}
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 }
 
 // attach_dropped attaches what was dropped on the window.
@@ -222,7 +223,7 @@ drag_frame :: proc(ui: ^UI) {
 	}
 	pos := mu.Vec2{to_logical(x), to_logical(y)}
 	if over != ui.drag.over || pos != ui.drag.pos {
-		ui_redraw(ui)
+		core.redraw_now(ui)
 	}
 	ui.drag.over, ui.drag.pos, ui.drag.known = over, pos, true
 }

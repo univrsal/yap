@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "base:intrinsics"
 import mu "vendor:microui"
 
@@ -22,13 +23,13 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// is painted over that (content_surface).
 	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_CLOSE}
 	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, opts) {
-		mu.draw_rect(ctx, mu.get_current_container(ctx).rect, theme.sidebar)
+		mu.draw_rect(ctx, mu.get_current_container(ctx).rect, core.theme.sidebar)
 		titlebar_buttons(ui, w)
 		ui.title_line, ui.conv_line = 0, 0
 		main_window(ui)
 		// Under the title row, from the rail to the window's right edge.
 		if ui.title_line > 0 {
-			mu.draw_rect(ctx, {rail, ui.title_line, w - rail, 1}, theme.divider)
+			mu.draw_rect(ctx, {rail, ui.title_line, w - rail, 1}, core.theme.divider)
 		}
 		mu.end_window(ctx)
 	}
@@ -79,7 +80,7 @@ content_surface :: proc(ui: ^UI) -> mu.Rect {
 	bottom := cell.y + cell.h
 	bottom = win.y + win.h if win.y + win.h - bottom <= near else bottom + half
 	r := mu.Rect{left, top, right - left, bottom - top}
-	mu.draw_rect(ctx, r, theme.content)
+	mu.draw_rect(ctx, r, core.theme.content)
 	return r
 }
 
@@ -131,7 +132,7 @@ header_surface :: proc(ui: ^UI, r: mu.Rect) {
 	ctx := &ui.ctx
 	win := mu.get_current_container(ctx).rect
 	x := r.x + r.w
-	mu.draw_rect(ctx, {x, r.y, win.x + win.w - x, ui.conv_line - r.y}, theme.content)
+	mu.draw_rect(ctx, {x, r.y, win.x + win.w - x, ui.conv_line - r.y}, core.theme.content)
 }
 
 // conversation_lines draws the lines along a conversation's surface `r`
@@ -145,11 +146,11 @@ conversation_lines :: proc(ui: ^UI, r: mu.Rect, divider: bool) {
 	top := r.y
 	if ui.conv_line > 0 {
 		top = ui.conv_line
-		mu.draw_rect(ctx, {r.x, top, win.x + win.w - r.x, 1}, theme.divider_soft)
+		mu.draw_rect(ctx, {r.x, top, win.x + win.w - r.x, 1}, core.theme.divider_soft)
 		top += 1
 	}
 	if divider {
-		mu.draw_rect(ctx, {r.x + r.w, top, 1, r.y + r.h - top}, theme.divider)
+		mu.draw_rect(ctx, {r.x + r.w, top, 1, r.y + r.h - top}, core.theme.divider)
 	}
 }
 

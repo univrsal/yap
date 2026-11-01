@@ -29,7 +29,7 @@ text_box :: proc(env: ^core.Env, buf: []u8, textlen: ^int, opt := mu.Options{}) 
 		)
 	}
 	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
-	nav_control(ctx, id, r, textlen^)
+	core.nav_control(ctx, id, r, textlen^)
 	if ctx.hover_id == id {
 		env.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
@@ -68,12 +68,4 @@ password_box :: proc(env: ^core.Env, buf: []u8, textlen: ^int, opt := mu.Options
 		at += cmd.size
 	}
 	return res
-}
-
-// focus_at gives the text box `id` the focus, with the cursor `at` bytes into
-// its text, so typing continues from text that was put in it.
-focus_at :: proc(ctx: ^mu.Context, id: mu.Id, at: int) {
-	mu.set_focus(ctx, id)
-	ctx.textbox_state.id = u64(id)
-	ctx.textbox_state.selection = {at, at}
 }

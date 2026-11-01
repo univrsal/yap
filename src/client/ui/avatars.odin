@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:math"
 import "core:strings"
 import "core:unicode"
@@ -73,7 +74,7 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 	// A disc and a letter, or a plain grey disc for a deleted account.
 	deleted := known && .Deleted in acc.flags
-	color := theme.deleted_disc if deleted else avatar_color(account)
+	color := core.theme.deleted_disc if deleted else avatar_color(account)
 	disc_letter(ui, r, color, acc.display if known && !deleted else "")
 }
 
@@ -244,7 +245,7 @@ avatar_ringed :: proc(
 	account: proto.Account_Id,
 	slot: mu.Rect,
 	ring: bool,
-	color := theme.speaking,
+	color := core.theme.speaking,
 ) {
 	ctx := &ui.ctx
 	a := &ui.avatars

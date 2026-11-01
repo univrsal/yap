@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import "core:slice"
@@ -342,7 +343,7 @@ members_button :: proc(ui: ^UI) {
 		   "members",
 		   .Buddies,
 		   "Hide the members" if p.members_open else "Members",
-		   theme.chat_name if p.members_open else {},
+		   core.theme.chat_name if p.members_open else {},
 	   ) {
 		p.members_open = !p.members_open
 		p.members_placed = false
@@ -499,14 +500,14 @@ person_row :: proc(
 	id := mu.get_id(ctx, "person")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r, list = true)
+	keyed := core.nav_control(ctx, id, r, list = true)
 	if ctx.hover_id == id {
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
 	acc := v.accounts[account] or_else {}
 	// In the colour of their roles, if they have one, and fainter when they
 	// aren't here.
-	color := ctx.style.colors[.TEXT] if online else theme.dim
+	color := ctx.style.colors[.TEXT] if online else core.theme.dim
 	if c, ok := name_color(v, account); ok {
 		color = c if online else {c.r, c.g, c.b, 140}
 	}
@@ -567,7 +568,7 @@ name_and_status :: proc(
 		more = extra if more == "" else fmt.tprintf("%s  ·  %s", more, extra)
 	}
 	if more != "" {
-		mu.draw_text(ctx, font, more, {x, y}, status_color if status_color.a != 0 else theme.dim)
+		mu.draw_text(ctx, font, more, {x, y}, status_color if status_color.a != 0 else core.theme.dim)
 	}
 	return
 }
@@ -639,7 +640,7 @@ profile_settings :: proc(ui: ^UI) {
 	case p.pick != nil:
 		dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "":
-		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
+		with_text_color(ctx, core.theme.off, p.pick_notice, label_proc)
 	case me.avatar != 0:
 		if .SUBMIT in stable_button(ctx, "avatar remove", "Remove", {.ALIGN_CENTER}) {
 			command(ui, conn.Avatar_Command{remove = true})

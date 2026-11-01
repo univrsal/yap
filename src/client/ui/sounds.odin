@@ -271,7 +271,7 @@ sound_settings :: proc(ui: ^UI) {
 		}
 		if note := ui.sounds.notes[kind]; note != "" {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.warning, note, wrap_text)
+			with_text_color(ctx, core.theme.warning, note, wrap_text)
 		}
 	}
 }

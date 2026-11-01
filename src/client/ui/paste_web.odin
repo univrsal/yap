@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "core"
 import "client:conn"
 import "client:platform"
 import log "common:wlog"
@@ -92,7 +93,7 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 		size     = u64(size),
 	}
 	attach_add(g_ui, at, {picked})
-	ui_redraw(g_ui)
+	core.redraw_now(g_ui)
 }
 
 // How big a file the current server accepts (0: none), so that the page can

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:sync"
 import mu "vendor:microui"
@@ -176,7 +177,7 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
 		dim_note(ctx, "Still trying the encoders...")
-		ui_redraw_in(ui, ANIMATION_FRAME * 15)
+		core.redraw_in(ui, core.ANIMATION_FRAME * 15)
 	}
 	if cfg.encoder != "" && encoders != nil {
 		// The best encoder that works keeps to what everyone in the room can

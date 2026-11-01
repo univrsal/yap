@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import "core:strings"
@@ -106,7 +107,7 @@ message_bar_track :: proc(
 	if !want || mu.intersect_rects(block, clip).h <= 0 {
 		return
 	}
-	mu.draw_rect(ctx, block, theme.hover_tint)
+	mu.draw_rect(ctx, block, core.theme.hover_tint)
 	b.found, b.target, b.msg, b.block, b.clip = true, t, m, block, clip
 	b.panel = mu.get_current_container(ctx)
 	b.host = nil
@@ -225,7 +226,7 @@ message_bar :: proc(ui: ^UI) {
 	if pin {
 		pinned := .Pinned in m.flags
 		hint := "Unpin" if pinned else "Pin"
-		if .SUBMIT in icon_button(ui, "pin", .Pin, hint, theme.pinned if pinned else {}) {
+		if .SUBMIT in icon_button(ui, "pin", .Pin, hint, core.theme.pinned if pinned else {}) {
 			conn.push_command(cmds, conn.Pin_Command{id = m.id, on = !pinned})
 			done = true
 		}
@@ -288,9 +289,9 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 	id := mu.get_id(ctx, "recent")
 	rect := mu.layout_next(ctx)
 	mu.update_control(ctx, id, rect)
-	keyed := nav_control(ctx, id, rect)
+	keyed := core.nav_control(ctx, id, rect)
 	if r.me {
-		color := theme.highlight_more if ctx.hover_id == id else theme.highlight
+		color := core.theme.highlight_more if ctx.hover_id == id else core.theme.highlight
 		render.draw_rounded(ctx, rect, color, render.CONTROL_RADIUS)
 	} else {
 		mu.draw_control_frame(ctx, id, rect, .BUTTON)

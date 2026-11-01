@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:time"
 import "core:time/datetime"
@@ -126,7 +127,7 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 		text = rich_make(shown, spans, emoji, nil, false)
 	}
 	status := "sending files..." if p.uploading else "sending..."
-	chat_message(ui, status, theme.dim, &text, theme.dim, false, item)
+	chat_message(ui, status, core.theme.dim, &text, core.theme.dim, false, item)
 	pending_files(ui, p)
 }
 

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import "core:fmt"
 import "core:strings"
@@ -288,14 +289,14 @@ composer_send_button :: proc(ui: ^UI, c: Composer, id_name, hint: string) -> boo
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r)
+	keyed := core.nav_control(ctx, id, r)
 	pressed := ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed
 	ready :=
 		strings.trim_space(string(c.buf[:c.len^])) != "" || (c.files != nil && len(c.files) > 0)
 	over := ctx.hover_id == id
 	back, fore: mu.Color
 	if ready {
-		back, fore = theme.accent_hover if over else theme.accent, theme.accent_text
+		back, fore = core.theme.accent_hover if over else core.theme.accent, core.theme.accent_text
 	} else {
 		back, fore = ctx.style.colors[.BUTTON_HOVER if over else .BUTTON], ctx.style.colors[.TEXT]
 	}
@@ -327,8 +328,8 @@ composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id, r
 	}
 	if takes_focus(ui, c) {
 		c.area.preview = false
-		focus_at(ctx, box, c.len^ if ui.focus_composer_at < 0 else ui.focus_composer_at)
-		ui_redraw(ui) // for the box to show it has the focus, and the caret
+		core.focus_at(ctx, box, c.len^ if ui.focus_composer_at < 0 else ui.focus_composer_at)
+		core.redraw_now(ui) // for the box to show it has the focus, and the caret
 	}
 	return
 }
@@ -360,7 +361,7 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	color := ctx.style.colors[.TEXT]
 	text: Rich
 	if typed == "" {
-		text, color = rich_plain("Nothing to preview yet."), theme.dim
+		text, color = rich_plain("Nothing to preview yet."), core.theme.dim
 	} else {
 		text = message_rich(
 			ui,
@@ -470,12 +471,12 @@ NOTICE_SHOW :: 5 * time.Second
 chat_status :: proc(ui: ^UI) -> (status: string, color: mu.Color) {
 	v := ui.view
 	status = "reading the clipboard..." if ui.paste != nil else typing_text(v)
-	color = theme.dim
+	color = core.theme.dim
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
 		status = editing
 	}
 	if notice, ok, fresh := fresh_notice(v); fresh {
-		status, color = notice, theme.dim if ok else theme.error
+		status, color = notice, core.theme.dim if ok else core.theme.error
 	}
 	when TIMELINE_DEBUG {
 		status = fmt.tprintf(
@@ -742,9 +743,9 @@ file_message :: proc(
 	r := mu.layout_next(ctx)
 	if f.state == .Transferring {
 		r.w = min(r.w, 300)
-		mu.draw_rect(ctx, r, theme.track)
+		mu.draw_rect(ctx, r, core.theme.track)
 		done := f32(f.done) / f32(max(f.size, 1))
-		mu.draw_rect(ctx, {r.x, r.y, i32(f32(r.w) * clamp(done, 0, 1)), r.h}, theme.speaking)
+		mu.draw_rect(ctx, {r.x, r.y, i32(f32(r.w) * clamp(done, 0, 1)), r.h}, core.theme.speaking)
 	}
 	mu.layout_row(ctx, {-1}, FILE_BAR_GAP)
 	mu.layout_next(ctx)
@@ -839,15 +840,15 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 	switch f.state {
 	case .Unknown:
 		return "offered earlier, or on another device" if !f.outgoing else "offered from another device",
-			theme.dim
+			core.theme.dim
 	case .Posting:
-		return "offering...", theme.dim
+		return "offering...", core.theme.dim
 	case .Offered:
-		return "waiting for them to accept", theme.dim
+		return "waiting for them to accept", core.theme.dim
 	case .Incoming:
-		return "wants to send you this", theme.chat_name
+		return "wants to send you this", core.theme.chat_name
 	case .Starting:
-		return "starting...", theme.dim
+		return "starting...", core.theme.dim
 	case .Transferring:
 		percent := 100 * f64(f.done) / f64(max(f.size, 1))
 		text := fmt.tprintf(
@@ -859,30 +860,30 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 		if f.rate > 0 {
 			text = fmt.tprintf("%s  -  %s/s", text, conn.format_bytes(u64(f.rate)))
 		}
-		return text, theme.dim
+		return text, core.theme.dim
 	case .Done:
 		if f.outgoing {
-			return "sent", theme.speaking
+			return "sent", core.theme.speaking
 		}
 		when platform.WEB {
-			return "downloaded", theme.speaking
+			return "downloaded", core.theme.speaking
 		} else {
-			return fmt.tprintf("saved to %s", f.path), theme.speaking
+			return fmt.tprintf("saved to %s", f.path), core.theme.speaking
 		}
 	case .Declined:
-		return "declined" if !f.outgoing else "they declined", theme.dim
+		return "declined" if !f.outgoing else "they declined", core.theme.dim
 	case .Cancelled:
-		return "cancelled", theme.dim
+		return "cancelled", core.theme.dim
 	case .Failed:
-		return "failed", theme.off
+		return "failed", core.theme.off
 	case .Interrupted:
-		return "stopped: one side left", theme.off
+		return "stopped: one side left", core.theme.off
 	case .Expired:
-		return "no longer available", theme.dim
+		return "no longer available", core.theme.dim
 	case .Elsewhere:
-		return "answered on another of your devices", theme.dim
+		return "answered on another of your devices", core.theme.dim
 	}
-	return "", theme.dim
+	return "", core.theme.dim
 }
 
 // chat_message draws the gap before this message, a header line unless
@@ -945,7 +946,7 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 		}
 		rich.runs = runs[:]
 	}
-	select_item(ui, item, header)
+	core.select_item(ui, item, header)
 	select_line(ui, item, header, 0, len(header), {r.x, r.y}, &rich)
 	t_lo, t_hi := ui.header_time[0], ui.header_time[1]
 	if t_hi > len(header) || t_lo < hi || t_lo >= t_hi {
@@ -954,7 +955,7 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 	pieces := [?]struct {
 		end:   int,
 		color: mu.Color,
-	}{{lo, color}, {hi, color}, {t_lo, color}, {t_hi, theme.dim}, {len(header), color}}
+	}{{lo, color}, {hi, color}, {t_lo, color}, {t_hi, core.theme.dim}, {len(header), color}}
 	start := 0
 	for p in pieces {
 		if p.end > start {
@@ -987,7 +988,7 @@ clicked_not_dragged :: proc(ui: ^UI) -> bool {
 		.LEFT in ui.ctx.mouse_released_bits &&
 		ui.select.dragging &&
 		ui.select.panel == ui.select.drawing &&
-		!has_selection(&ui.select, ui.select.drawing) \
+		!core.has_selection(&ui.select, ui.select.drawing) \
 	)
 }
 
@@ -1000,7 +1001,7 @@ clicked_not_dragged :: proc(ui: ^UI) -> bool {
 wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 	ctx := &ui.ctx
 	font := ctx.style.font
-	select_item(ui, item, text)
+	core.select_item(ui, item, text)
 	rest := text
 	for len(rest) > 0 {
 		r := mu.layout_next(ctx)
