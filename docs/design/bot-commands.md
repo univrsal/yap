@@ -219,8 +219,8 @@ register a command for others; that is what a bot is for.
 
 | # | Change | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Protocol: the four ops, the codec and its tests; limits and sanitizing | S | `common/proto` | - | planned |
-| 2 | Server: the in-memory registry, `Bot_Commands_Set`, `Commands_Changed` (also in the sync, and when a bot's last connection closes) | M | `server` | 1 | planned |
+| 1 | Protocol: the four ops, the codec and its tests; limits and sanitizing | S | `common/proto` | - | done (2026-11-01) |
+| 2 | Server: the in-memory registry, `Bot_Commands_Set`, `Commands_Changed` (also in the sync, and when a bot's last connection closes) | M | `server` | 1 | done (2026-11-01) |
 | 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | planned |
 | 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | planned |
 | 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | planned |

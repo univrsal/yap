@@ -88,6 +88,11 @@ Conn :: struct {
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
 	stream:          Conn_Stream, // requests and events (stream.odin, rpc.odin)
+	// The slash commands this connection registered (bot_commands.odin), owned.
+	// `commands_seq` says when, so that the newest set of an account counts;
+	// 0 means it never registered any.
+	commands:        []proto.Bot_Command,
+	commands_seq:    u64,
 }
 
 Server :: struct {
@@ -130,6 +135,8 @@ Server :: struct {
 	version:            u32,
 	// The last user number handed out; numbers are never reused.
 	last_num:           proto.User_Num,
+	// Counts the sets of slash commands bots registered (bot_commands.odin).
+	commands_seq:       u64,
 	// Files offered in DMs, keyed by the message that offers them, and the
 	// transfers being relayed, keyed the same way (files.odin).
 	file_offers:        map[proto.Msg_Id]File_Offer,
@@ -630,6 +637,7 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 	u.account = nil
 	u.idle = false
 	u.hidden = false
+	bot_commands_conn_gone(s, u, acc)
 	activity_check(s, acc)
 	bump_version(s)
 }

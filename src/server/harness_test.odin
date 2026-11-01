@@ -69,6 +69,7 @@ ts_close :: proc(ts: ^Test_Server) {
 		free(client)
 		proto.stream_destroy(&u.stream)
 		drop_conn_transfers(u)
+		bot_commands_free(u)
 		free(u)
 	}
 	delete(ts.clients)
