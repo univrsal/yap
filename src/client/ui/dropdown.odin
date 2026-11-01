@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "base:intrinsics"
 import "core:fmt"
 import mu "vendor:microui"
@@ -10,25 +11,6 @@ import mu "vendor:microui"
 // (dropdown_popup, from layout), with a scrollbar when it is longer than the
 // window. Picking from it is returned by the dropdown in the next frame.
 // One list is open at a time.
-
-Dropdown_Item :: struct {
-	label:  string,
-	header: bool, // a heading over the choices after it, not a choice
-}
-
-Dropdown_State :: struct {
-	open:      mu.Id, // the dropdown whose list is open, 0 for none
-	requested: bool, // the list opens in this frame
-	// The open dropdown's button, choices and current choice, as of this
-	// frame (`frame`). The items are the caller's, in the temp allocator.
-	anchor:    mu.Rect,
-	items:     []Dropdown_Item,
-	current:   int,
-	frame:     mu.Frame_Index,
-	// What was picked from the list, for the dropdown `picked_id`.
-	picked:    int,
-	picked_id: mu.Id,
-}
 
 @(private = "file")
 DROPDOWN_POPUP :: "dropdown list"
@@ -45,17 +27,17 @@ CHOICE_WIDTH :: 220
 // `current` marked, and `hint` while the pointer is on it. It returns the
 // index of the item picked, if one was.
 dropdown :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	id_name, label: string,
-	items: []Dropdown_Item,
+	items: []core.Dropdown_Item,
 	current: int,
 	hint := "",
 ) -> (
 	picked: int,
 	ok: bool,
 ) {
-	ctx := &ui.ctx
-	d := &ui.dropdown
+	ctx := &env.ctx
+	d := &env.dropdown
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
@@ -69,7 +51,7 @@ dropdown :: proc(
 	mu.draw_control_text(ctx, label, text, .TEXT, {})
 	mu.draw_icon(ctx, .EXPANDED, {r.x + r.w - r.h, r.y, r.h, r.h}, ctx.style.colors[.TEXT])
 	if hint != "" && ctx.hover_id == id {
-		ui.hint, ui.hint_of = hint, r
+		env.hint, env.hint_of = hint, r
 	}
 	if d.open == id {
 		d.anchor, d.items, d.current, d.frame = r, items, current, ctx.frame
@@ -85,7 +67,7 @@ dropdown :: proc(
 // current one, or `none` while there is none (`current` -1). It returns the
 // choice picked, if one was other than the current one.
 choice_dropdown :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	id_name: string,
 	labels: []string,
 	current: int,
@@ -95,21 +77,21 @@ choice_dropdown :: proc(
 	picked: int,
 	ok: bool,
 ) {
-	items := make([]Dropdown_Item, len(labels), context.temp_allocator)
+	items := make([]core.Dropdown_Item, len(labels), context.temp_allocator)
 	for l, i in labels {
 		items[i] = {
 			label = l,
 		}
 	}
 	label := labels[current] if current >= 0 && current < len(labels) else none
-	picked, ok = dropdown(ui, id_name, label, items, current, hint)
+	picked, ok = dropdown(env, id_name, label, items, current, hint)
 	return picked, ok && picked != current
 }
 
 // enum_dropdown is choice_dropdown for a setting that is an enum, with a label
 // for each of its values.
 enum_dropdown :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	id_name: string,
 	labels: [$E]string,
 	current: E,
@@ -128,16 +110,16 @@ enum_dropdown :: proc(
 		append(&names, label)
 		append(&values, value)
 	}
-	i := choice_dropdown(ui, id_name, names[:], at, hint) or_return
+	i := choice_dropdown(env, id_name, names[:], at, hint) or_return
 	return values[i], true
 }
 
 // dropdown_popup draws the open dropdown's list. The list is closed by
 // picking from it, by clicking elsewhere, and when its dropdown is no longer
 // drawn (another page is shown).
-dropdown_popup :: proc(ui: ^UI, w, h: i32) {
-	ctx := &ui.ctx
-	d := &ui.dropdown
+dropdown_popup :: proc(env: ^core.Env, w, h: i32) {
+	ctx := &env.ctx
+	d := &env.dropdown
 	if d.open == 0 {
 		return
 	}
@@ -181,12 +163,12 @@ dropdown_popup :: proc(ui: ^UI, w, h: i32) {
 	defer mu.end_window(ctx)
 	// From the keyboard: Tab, Up and Down stay in the list, which starts at
 	// the current choice, and Escape closes it.
-	if key_take(ui, .Escape) {
+	if key_take(env, .Escape) {
 		d.open = 0
 		mu.get_current_container(ctx).open = false
 		return
 	}
-	nav_trap(ui)
+	nav_trap(env)
 	mu.layout_row(ctx, {-1})
 	first := opened
 	for item, i in d.items {
@@ -196,14 +178,14 @@ dropdown_popup :: proc(ui: ^UI, w, h: i32) {
 		}
 		id_name := fmt.tprintf("dropdown item %d", i)
 		if first && (d.current < 0 || i == d.current) {
-			nav_focus_next(ui, mu.get_id(ctx, id_name))
+			nav_focus_next(env, mu.get_id(ctx, id_name))
 			first = false
 		}
 		if .SUBMIT in list_row(ctx, id_name, item.label, i == d.current) {
 			d.picked, d.picked_id = i, d.open
 			d.open = 0
 			mu.get_current_container(ctx).open = false
-			ui_redraw(ui)
+			ui_redraw(env)
 		}
 	}
 }

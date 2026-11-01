@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
@@ -95,11 +96,11 @@ camera_settings :: proc(ui: ^UI) {
 camera_choice :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	devices := video.cameras()
-	items := make([dynamic]Dropdown_Item, context.temp_allocator)
+	items := make([dynamic]core.Dropdown_Item, context.temp_allocator)
 	ids := make([dynamic]string, context.temp_allocator)
 	append(
 		&items,
-		Dropdown_Item {
+		core.Dropdown_Item {
 			label = "The browser's choice" when platform.WEB else "The first one there is",
 		},
 	)
@@ -114,7 +115,7 @@ camera_choice :: proc(ui: ^UI) {
 		}
 		append(
 			&items,
-			Dropdown_Item{label = d.name if d.name != "" else fmt.tprintf("Camera %d", i + 1)},
+			core.Dropdown_Item{label = d.name if d.name != "" else fmt.tprintf("Camera %d", i + 1)},
 		)
 		append(&ids, d.id)
 		if d.id == ui.settings.camera_device {
@@ -122,7 +123,7 @@ camera_choice :: proc(ui: ^UI) {
 		}
 	}
 	if ui.settings.camera_device != "" && current == 0 {
-		append(&items, Dropdown_Item{label = "The one picked before (not there now)"})
+		append(&items, core.Dropdown_Item{label = "The one picked before (not there now)"})
 		append(&ids, ui.settings.camera_device)
 		current = len(items) - 1
 	}

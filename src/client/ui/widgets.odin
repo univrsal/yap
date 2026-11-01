@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import "base:intrinsics"
 import "client:conn"
@@ -54,7 +55,7 @@ draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Typ
 // stable_button, its id comes from `id_name`, so a button that changes
 // what it shows (mute to unmute) keeps the same id.
 icon_button :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	id_name: string,
 	icon: render.Icon,
 	hint: string,
@@ -62,7 +63,7 @@ icon_button :: proc(
 ) -> (
 	res: mu.Result_Set,
 ) {
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
@@ -78,12 +79,12 @@ icon_button :: proc(
 	} else if ctx.hover_id == id {
 		colorid = .BUTTON_HOVER
 	}
-	if !ui.flat_buttons || colorid != .BUTTON {
+	if !env.flat_buttons || colorid != .BUTTON {
 		render.draw_rounded(ctx, r, ctx.style.colors[colorid], render.CONTROL_RADIUS)
 	}
 	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
 	if ctx.hover_id == id || nav_focused(ctx, id) {
-		ui.hint, ui.hint_of = hint, r
+		env.hint, env.hint_of = hint, r
 	}
 	return
 }
@@ -95,8 +96,8 @@ SPINNER_STEP :: time.Second / render.SPINNER_STEPS
 // `r`, dim unless it gets a `color`. While it is on screen, it asks for a frame
 // when it is to turn next, and only then: a spinner scrolled out of view
 // costs no frames.
-spinner :: proc(ui: ^UI, r: mu.Rect, color := mu.Color{}) {
-	ctx := &ui.ctx
+spinner :: proc(env: ^core.Env, r: mu.Rect, color := mu.Color{}) {
+	ctx := &env.ctx
 	if mu.check_clip(ctx, r) == .ALL {
 		return
 	}
@@ -109,13 +110,13 @@ spinner :: proc(ui: ^UI, r: mu.Rect, color := mu.Color{}) {
 		r,
 		color if color.a != 0 else theme.dim,
 	)
-	ui_redraw_in(ui, time.Duration(i64(SPINNER_STEP) - ns % i64(SPINNER_STEP)))
+	ui_redraw_in(env, time.Duration(i64(SPINNER_STEP) - ns % i64(SPINNER_STEP)))
 }
 
 // spinner_row is a row of its own with a spinner in its middle.
-spinner_row :: proc(ui: ^UI) {
-	mu.layout_row(&ui.ctx, {-1})
-	spinner(ui, mu.layout_next(&ui.ctx))
+spinner_row :: proc(env: ^core.Env) {
+	mu.layout_row(&env.ctx, {-1})
+	spinner(env, mu.layout_next(&env.ctx))
 }
 
 // menu_list_begin starts a list of `rows` rows in a menu, `width` wide. The rows
@@ -123,11 +124,11 @@ spinner_row :: proc(ui: ^UI) {
 // is as tall as its rows, up to half the window, beyond which it scrolls instead
 // of the menu growing off the window. It has no frame or padding of its own, so
 // its rows line up with the menu's. End it with mu.end_panel.
-menu_list_begin :: proc(ui: ^UI, name: string, width: i32, rows: int) {
-	ctx := &ui.ctx
+menu_list_begin :: proc(env: ^core.Env, name: string, width: i32, rows: int) {
+	ctx := &env.ctx
 	row := ctx.style.size.y + 2 * ctx.style.padding
 	tall := i32(rows) * (row + ctx.style.spacing) - ctx.style.spacing
-	most := max(i32(ui.metrics.logical_h) / 2, 3 * row)
+	most := max(i32(env.metrics.logical_h) / 2, 3 * row)
 	mu.layout_row(ctx, {width}, clamp(tall, 0, most))
 	padding := ctx.style.padding
 	ctx.style.padding = 0
@@ -143,13 +144,6 @@ menu_list_begin :: proc(ui: ^UI, name: string, width: i32, rows: int) {
 // would cover it.
 @(private = "file")
 HINT_WINDOW :: "hint"
-
-// The emoji a hint is about: one of the server's (by its index), or else a
-// character as a string. Both are empty for none.
-Hint_Emoji :: struct {
-	custom:  Maybe(int),
-	unicode: string, // temp
-}
 
 // hint_emoji_of makes the hint show `emoji` large: a reaction's or
 // message's emoji, ":name:" for the server's, else the characters. Call with
@@ -255,15 +249,15 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 // stable_button_hint is stable_button with a hint below it while the pointer is
 // on it, like icon_button's.
 stable_button_hint :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	id_name: string,
 	label: string,
 	hint: string,
 	opt: mu.Options = {},
 ) -> mu.Result_Set {
-	res := stable_button(&ui.ctx, id_name, label, opt)
-	if ui.ctx.hover_id == mu.get_id(&ui.ctx, id_name) {
-		ui.hint, ui.hint_of = hint, ui.ctx.last_rect
+	res := stable_button(&env.ctx, id_name, label, opt)
+	if env.ctx.hover_id == mu.get_id(&env.ctx, id_name) {
+		env.hint, env.hint_of = hint, env.ctx.last_rect
 	}
 	return res
 }
@@ -492,14 +486,14 @@ fit_widths :: proc(ctx: ^mu.Context, widths: []i32) -> []i32 {
 // that doesn't fit (a fill counts as `fill_min` wide), the label gets a line
 // of its own (none if it is empty) and the controls go under it.
 field_row :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	label_w: i32,
 	label: string,
 	widths: []i32,
 	height: i32 = 0,
 	fill_min: i32 = FILL_MIN,
 ) {
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	row := make([]i32, len(widths) + 1, context.temp_allocator)
 	row[0] = label_w
 	copy(row[1:], widths)
@@ -535,15 +529,15 @@ wrap_text :: proc(ctx: ^mu.Context, text: string) {
 
 // choice_button draws a button that is one of a set of choices, marked if it is
 // the chosen one. It returns whether it was clicked.
-choice_button :: proc(ui: ^UI, id, label: string, chosen: bool) -> bool {
+choice_button :: proc(env: ^core.Env, id, label: string, chosen: bool) -> bool {
 	text := fmt.tprintf("> %s", label) if chosen else label
-	return .SUBMIT in stable_button(&ui.ctx, id, text, {.ALIGN_CENTER})
+	return .SUBMIT in stable_button(&env.ctx, id, text, {.ALIGN_CENTER})
 }
 
 // section_label is the heading of one of the list's sections.
-section_label :: proc(ui: ^UI, text: string) {
-	mu.layout_row(&ui.ctx, {-1})
-	with_text_color(&ui.ctx, theme.dim, text, label_proc)
+section_label :: proc(env: ^core.Env, text: string) {
+	mu.layout_row(&env.ctx, {-1})
+	with_text_color(&env.ctx, theme.dim, text, label_proc)
 }
 
 text_proc :: proc(ctx: ^mu.Context, text: string) {
@@ -555,8 +549,8 @@ text_proc :: proc(ctx: ^mu.Context, text: string) {
 // the space allows) and as tall as `h`, which holds its height in the last
 // frame (as tall as possible the first time). It scrolls if it doesn't fit.
 // card_end ends it and stores its height in `h`.
-card_begin :: proc(ui: ^UI, name: string, h: i32) {
-	ctx := &ui.ctx
+card_begin :: proc(env: ^core.Env, name: string, h: i32) {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1}, -1)
 	area := mu.layout_next(ctx)
 	w := min(area.w, LOGIN_CARD_WIDTH)
@@ -565,16 +559,16 @@ card_begin :: proc(ui: ^UI, name: string, h: i32) {
 	mu.begin_panel(ctx, name)
 }
 
-card_end :: proc(ui: ^UI, h: ^i32) {
-	ctx := &ui.ctx
+card_end :: proc(env: ^core.Env, h: ^i32) {
+	ctx := &env.ctx
 	cnt := mu.get_current_container(ctx)
 	mu.end_panel(ctx)
 	h^ = cnt.content_size.y + 2 * ctx.style.padding
 }
 
 // card_heading is a row with `text` in the middle of a card.
-card_heading :: proc(ui: ^UI, text: string) {
-	ctx := &ui.ctx
+card_heading :: proc(env: ^core.Env, text: string) {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1})
 	mu.draw_control_text(ctx, text, mu.layout_next(ctx), .TEXT, {.ALIGN_CENTER})
 }
@@ -715,12 +709,12 @@ notice_fresh :: proc(m: Notice_Mark, v: ^conn.View) -> (text: string, ok: bool, 
 // notice_row shows the server's last notice in a row of its own, if it is
 // fresh (notice_fresh): what it made of something requested on the screen,
 // such as a refusal.
-notice_row :: proc(ui: ^UI, m: Notice_Mark, v: ^conn.View) {
+notice_row :: proc(env: ^core.Env, m: Notice_Mark, v: ^conn.View) {
 	text, ok, fresh := notice_fresh(m, v)
 	if !fresh {
 		return
 	}
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.notice_ok if ok else theme.error, text, wrap_text)
 }

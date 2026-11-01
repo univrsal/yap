@@ -1,10 +1,10 @@
 package ui
 
+import "core"
 import "core:strings"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:conn"
 
 // Selecting text in the chat and the log with the mouse, and copying it with
 // Ctrl+C.
@@ -21,54 +21,19 @@ import "client:conn"
 // paints the selected part, and select_item collects the selected text. That
 // way the text is ready for Ctrl+C without going back over the panel.
 
-Select_Panel :: enum {
-	None,
-	Chat,
-	Log,
-	// The thread windows' (ui/threads.odin), by slot.
-	Thread_1,
-	Thread_2,
-	Thread_3,
-	Thread_4,
-}
-
-#assert(int(Select_Panel.Thread_4) - int(Select_Panel.Thread_1) + 1 == conn.MAX_THREADS)
-
-Text_Pos :: struct {
-	item:   i64,
-	offset: int, // byte offset into the item's text
-}
-
-Selection :: struct {
-	panel:     Select_Panel, // the panel the selection is in; None for no selection
-	anchor:    Text_Pos,
-	focus:     Text_Pos,
-	dragging:  bool,
-
-	// This frame's state for the panel being drawn (select_begin to
-	// select_end).
-	drawing:   Select_Panel,
-	pressed:   bool, // the button went down over the panel
-	hit:       Text_Pos, // the place under the pointer, so far
-	found:     bool, // `hit` is set
-	over_text: bool, // the pointer is on some text or a text box, so it shows an I-beam cursor
-	text:      strings.Builder, // the selected text, for Ctrl+C
-	last_item: i64, // the item that text was last added from
-}
-
-ui_select_destroy :: proc(ui: ^UI) {
-	strings.builder_destroy(&ui.select.text)
+ui_select_destroy :: proc(env: ^core.Env) {
+	strings.builder_destroy(&env.select.text)
 }
 
 // has_selection is whether any text in `panel` is selected.
-has_selection :: proc(s: ^Selection, panel: Select_Panel) -> bool {
+has_selection :: proc(s: ^core.Selection, panel: core.Select_Panel) -> bool {
 	return s.panel == panel && s.anchor != s.focus
 }
 
 // select_begin starts a panel's selectable text, inside mu.begin_panel.
-select_begin :: proc(ui: ^UI, panel: Select_Panel) {
-	ctx := &ui.ctx
-	s := &ui.select
+select_begin :: proc(env: ^core.Env, panel: core.Select_Panel) {
+	ctx := &env.ctx
+	s := &env.select
 	s.drawing = panel
 	s.found = false
 	s.last_item = min(i64)
@@ -80,9 +45,9 @@ select_begin :: proc(ui: ^UI, panel: Select_Panel) {
 // select_end finishes the panel's text, just before mu.end_panel. A press
 // starts a new selection, a drag moves its end, and Ctrl+C copies it. Dragging
 // past the top or bottom scrolls the panel along.
-select_end :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	s := &ui.select
+select_end :: proc(env: ^core.Env) {
+	ctx := &env.ctx
+	s := &env.select
 	panel := s.drawing
 	s.drawing = .None
 	if s.pressed && s.found {
@@ -124,8 +89,8 @@ select_end :: proc(ui: ^UI) {
 
 // select_item adds an item's selected text, if any, to what Ctrl+C copies.
 // Call it once per item, in order.
-select_item :: proc(ui: ^UI, item: i64, text: string) {
-	s := &ui.select
+select_item :: proc(env: ^core.Env, item: i64, text: string) {
+	s := &env.select
 	lo, hi, ok := selected_range(s, item, len(text))
 	if !ok {
 		return
@@ -142,7 +107,7 @@ select_item :: proc(ui: ^UI, item: i64, text: string) {
 // line (so call it before drawing the text) and works out whether the pointer
 // is on the line or past it, which decides where a press or a drag lands.
 select_line :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	item: i64,
 	text: string,
 	start, end: int,
@@ -150,8 +115,8 @@ select_line :: proc(
 	rich: ^Rich = nil,
 	font: mu.Font = nil,
 ) {
-	ctx := &ui.ctx
-	s := &ui.select
+	ctx := &env.ctx
+	s := &env.select
 	font := font if font != nil else ctx.style.font
 	h := ctx.text_height(font)
 	mouse := ctx.mouse_pos
@@ -197,7 +162,7 @@ select_line :: proc(
 // selected_range is the part of an item's text (`length` bytes long) that is
 // selected in the panel being drawn.
 @(private = "file")
-selected_range :: proc(s: ^Selection, item: i64, length: int) -> (lo, hi: int, ok: bool) {
+selected_range :: proc(s: ^core.Selection, item: i64, length: int) -> (lo, hi: int, ok: bool) {
 	if !has_selection(s, s.drawing) {
 		return
 	}

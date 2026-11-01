@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:unicode/utf8"
@@ -31,7 +32,7 @@ UI_Picker :: struct {
 	search:        [proto.MAX_EMOJI_NAME]u8,
 	search_n:      int,
 	hovered:       string, // the name of the emoji under the pointer (temporary)
-	hovered_emoji: Hint_Emoji, // the hovered emoji itself, shown large
+	hovered_emoji: core.Hint_Emoji, // the hovered emoji itself, shown large
 	hovered_rect:  mu.Rect, // and its position
 }
 

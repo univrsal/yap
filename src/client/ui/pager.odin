@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import mu "vendor:microui"
@@ -32,10 +33,10 @@ PAGE_BUTTON :: 40
 // pager_search is the box the list is narrowed down with, a row of its own, with
 // `hint` in it while it's empty. Changing what is typed goes back to the first
 // page, and returns true.
-pager_search :: proc(ui: ^UI, p: ^Pager, hint: string) -> (changed: bool) {
-	ctx := &ui.ctx
+pager_search :: proc(env: ^core.Env, p: ^Pager, hint: string) -> (changed: bool) {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1})
-	res := text_box(ui, p.find.buf[:], &p.find.len)
+	res := text_box(env, p.find.buf[:], &p.find.len)
 	if p.find.len == 0 && ctx.focus_id != ctx.last_id {
 		r := ctx.last_rect
 		font := ctx.style.font
@@ -94,14 +95,14 @@ pager_page_of :: proc(p: ^Pager, i: int) {
 
 // pager_footer is the row under a list of `n` rows that turns its pages. There is
 // none when it all fits on one page.
-pager_footer :: proc(ui: ^UI, p: ^Pager, n: int) {
+pager_footer :: proc(env: ^core.Env, p: ^Pager, n: int) {
 	if n <= PAGE_ROWS {
 		return
 	}
 	lo, hi := pager_window(p, n)
 	pages := (n + PAGE_ROWS - 1) / PAGE_ROWS
 	if back, next := footer(
-		ui,
+		env,
 		fmt.tprintf("%d-%d of %d", lo + 1, hi, n),
 		p.page > 0,
 		p.page < pages - 1,
@@ -115,7 +116,7 @@ pager_footer :: proc(ui: ^UI, p: ^Pager, n: int) {
 // pager_footer_open is pager_footer for a list that the server pages, where
 // only the page's start, its length and whether more follow are known. It
 // returns the start of the page to ask for when a button was pressed.
-pager_footer_open :: proc(ui: ^UI, offset, count: int, more: bool) -> (ask: int, turned: bool) {
+pager_footer_open :: proc(env: ^core.Env, offset, count: int, more: bool) -> (ask: int, turned: bool) {
 	if offset == 0 && !more {
 		return
 	}
@@ -123,7 +124,7 @@ pager_footer_open :: proc(ui: ^UI, offset, count: int, more: bool) -> (ask: int,
 	if count == 0 {
 		text = ""
 	}
-	back, next := footer(ui, text, offset > 0, more)
+	back, next := footer(env, text, offset > 0, more)
 	switch {
 	case back:
 		return max(offset - PAGE_ROWS, 0), true
@@ -136,11 +137,11 @@ pager_footer_open :: proc(ui: ^UI, offset, count: int, more: bool) -> (ask: int,
 // footer draws the buttons for the page before and after, with `text` between
 // them, and says which was pressed.
 @(private = "file")
-footer :: proc(ui: ^UI, text: string, has_back, has_next: bool) -> (back, next: bool) {
-	ctx := &ui.ctx
+footer :: proc(env: ^core.Env, text: string, has_back, has_next: bool) -> (back, next: bool) {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {PAGE_BUTTON, -(PAGE_BUTTON + ctx.style.spacing + 1), PAGE_BUTTON})
 	if has_back {
-		back = .SUBMIT in icon_button(ui, "page back", .Back, "Page before")
+		back = .SUBMIT in icon_button(env, "page back", .Back, "Page before")
 	} else {
 		mu.label(ctx, "")
 	}
@@ -149,7 +150,7 @@ footer :: proc(ui: ^UI, text: string, has_back, has_next: bool) -> (back, next: 
 		mu.draw_control_text(ctx, text, r, .TEXT, {.ALIGN_CENTER})
 	})
 	if has_next {
-		next = .SUBMIT in icon_button(ui, "page next", .Next, "Page after")
+		next = .SUBMIT in icon_button(env, "page next", .Next, "Page after")
 	} else {
 		mu.label(ctx, "")
 	}

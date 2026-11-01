@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import "core:time"
@@ -601,8 +602,8 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 }
 
 // timeline_select_panel is the panel that a timeline's text is selected in.
-timeline_select_panel :: proc(slot: int) -> Select_Panel {
-	return .Chat if slot == 0 else Select_Panel(int(Select_Panel.Thread_1) + slot - 1)
+timeline_select_panel :: proc(slot: int) -> core.Select_Panel {
+	return .Chat if slot == 0 else core.Select_Panel(int(core.Select_Panel.Thread_1) + slot - 1)
 }
 
 // thread_root_message is a thread's root, if it is here: in its conversation's

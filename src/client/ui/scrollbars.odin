@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:time"
 import mu "vendor:microui"
 
@@ -28,29 +29,18 @@ SCROLLBAR_WIDE :: 8
 SCROLLBAR_SHOWN :: 800 * time.Millisecond
 SCROLLBAR_FADE :: 300 * time.Millisecond
 
-// What is known of a container's scrollbar between frames.
-Scrollbar_Fade :: struct {
-	seen:    bool,
-	scroll:  mu.Vec2, // where it was scrolled to when last drawn
-	moved:   time.Tick, // when that last changed, or zero
-	// For its thumb, drawn right after its track: how visible, and whether
-	// the pointer is on the strip.
-	alpha:   f32,
-	hovered: bool,
-}
-
 // scrollbar_frame draws a container's scrollbar track or thumb for microui
 // (draw_frame_themed).
-scrollbar_frame :: proc(ui: ^UI, rect: mu.Rect, colorid: mu.Color_Type) {
-	ctx := &ui.ctx
+scrollbar_frame :: proc(env: ^core.Env, rect: mu.Rect, colorid: mu.Color_Type) {
+	ctx := &env.ctx
 	if ctx.container_stack.idx == 0 {
 		return
 	}
 	cnt := mu.get_current_container(ctx)
-	if cnt not_in ui.scrollbar_fades {
-		ui.scrollbar_fades[cnt] = {}
+	if cnt not_in env.scrollbar_fades {
+		env.scrollbar_fades[cnt] = {}
 	}
-	f := &ui.scrollbar_fades[cnt]
+	f := &env.scrollbar_fades[cnt]
 	if colorid == .SCROLL_BASE {
 		now := time.tick_now()
 		if f.seen && f.scroll != cnt.scroll {
@@ -66,10 +56,10 @@ scrollbar_frame :: proc(ui: ^UI, rect: mu.Rect, colorid: mu.Color_Type) {
 			switch {
 			case since < SCROLLBAR_SHOWN:
 				f.alpha = 1
-				ui_redraw_at(ui, time.tick_add(f.moved, SCROLLBAR_SHOWN))
+				ui_redraw_at(env, time.tick_add(f.moved, SCROLLBAR_SHOWN))
 			case since < SCROLLBAR_SHOWN + SCROLLBAR_FADE:
 				f.alpha = 1 - f32(since - SCROLLBAR_SHOWN) / f32(SCROLLBAR_FADE)
-				ui_redraw_in(ui, ANIMATION_FRAME)
+				ui_redraw_in(env, ANIMATION_FRAME)
 			case:
 				f.moved = {} // faded out
 			}

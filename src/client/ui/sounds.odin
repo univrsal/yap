@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -285,19 +286,19 @@ sound_choices :: proc(
 	ui: ^UI,
 	kind: audio.Sound_Event,
 ) -> (
-	items: []Dropdown_Item,
+	items: []core.Dropdown_Item,
 	names: []string,
 	current: int,
 	button: string,
 ) {
-	its := make([dynamic]Dropdown_Item, context.temp_allocator)
+	its := make([dynamic]core.Dropdown_Item, context.temp_allocator)
 	all := make([dynamic]string, context.temp_allocator)
 	chosen := settings.sound_name(&ui.settings, kind)
 	current = -1
 	add :: proc(
-		its: ^[dynamic]Dropdown_Item,
+		its: ^[dynamic]core.Dropdown_Item,
 		all: ^[dynamic]string,
-		item: Dropdown_Item,
+		item: core.Dropdown_Item,
 		name: string,
 	) {
 		append(its, item)

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -58,7 +59,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
 	// The servers there are to pick from, before the shown one's View is
 	// locked, since each is locked in turn to see.
-	servers := make([dynamic]Dropdown_Item, context.temp_allocator)
+	servers := make([dynamic]core.Dropdown_Item, context.temp_allocator)
 	server_of := make([dynamic]^Net_Session, context.temp_allocator)
 	current := 0
 	for ns in ui.sessions {
@@ -72,7 +73,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 				current = len(servers)
 			}
 			name := sv.server_name if sv.server_name != "" else ns.server
-			append(&servers, Dropdown_Item{label = strings.clone(name, context.temp_allocator)})
+			append(&servers, core.Dropdown_Item{label = strings.clone(name, context.temp_allocator)})
 			append(&server_of, ns)
 		}
 		sync.unlock(&sv.mutex)

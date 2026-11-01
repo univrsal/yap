@@ -21,7 +21,7 @@ libopus, ...) when their sources or version files change.
 
 | Folder | Holds |
 | --- | --- |
-| `src/client` | The client's entry point (`main.odin`). `ui` is the UI (and the web entry points; `ui/redraw`, `ui/chrome`, `ui/titlebar` and `ui/text` (text areas' state and layout, wrapping, undo) are the pieces of it that need nothing from the UI state), `conn` is the connection to a server (no UI), and `richtext`, `video`, `imaging`, `headless` are the pieces that need neither. Platform and audio code have folders of their own. |
+| `src/client` | The client's entry point (`main.odin`). `ui` is the UI (and the web entry points; `ui/redraw`, `ui/chrome`, `ui/titlebar`, `ui/core` (the state the widgets share, `Env`) and `ui/text` (text areas' state and layout, wrapping, undo) are the pieces of it that need nothing from the UI state), `conn` is the connection to a server (no UI), and `richtext`, `video`, `imaging`, `headless` are the pieces that need neither. Platform and audio code have folders of their own. |
 | `src/server` | The server: one package with the state (`Server`, `Conn`, the database), and `gate`, `mail`, `webpush` and `curl` for the parts that stand alone. |
 | `src/common` | What the client and the server share: the protocol (`proto`), logging, key handling, WebP and GIF. |
 | `src/lib` | Libraries only the server side uses: `http`, `gateway` (the bot API) and `lite` (a client without a UI, for bots and the stress tool). |

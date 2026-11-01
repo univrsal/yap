@@ -1,6 +1,6 @@
 package ui
 
-import "redraw"
+import "core"
 import "base:intrinsics"
 import "client:audio"
 import "client:conn"
@@ -12,7 +12,6 @@ import "common:proto"
 import log "common:wlog"
 import "core:time"
 import "core:time/datetime"
-import mu "vendor:microui"
 
 
 // The windowed client: GLFW for the window and input, microui for widgets, and
@@ -107,33 +106,6 @@ Net_Session :: struct {
 	capture_on:      bool,
 }
 
-Extra_Key :: enum {
-	Up,
-	Down,
-	Tab,
-	Back_Tab, // Shift+Tab
-	Next_Area, // F6: the keyboard focus to the next area (ui/nav.odin)
-	Prev_Area, // Shift+F6
-	Escape,
-	// Space, which presses the control with the keyboard focus (see ui/nav.odin).
-	// It still types a space in a text box.
-	Activate,
-	// Ctrl+Space or Ctrl+K (Cmd+K on macOS): the command palette.
-	Palette,
-	Newline, // Shift+Enter, or Enter on a phone's keyboard: a new line in a text area
-	// Markdown shortcuts in a composer (see composer_keys): Ctrl+B, Ctrl+I, Ctrl+U,
-	// Ctrl+Shift+X, Ctrl+E.
-	Bold,
-	Italic,
-	Underline,
-	Strike,
-	Code,
-	// Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z: undo and redo in a composer
-	// (see text/history.odin).
-	Undo,
-	Redo,
-}
-
 Page :: enum {
 	Main,
 	Settings,
@@ -151,7 +123,11 @@ Action :: enum {
 
 UI :: struct {
 	window:              glfw.WindowHandle,
-	ctx:                 mu.Context,
+	// What the widgets need (ui/core): the microui context, the keys, the text
+	// selection, the focus ring, hints and the frame requests. Embedded, so that
+	// ui.ctx and the like keep working, and a ^UI is a ^core.Env where one is
+	// wanted.
+	using env: core.Env,
 	renderer:            render.Renderer,
 	opts:                UI_Options,
 	my_key:              [proto.KEY_SIZE]u8,
@@ -247,9 +223,6 @@ UI :: struct {
 	app_sound:           App_Sound,
 	// The Sounds page (ui/sounds.odin), and the open dropdown (ui/dropdown.odin).
 	sounds:              Sounds_UI,
-	dropdown:            Dropdown_State,
-	// The keyboard focus (ui/nav.odin), and the command palette (ui/palette.odin).
-	nav:                 UI_Nav,
 	palette:             UI_Palette,
 	// Whether the voice gate section, with the meter, was on screen in the last
 	// frame (see gate_settings). The microphone is only opened for it in that case.
@@ -271,11 +244,6 @@ UI :: struct {
 	// Memory usage: the settings page and the line in the log
 	// (see ui/memory.odin).
 	memory:              UI_Memory,
-	// Keys that microui has no name for, pressed since the last frame.
-	keys:                bit_set[Extra_Key],
-	// Presses of a key in KEYS_QUEUED that came while it was already in `keys`:
-	// each goes into `keys` in a frame of its own (see key_press).
-	keys_queued:         [Extra_Key]u8,
 	// Ctrl+Space opened the palette: the space that may follow it as text
 	// isn't typed (see char_callback).
 	drop_space:          bool,
@@ -302,8 +270,6 @@ UI :: struct {
 	// which shows the message's bar.
 	msg_bar:             UI_Message_Bar,
 	touch_tap:           bool,
-	// A finger is scrolling, with the pointer under it: nothing is hovered.
-	touch_scrolling:     bool,
 	settings_saved:      time.Tick,
 	page:                Page,
 	settings:            settings.Settings,
@@ -318,9 +284,6 @@ UI :: struct {
 	chat_scale_draft:    f32, // the same for the chat's text size
 	audio:               audio.Audio,
 
-	// Logical pixels per window coordinate, for mouse input (see
-	// window_metrics).
-	input_scale:         f32,
 	// The strip along the top where the window's buttons are drawn over
 	// the UI, merged with the title bar, in logical pixels: where
 	// the first row starts, how far in from the right it ends, and how
@@ -336,17 +299,11 @@ UI :: struct {
 	// Where the lighter line under a conversation's header is in this frame
 	// (header_line_below), or 0 where there is none.
 	conv_line:           i32,
-	// Where this frame's text boxes are, and whether one has the focus,
-	// for a phone's keyboard in a web build (see ui/text_box.odin).
-	text_boxes:          [dynamic]Text_Box,
 	text_focused:        bool,
-	metrics:             Window_Metrics,
 	// The pointing hand shown over links and the I-beam shown over text that
 	// can be selected. They are created on first use and freed by glfw.Terminate.
 	cursors:             [Cursor]glfw.CursorHandle,
 	cursor_shown:        Cursor,
-	// Text selected in the chat or the log (ui/select.odin).
-	select:              Selection,
 	// The image paste that is being read, if any (see ui/paste.odin), and where the
 	// next one goes.
 	paste:               ^Paste_Job,
@@ -362,15 +319,6 @@ UI :: struct {
 	dropped:             [dynamic]string,
 	// Files being dragged over the window (see drop_hint).
 	drag:                Drag,
-	// What the icon button under the pointer does, and where it is, for
-	// the hint drawn under it (see icon_button and icon_hint).
-	hint:                string,
-	hint_of:             mu.Rect,
-	// Icon buttons are drawn flat, with a background only while the pointer
-	// is on them (the composer's, inside its box, see composer_buttons).
-	flat_buttons:        bool,
-	// The emoji the hint is about, drawn large above it (icon_hint).
-	hint_emoji:          Hint_Emoji,
 	// The picture chip under the pointer, which is shown over it
 	// (see chip_preview_popup).
 	chip_preview:        Chip_Preview,
@@ -395,17 +343,9 @@ UI :: struct {
 	// A frame is being drawn (see draw_frame). A refresh mustn't
 	// start another one in the middle of it.
 	drawing:             bool,
-	// A frame is only drawn when there is something new to show (see
-	// frame_due). This holds how many more frames to draw regardless, when the
-	// clock will next change something on screen (zero: nothing will), the
-	// hash of the last frame's draw commands, and how many log lines
-	// the log panel showed in it (-1: it wasn't on screen).
-	redraw:              redraw.Request,
 	// The mouse wheel's scrolling not handed to microui yet, in pixels, and
 	// when some was last handed over (see scroll_step).
 	scroll_left:         [2]f32,
-	// Each panel's and window's scrollbar (ui/scrollbars.odin).
-	scrollbar_fades:     map[^mu.Container]Scrollbar_Fade,
 	scroll_at:           time.Tick,
 	drawn_hash:          u64,
 	log_drawn:           int,

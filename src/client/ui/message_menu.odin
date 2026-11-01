@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import log "common:wlog"
 import "core:fmt"
@@ -332,7 +333,7 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 composer_format :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
 	MARKERS :: [?]struct {
-		key:    Extra_Key,
+		key:    core.Extra_Key,
 		marker: string,
 	}{{.Bold, "**"}, {.Italic, "*"}, {.Underline, "__"}, {.Strike, "~~"}, {.Code, "`"}}
 	for k in MARKERS {

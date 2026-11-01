@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "titlebar"
 import "redraw"
 import "base:intrinsics"
@@ -329,18 +330,18 @@ ui_wake :: proc "c" () {
 }
 
 // ui_redraw asks for frames right now, from the UI's own thread.
-ui_redraw :: proc "contextless" (ui: ^UI) {
-	redraw.now(&ui.redraw)
+ui_redraw :: proc "contextless" (env: ^core.Env) {
+	redraw.now(&env.redraw)
 }
 
 // ui_redraw_at asks for a frame by `at`, for things that change with the clock
 // alone. The layout asks again in every frame that still needs it.
-ui_redraw_at :: proc(ui: ^UI, at: time.Tick) {
-	redraw.at(&ui.redraw, at)
+ui_redraw_at :: proc(env: ^core.Env, at: time.Tick) {
+	redraw.at(&env.redraw, at)
 }
 
-ui_redraw_in :: proc(ui: ^UI, after: time.Duration) {
-	redraw.after(&ui.redraw, after)
+ui_redraw_in :: proc(env: ^core.Env, after: time.Duration) {
+	redraw.after(&env.redraw, after)
 }
 
 // frame_due says whether the loop should draw a frame in this turn.

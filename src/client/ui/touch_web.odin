@@ -31,7 +31,7 @@ Touch_Event_Kind :: enum {
 	Release,
 	Key, // pressed and released again
 	Text,
-	Newline, // Enter in a text area: a new line (Extra_Key.Newline)
+	Newline, // Enter in a text area: a new line (core.Extra_Key.Newline)
 }
 
 @(private = "file")

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "titlebar"
 import "chrome"
 import "base:intrinsics"
@@ -166,19 +167,12 @@ set_cursor :: proc(ui: ^UI, cursor: Cursor) {
 	glfw.SetCursor(ui.window, ui.cursors[cursor])
 }
 
-Window_Metrics :: struct {
-	logical_w, logical_h: f32, // the size the UI is laid out for
-	fb_w, fb_h:           i32,
-	scale:                f32, // physical pixels per logical pixel
-	input_scale:          f32, // logical pixels per window coordinate
-}
-
 // Platforms disagree on what window coordinates are. On Wayland and macOS
 // they are logical and the framebuffer is bigger on high-DPI screens. On
 // Windows and X11 they are physical pixels, and the monitor's scale is only
 // known from the content scale. Either way we lay out in logical pixels
 // and render at `scale`.
-window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_Metrics) {
+window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: core.Window_Metrics) {
 	w, h := glfw.GetWindowSize(window)
 	m.fb_w, m.fb_h = glfw.GetFramebufferSize(window)
 	if w <= 0 || h <= 0 || m.fb_w <= 0 {
@@ -226,7 +220,7 @@ glfw_error_callback :: proc "c" (code: i32, description: cstring) {
 	log.errorf("GLFW: %s (0x%x)", description, code)
 }
 
-// to_logical turns window coordinates into the UI's (see Window_Metrics).
+// to_logical turns window coordinates into the UI's (see core.Window_Metrics).
 to_logical :: proc "contextless" (v: f64) -> i32 {
 	return i32(v * f64(g_ui.input_scale))
 }
@@ -461,7 +455,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key_code, scancode, action,
 	// modifiers. Ctrl+Shift+X isn't Ctrl+X: it doesn't go on to cut.
 	if action != glfw.RELEASE && mods & glfw.MOD_CONTROL != 0 && mods & glfw.MOD_ALT == 0 {
 		shift := mods & glfw.MOD_SHIFT != 0
-		extra: Maybe(Extra_Key)
+		extra: Maybe(core.Extra_Key)
 		switch {
 		case key == glfw.KEY_B && !shift:
 			extra = .Bold

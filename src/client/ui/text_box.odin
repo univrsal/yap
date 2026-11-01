@@ -1,8 +1,11 @@
 package ui
 
+import "core"
 import "client:platform"
 import "client:render"
 import mu "vendor:microui"
+
+_ :: core // only used in the web build
 
 // Every text box goes through text_box, which is mu.textbox plus a note of
 // where it was laid out.
@@ -13,31 +16,22 @@ import mu "vendor:microui"
 // each frame notes where its text boxes are, and the page asks about the tap
 // there and then (see ui/touch_web.odin). A desktop build notes nothing.
 
-Text_Box :: struct {
-	id:        mu.Id,
-	rect:      mu.Rect, // as visible: clipped to its container
-	multiline: bool, // a text area (ui/text_area.odin), where Enter starts a line
-	// The page's own text field is over it (ui/field_web.odin), so a tap
-	// lands there and brings the keyboard up itself.
-	live:      bool,
-}
-
-text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
-	ctx := &ui.ctx
+text_box :: proc(env: ^core.Env, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
+	ctx := &env.ctx
 	// The same id mu.textbox would use, so ctx.last_id names the box
 	// afterwards as it did.
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
 	when platform.WEB {
 		append(
-			&ui.text_boxes,
-			Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false, false},
+			&env.text_boxes,
+			core.Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false, false},
 		)
 	}
 	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
 	nav_control(ctx, id, r, textlen^)
 	if ctx.hover_id == id {
-		ui.select.over_text = true // shows an I-beam over it (draw_frame)
+		env.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
 	return res
 }
@@ -50,8 +44,8 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 // cursor, the selection and clicks are based on), and afterwards the text that
 // it drew is overwritten with asterisks in microui's command list, before
 // anything renders it.
-password_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
-	ctx := &ui.ctx
+password_box :: proc(env: ^core.Env, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
+	ctx := &env.ctx
 	if ctx.focus_id == mu.get_id(ctx, uintptr(&buf[0])) {
 		ctx.key_pressed_bits -= {.C, .X}
 	}
@@ -61,7 +55,7 @@ password_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> 
 		return i32(len(text)) * render.ui_text_width(font, "*")
 	}
 	first := ctx.command_list.idx
-	res := text_box(ui, buf, textlen, opt)
+	res := text_box(env, buf, textlen, opt)
 	ctx.text_width = text_width
 
 	for at := first; at < ctx.command_list.idx; {

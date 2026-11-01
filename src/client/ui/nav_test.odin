@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import "core:testing"
 import mu "vendor:microui"
 
@@ -17,16 +18,16 @@ test_nav_step :: proc(t: ^testing.T) {
 // nav_test_frame stands in for a frame that drew three buttons and a text box,
 // with `keys` pressed.
 @(private = "file")
-nav_test_frame :: proc(ui: ^UI, keys: bit_set[Extra_Key]) {
+nav_test_frame :: proc(ui: ^UI, keys: bit_set[core.Extra_Key]) {
 	append(
 		&ui.nav.items,
-		Nav_Item{1, {}, nil, nil, -1, 0, false},
-		Nav_Item{2, {}, nil, nil, -1, 0, false},
+		core.Nav_Item{1, {}, nil, nil, -1, 0, false},
+		core.Nav_Item{2, {}, nil, nil, -1, 0, false},
 	)
 	append(
 		&ui.nav.items,
-		Nav_Item{3, {}, nil, nil, 5, 0, false},
-		Nav_Item{4, {}, nil, nil, -1, 0, false},
+		core.Nav_Item{3, {}, nil, nil, 5, 0, false},
+		core.Nav_Item{4, {}, nil, nil, -1, 0, false},
 	)
 	ui.keys = keys
 	nav_frame(ui)
@@ -94,17 +95,17 @@ test_nav_trap :: proc(t: ^testing.T) {
 	// A dropdown (1) opened from the keyboard: its list (10, 11) comes last,
 	// and Tab and Down stay in it.
 	ui.nav.focus, ui.nav.visible = 1, true
-	frame := proc(ui: ^UI, popup: ^mu.Container, open: bool, keys: bit_set[Extra_Key]) {
+	frame := proc(ui: ^UI, popup: ^mu.Container, open: bool, keys: bit_set[core.Extra_Key]) {
 		append(
 			&ui.nav.items,
-			Nav_Item{1, {}, nil, nil, -1, 0, false},
-			Nav_Item{2, {}, nil, nil, -1, 0, false},
+			core.Nav_Item{1, {}, nil, nil, -1, 0, false},
+			core.Nav_Item{2, {}, nil, nil, -1, 0, false},
 		)
 		if open {
 			append(
 				&ui.nav.items,
-				Nav_Item{10, {}, popup, nil, -1, 0, false},
-				Nav_Item{11, {}, popup, nil, -1, 0, false},
+				core.Nav_Item{10, {}, popup, nil, -1, 0, false},
+				core.Nav_Item{11, {}, popup, nil, -1, 0, false},
 			)
 			ui.nav.trap = popup
 		}
@@ -139,18 +140,18 @@ test_nav_opened_window :: proc(t: ^testing.T) {
 	defer free(win)
 	win.zindex = 1
 
-	frame := proc(ui: ^UI, main, win: ^mu.Container, open: bool, keys: bit_set[Extra_Key]) {
+	frame := proc(ui: ^UI, main, win: ^mu.Container, open: bool, keys: bit_set[core.Extra_Key]) {
 		ui.ctx.frame += 1
 		append(
 			&ui.nav.items,
-			Nav_Item{1, {}, main, nil, -1, 0, false},
-			Nav_Item{2, {}, main, nil, -1, 0, false},
+			core.Nav_Item{1, {}, main, nil, -1, 0, false},
+			core.Nav_Item{2, {}, main, nil, -1, 0, false},
 		)
 		if open {
 			append(
 				&ui.nav.items,
-				Nav_Item{10, {}, win, nil, -1, 0, false},
-				Nav_Item{11, {}, win, nil, -1, 0, false},
+				core.Nav_Item{10, {}, win, nil, -1, 0, false},
+				core.Nav_Item{11, {}, win, nil, -1, 0, false},
 			)
 		}
 		ui.keys = keys
@@ -195,12 +196,12 @@ test_nav_list :: proc(t: ^testing.T) {
 	defer ui_nav_destroy(ui)
 
 	// A button, a list of three with the second selected, and a button.
-	frame := proc(ui: ^UI, keys: bit_set[Extra_Key]) {
-		append(&ui.nav.items, Nav_Item{1, {}, nil, nil, -1, 0, false})
-		append(&ui.nav.items, Nav_Item{10, {}, nil, nil, -1, 10, false})
-		append(&ui.nav.items, Nav_Item{11, {}, nil, nil, -1, 10, true})
-		append(&ui.nav.items, Nav_Item{12, {}, nil, nil, -1, 10, false})
-		append(&ui.nav.items, Nav_Item{2, {}, nil, nil, -1, 0, false})
+	frame := proc(ui: ^UI, keys: bit_set[core.Extra_Key]) {
+		append(&ui.nav.items, core.Nav_Item{1, {}, nil, nil, -1, 0, false})
+		append(&ui.nav.items, core.Nav_Item{10, {}, nil, nil, -1, 10, false})
+		append(&ui.nav.items, core.Nav_Item{11, {}, nil, nil, -1, 10, true})
+		append(&ui.nav.items, core.Nav_Item{12, {}, nil, nil, -1, 10, false})
+		append(&ui.nav.items, core.Nav_Item{2, {}, nil, nil, -1, 0, false})
 		ui.keys = keys
 		nav_frame(ui)
 	}
@@ -246,13 +247,13 @@ test_keys_queued :: proc(t: ^testing.T) {
 	key_press(.Tab)
 	key_press(.Escape)
 	key_press(.Escape)
-	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{.Tab, .Escape})
+	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{.Tab, .Escape})
 	keys_next_frame(ui)
-	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{.Tab})
+	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{.Tab})
 	keys_next_frame(ui)
-	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{.Tab})
+	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{.Tab})
 	keys_next_frame(ui)
-	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{})
+	testing.expect_value(t, ui.keys, bit_set[core.Extra_Key]{})
 }
 
 @(test)
@@ -267,7 +268,7 @@ test_nav_scroll_into_view :: proc(t: ^testing.T) {
 	ui.ctx.style = &style
 
 	// Below the panel's body: scrolled down by as much as it sticks out.
-	append(&ui.nav.items, Nav_Item{1, {0, 150, 100, 20}, nil, panel, -1, 0, false})
+	append(&ui.nav.items, core.Nav_Item{1, {0, 150, 100, 20}, nil, panel, -1, 0, false})
 	ui.keys = {.Tab}
 	nav_frame(ui)
 	testing.expect_value(t, ui.nav.focus, 1)
@@ -275,8 +276,8 @@ test_nav_scroll_into_view :: proc(t: ^testing.T) {
 
 	// Above it: back up, not past the top.
 	panel.scroll.y = 30
-	append(&ui.nav.items, Nav_Item{1, {0, 150, 100, 20}, nil, panel, -1, 0, false})
-	append(&ui.nav.items, Nav_Item{2, {0, -50, 100, 20}, nil, panel, -1, 0, false})
+	append(&ui.nav.items, core.Nav_Item{1, {0, 150, 100, 20}, nil, panel, -1, 0, false})
+	append(&ui.nav.items, core.Nav_Item{2, {0, -50, 100, 20}, nil, panel, -1, 0, false})
 	ui.keys = {.Tab}
 	nav_frame(ui)
 	testing.expect_value(t, ui.nav.focus, 2)

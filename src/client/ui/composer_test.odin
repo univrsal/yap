@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "core"
 import txt "text"
 import "core:math"
 import "core:testing"
@@ -293,7 +294,7 @@ test_scrollbar_fades :: proc(t: ^testing.T) {
 	ctx := &ui.ctx
 	defer delete(ui.scrollbar_fades)
 	strip := mu.Rect{388, 0, 12, 300}
-	step :: proc(ui: ^UI, strip: mu.Rect, scroll: i32, ago: time.Duration) -> (f: Scrollbar_Fade) {
+	step :: proc(ui: ^UI, strip: mu.Rect, scroll: i32, ago: time.Duration) -> (f: core.Scrollbar_Fade) {
 		ctx := &ui.ctx
 		ui.redraw.at = {}
 		mu.begin(ctx)

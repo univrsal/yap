@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import "core:fmt"
 import "core:strconv"
@@ -382,7 +383,7 @@ script_setting :: proc(ui: ^UI, v: script.Item_View, s: script.Setting_View) {
 	case .Choice:
 		current := 0
 		text, _ := s.value.(string)
-		items := make([]Dropdown_Item, len(def.choices), context.temp_allocator)
+		items := make([]core.Dropdown_Item, len(def.choices), context.temp_allocator)
 		for c, i in def.choices {
 			items[i] = {
 				label = c,

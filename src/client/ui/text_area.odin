@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import txt "text"
 import "core:strings"
 import textedit "core:text/edit"
@@ -60,17 +61,17 @@ area_vertical :: proc(
 //
 // In a web build the page's own text field draws and edits the text instead,
 // over the box (ui/field_web.odin), unless something covers it.
-text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: mu.Result_Set) {
-	ctx := &ui.ctx
+text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: mu.Result_Set) {
+	ctx := &env.ctx
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
 	live := false
 	when platform.WEB {
-		field_take(ui, id, buf, textlen, area)
+		field_take(env, id, buf, textlen, area)
 		live = area.field.live
 		append(
-			&ui.text_boxes,
-			Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), true, live},
+			&env.text_boxes,
+			core.Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), true, live},
 		)
 	}
 	if area.field.changed {
@@ -86,7 +87,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: m
 		area.footer_press = false
 	}
 	if ctx.hover_id == id && mu.mouse_over(ctx, tr) {
-		ui.select.over_text = true // shows an I-beam over it (draw_frame)
+		env.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
 
 	font := ctx.style.font
@@ -98,7 +99,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: m
 	if area.width != full {
 		// The next frame's height is worked out at this width.
 		area.width = full
-		ui_redraw(ui)
+		ui_redraw(env)
 	}
 	// Beyond the maximum number of lines, a scrollbar takes its width from
 	// the text's. (The box is as tall either way.)
@@ -111,11 +112,11 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: m
 	focused := ctx.focus_id == id
 
 	if focused && !live {
-		for key in ([?]Extra_Key{.Undo, .Redo}) {
-			if key not_in ui.keys {
+		for key in ([?]core.Extra_Key{.Undo, .Redo}) {
+			if key not_in env.keys {
 				continue
 			}
-			ui.keys -= {key}
+			env.keys -= {key}
 			text := string(buf[:textlen^])
 			step: txt.History_Step
 			ok: bool
@@ -162,9 +163,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: m
 				}
 			}
 			// A new line: Shift+Enter, or Enter on a phone's keyboard.
-			if (.RETURN in ctx.key_pressed_bits && shift) || .Newline in ui.keys {
+			if (.RETURN in ctx.key_pressed_bits && shift) || .Newline in env.keys {
 				ctx.key_pressed_bits -= {.RETURN}
-				ui.keys -= {.Newline}
+				env.keys -= {.Newline}
 				if textedit.input_text(s, "\n") > 0 {
 					edited(&res, textlen, &builder)
 				}
@@ -214,9 +215,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: m
 			if .END in ctx.key_pressed_bits {
 				move(s, .End if ctrl else .Soft_Line_End, shift)
 			}
-			if .Up in ui.keys || .Down in ui.keys {
-				down := .Down in ui.keys
-				ui.keys -= {.Up, .Down}
+			if .Up in env.keys || .Down in env.keys {
+				down := .Down in env.keys
+				env.keys -= {.Up, .Down}
 				at := s.selection[0]
 				x := area.vert_x
 				if area.vert_at != at {
@@ -273,10 +274,10 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: m
 	}
 	if i32(txt.area_rows(area, n)) != rows {
 		// The box is the height that the text had before this frame's typing.
-		ui_redraw(ui)
+		ui_redraw(env)
 	}
 	when platform.WEB {
-		field_place(ui, id, text, area, tr, top, single - lh - top, focused)
+		field_place(env, id, text, area, tr, top, single - lh - top, focused)
 	}
 	if live {
 		// Only the box: the page's field is over it, with the text.

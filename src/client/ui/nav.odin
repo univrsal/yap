@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import mu "vendor:microui"
 
 import "client:render"
@@ -22,40 +23,6 @@ import "client:render"
 // it gets it back when it closes. F6 and Shift+F6 move between areas: the
 // rail, the main window and the windows over it.
 
-Nav_Item :: struct {
-	id:       mu.Id,
-	rect:     mu.Rect,
-	root:     ^mu.Container, // the root container it is drawn in (nil outside any)
-	cnt:      ^mu.Container, // the container that scrolls it (a panel or its root)
-	text_len: int, // a text box's text length, where the cursor goes; -1 for others
-	// A row of a list: the first row's id, shared by the rows drawn right
-	// after it in the same container; 0 for a control on its own. Tab stops
-	// at a list once, at its `current` row (the selected one) or its first,
-	// and Up and Down move in it.
-	group:    mu.Id,
-	current:  bool,
-}
-
-UI_Nav :: struct {
-	focus:     mu.Id,
-	visible:   bool,
-	items:     [dynamic]Nav_Item, // this frame's controls, in draw order
-	// Enter or Space was pressed on this control in the last frame: it acts
-	// as if clicked in this one.
-	activate:  mu.Id,
-	// The frame in which a control was last pressed from the keyboard, and
-	// the root containers that had controls in the last frame: a window or
-	// popup that it opens gets the focus.
-	pressed:   mu.Frame_Index,
-	roots:     [dynamic]^mu.Container,
-	// A popup on top: Tab, Up and Down only move among the controls in it.
-	// Set in every frame it is drawn in (nav_trap).
-	trap:      ^mu.Container,
-	// What gets the focus back once the focused control is gone: what opened
-	// the window or popup that has it.
-	return_to: mu.Id,
-}
-
 // A window opened from the keyboard may first be drawn a frame after the
 // control that opened it.
 @(private = "file")
@@ -63,34 +30,34 @@ NAV_OPEN_FRAMES :: 2
 
 // nav_trap keeps the keyboard focus inside the current root container (a
 // popup) for this frame.
-nav_trap :: proc(ui: ^UI) {
-	ui.nav.trap = nav_root(&ui.ctx)
+nav_trap :: proc(env: ^core.Env) {
+	env.nav.trap = nav_root(&env.ctx)
 }
 
 // begin_popup is mu.begin_popup (ended with mu.end_popup), with the
 // keyboard focus kept inside the popup and Escape closing it.
-begin_popup :: proc(ui: ^UI, name: string) -> bool {
-	ctx := &ui.ctx
+begin_popup :: proc(env: ^core.Env, name: string) -> bool {
+	ctx := &env.ctx
 	if !mu.begin_popup(ctx, name) {
 		return false
 	}
-	if key_take(ui, .Escape) {
+	if key_take(env, .Escape) {
 		mu.get_current_container(ctx).open = false
 	} else {
-		nav_trap(ui)
+		nav_trap(env)
 	}
 	return true
 }
 
-ui_nav_destroy :: proc(ui: ^UI) {
-	delete(ui.nav.items)
-	delete(ui.nav.roots)
+ui_nav_destroy :: proc(env: ^core.Env) {
+	delete(env.nav.items)
+	delete(env.nav.roots)
 }
 
 // nav_of is the keyboard focus that goes with `ctx`, or nil for a context
 // outside the UI (as in tests).
 @(private = "file")
-nav_of :: proc(ctx: ^mu.Context) -> ^UI_Nav {
+nav_of :: proc(ctx: ^mu.Context) -> ^core.Nav {
 	if g_ui == nil || &g_ui.ctx != ctx {
 		return nil
 	}
@@ -141,7 +108,7 @@ nav_control :: proc(
 			group = n.items[k - 1].group
 		}
 	}
-	append(&n.items, Nav_Item{id, r, nav_root(ctx), cnt, text_len, group, current})
+	append(&n.items, core.Nav_Item{id, r, nav_root(ctx), cnt, text_len, group, current})
 	if n.visible && n.focus == id {
 		render.draw_rounded_outside(ctx, r, theme.accent, render.CONTROL_RADIUS, border = true)
 	}
@@ -165,8 +132,8 @@ nav_focused :: proc(ctx: ^mu.Context, id: mu.Id) -> bool {
 // later in this frame, if the keyboard focus is shown (a dropdown opened
 // from the keyboard starts at the current choice). Its opener gets it back
 // when it closes.
-nav_focus_next :: proc(ui: ^UI, id: mu.Id) {
-	n := &ui.nav
+nav_focus_next :: proc(env: ^core.Env, id: mu.Id) {
+	n := &env.nav
 	if n.visible {
 		n.return_to = n.focus
 		n.focus = id
@@ -177,9 +144,9 @@ nav_focus_next :: proc(ui: ^UI, id: mu.Id) {
 // nav_frame moves the keyboard focus with this frame's keys, after the layout
 // and before mu.end (which forgets what the mouse and Enter did, and keeps
 // the text box focus set here).
-nav_frame :: proc(ui: ^UI) {
-	n := &ui.nav
-	ctx := &ui.ctx
+nav_frame :: proc(env: ^core.Env) {
+	n := &env.nav
+	ctx := &env.ctx
 	trap := n.trap
 	all := n.items[:]
 	defer {
@@ -205,12 +172,12 @@ nav_frame :: proc(ui: ^UI) {
 		if r := nav_new_root(all, n.roots[:]); r != nil && !nav_focus_in(n, all, r) {
 			n.pressed = 0
 			n.return_to = n.focus
-			nav_move(ui, all[nav_first_in(all, r)])
+			nav_move(env, all[nav_first_in(all, r)])
 		}
 	}
 	items := all
 	if trap != nil {
-		inside := make([dynamic]Nav_Item, 0, len(items), context.temp_allocator)
+		inside := make([dynamic]core.Nav_Item, 0, len(items), context.temp_allocator)
 		for it in items {
 			if it.root == trap {
 				append(&inside, it)
@@ -222,7 +189,7 @@ nav_frame :: proc(ui: ^UI) {
 	if at < 0 && n.return_to != 0 {
 		// The window or popup that had the focus closed: back to its opener.
 		if back := nav_index(items, n.return_to); back >= 0 {
-			nav_move(ui, items[back])
+			nav_move(env, items[back])
 			at = back
 		}
 		n.return_to = 0
@@ -233,37 +200,37 @@ nav_frame :: proc(ui: ^UI) {
 		// From the text box that was clicked, if there is one.
 		at = nav_index(items, ctx.focus_id)
 	}
-	forward := key_take(ui, .Tab)
-	back := key_take(ui, .Back_Tab)
+	forward := key_take(env, .Tab)
+	back := key_take(env, .Back_Tab)
 	if trap != nil && n.visible {
-		forward |= key_take(ui, .Down)
-		back |= key_take(ui, .Up)
+		forward |= key_take(env, .Down)
+		back |= key_take(env, .Up)
 	}
-	next_area := key_take(ui, .Next_Area)
-	prev_area := key_take(ui, .Prev_Area)
+	next_area := key_take(env, .Next_Area)
+	prev_area := key_take(env, .Prev_Area)
 	// Up and Down in a list (outside a popup, where they are Tab's).
 	in_list := trap == nil && n.visible && at >= 0 && items[at].group != 0
-	up := in_list && key_take(ui, .Up)
-	down := in_list && key_take(ui, .Down)
+	up := in_list && key_take(env, .Up)
+	down := in_list && key_take(env, .Down)
 	switch {
 	case (forward || back) && len(items) > 0:
 		if trap != nil {
-			nav_move(ui, items[nav_step(len(items), at, back)])
+			nav_move(env, items[nav_step(len(items), at, back)])
 		} else {
-			nav_move(ui, items[nav_tab_step(items, at, back)])
+			nav_move(env, items[nav_tab_step(items, at, back)])
 		}
 	case up || down:
 		if next := nav_list_step(items, at, up); next >= 0 {
-			nav_move(ui, items[next])
+			nav_move(env, items[next])
 		}
 	case (next_area || prev_area) && trap == nil && len(items) > 0:
-		nav_move(ui, items[nav_area_step(items, at, prev_area)])
+		nav_move(env, items[nav_area_step(items, at, prev_area)])
 	case n.visible && at >= 0 && items[at].text_len < 0:
-		if .Activate in ui.keys || .RETURN in ctx.key_pressed_bits {
+		if .Activate in env.keys || .RETURN in ctx.key_pressed_bits {
 			n.activate = n.focus
-			ui_redraw(ui)
+			ui_redraw(env)
 		}
-		if trap == nil && key_take(ui, .Escape) {
+		if trap == nil && key_take(env, .Escape) {
 			n.focus, n.visible = 0, false
 		}
 	}
@@ -271,9 +238,9 @@ nav_frame :: proc(ui: ^UI) {
 
 // nav_move gives the keyboard focus to `it`, shown, and scrolls it into view.
 @(private = "file")
-nav_move :: proc(ui: ^UI, it: Nav_Item) {
-	n := &ui.nav
-	ctx := &ui.ctx
+nav_move :: proc(env: ^core.Env, it: core.Nav_Item) {
+	n := &env.nav
+	ctx := &env.ctx
 	if it.text_len >= 0 {
 		focus_at(ctx, it.id, it.text_len)
 	} else if ctx.focus_id != 0 && nav_index(n.items[:], ctx.focus_id) >= 0 {
@@ -291,13 +258,13 @@ nav_move :: proc(ui: ^UI, it: Nav_Item) {
 			c.scroll.y += bottom - (c.body.y + c.body.h)
 		}
 	}
-	ui_redraw(ui)
+	ui_redraw(env)
 }
 
 // nav_new_root is the topmost root container among `items` that had no
 // controls in the last frame (`before`), or nil.
 @(private = "file")
-nav_new_root :: proc(items: []Nav_Item, before: []^mu.Container) -> (top: ^mu.Container) {
+nav_new_root :: proc(items: []core.Nav_Item, before: []^mu.Container) -> (top: ^mu.Container) {
 	outer: for it in items {
 		if it.root == nil {
 			continue
@@ -316,7 +283,7 @@ nav_new_root :: proc(items: []Nav_Item, before: []^mu.Container) -> (top: ^mu.Co
 
 // nav_focus_in says whether the focused control is in the root `r`.
 @(private = "file")
-nav_focus_in :: proc(n: ^UI_Nav, items: []Nav_Item, r: ^mu.Container) -> bool {
+nav_focus_in :: proc(n: ^core.Nav, items: []core.Nav_Item, r: ^mu.Container) -> bool {
 	at := nav_index(items, n.focus)
 	return at >= 0 && items[at].root == r
 }
@@ -324,7 +291,7 @@ nav_focus_in :: proc(n: ^UI_Nav, items: []Nav_Item, r: ^mu.Container) -> bool {
 // nav_first_in is where the first control in the root `r` is among `items`,
 // or -1.
 @(private = "file")
-nav_first_in :: proc(items: []Nav_Item, r: ^mu.Container) -> int {
+nav_first_in :: proc(items: []core.Nav_Item, r: ^mu.Container) -> int {
 	for it, i in items {
 		if it.root == r {
 			return i
@@ -337,7 +304,7 @@ nav_first_in :: proc(items: []Nav_Item, r: ^mu.Container) -> int {
 // `back`): the first control of the next area, a root container (the rail,
 // the main window, a window over it), in the order they were first drawn
 // in, wrapping around.
-nav_area_step :: proc(items: []Nav_Item, at: int, back: bool) -> int {
+nav_area_step :: proc(items: []core.Nav_Item, at: int, back: bool) -> int {
 	starts := make([dynamic]int, 0, 8, context.temp_allocator)
 	cur := -1
 	for it, i in items {
@@ -355,7 +322,7 @@ nav_area_step :: proc(items: []Nav_Item, at: int, back: bool) -> int {
 // nav_tab_step is where Tab goes from `at` among `items` (Shift+Tab with
 // `back`): the next control, a list counting as one, whose current row is
 // where it goes in.
-nav_tab_step :: proc(items: []Nav_Item, at: int, back: bool) -> int {
+nav_tab_step :: proc(items: []core.Nav_Item, at: int, back: bool) -> int {
 	n := len(items)
 	i := nav_step(n, at, back)
 	if at >= 0 && items[at].group != 0 {
@@ -387,7 +354,7 @@ nav_tab_step :: proc(items: []Nav_Item, at: int, back: bool) -> int {
 
 // nav_list_step is the row above `at` in its list (below it without `up`),
 // or -1 at either end.
-nav_list_step :: proc(items: []Nav_Item, at: int, up: bool) -> int {
+nav_list_step :: proc(items: []core.Nav_Item, at: int, up: bool) -> int {
 	g := items[at].group
 	if up {
 		#reverse for it, k in items[:at] {
@@ -407,7 +374,7 @@ nav_list_step :: proc(items: []Nav_Item, at: int, up: bool) -> int {
 
 // nav_index is where `id` is among `items`, or -1.
 @(private = "file")
-nav_index :: proc(items: []Nav_Item, id: mu.Id) -> int {
+nav_index :: proc(items: []core.Nav_Item, id: mu.Id) -> int {
 	if id == 0 {
 		return -1
 	}
@@ -430,43 +397,43 @@ nav_step :: proc(n, at: int, back: bool) -> int {
 
 // The keys whose every press counts, however quickly they come: those that
 // move the focus or a selection, a step per press.
-KEYS_QUEUED :: bit_set[Extra_Key]{.Up, .Down, .Tab, .Back_Tab, .Next_Area, .Prev_Area, .Activate}
+KEYS_QUEUED :: bit_set[core.Extra_Key]{.Up, .Down, .Tab, .Back_Tab, .Next_Area, .Prev_Area, .Activate}
 
 // key_press adds a press of `k` to the next frame's keys. A press of a key in
 // KEYS_QUEUED that is there already waits for a frame of its own
 // (keys_next_frame), so three quick Tabs move three times.
-key_press :: proc(k: Extra_Key) {
+key_press :: proc(k: core.Extra_Key) {
 	keys_add(g_ui, k)
 }
 
 @(private = "file")
-keys_add :: proc(ui: ^UI, k: Extra_Key) {
-	if k in ui.keys && k in KEYS_QUEUED {
-		ui.keys_queued[k] = min(ui.keys_queued[k] + 1, 255)
+keys_add :: proc(env: ^core.Env, k: core.Extra_Key) {
+	if k in env.keys && k in KEYS_QUEUED {
+		env.keys_queued[k] = min(env.keys_queued[k] + 1, 255)
 	} else {
-		ui.keys += {k}
+		env.keys += {k}
 	}
 }
 
 // keys_next_frame forgets this frame's keys, and hands each key's next
 // queued press to the next frame, which it asks for.
-keys_next_frame :: proc(ui: ^UI) {
-	ui.keys = {}
-	for &n, k in ui.keys_queued {
+keys_next_frame :: proc(env: ^core.Env) {
+	env.keys = {}
+	for &n, k in env.keys_queued {
 		if n > 0 {
 			n -= 1
-			ui.keys += {k}
-			ui_redraw(ui)
+			env.keys += {k}
+			ui_redraw(env)
 		}
 	}
 }
 
 // key_take takes `k` out of this frame's keys and says whether it was there,
 // so that whoever uses a key first is the only one to see it.
-key_take :: proc(ui: ^UI, k: Extra_Key) -> bool {
-	if k not_in ui.keys {
+key_take :: proc(env: ^core.Env, k: core.Extra_Key) -> bool {
+	if k not_in env.keys {
 		return false
 	}
-	ui.keys -= {k}
+	env.keys -= {k}
 	return true
 }
