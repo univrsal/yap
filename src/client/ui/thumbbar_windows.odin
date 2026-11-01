@@ -18,7 +18,7 @@ import "client:render"
 // use for. So the window gets a window procedure of ours that records the
 // press and passes everything else on, and the loop acts on it in
 // thumbbar_update, as the tray does with its clicks. Ours is installed first,
-// before titlebar_merge puts its own in front of it, so that the title bar can
+// before titlebar.merge puts its own in front of it, so that the title bar can
 // come and go without taking ours with it.
 //
 // The buttons can only be added once the taskbar has a button for the window,
@@ -102,7 +102,7 @@ thumb_proc :: proc "system" (
 
 // thumbbar_attach puts the buttons on a new window, or tries to. A desktop
 // without a taskbar to put them on goes without them and says so in the log.
-// Called from window_open, before titlebar_merge.
+// Called from window_open, before titlebar.merge.
 thumbbar_attach :: proc(window: glfw.WindowHandle) {
 	t := &g_thumbs
 	hwnd := win.HWND(glfw.GetWin32Window(window))

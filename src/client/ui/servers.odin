@@ -448,7 +448,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 	// The darkest of the surfaces (see theme.rail), without a border.
 	mu.draw_rect(ctx, {0, 0, RAIL_WIDTH, h}, theme.rail)
 	// With the title bar merged on macOS, the window's buttons sit over the
-	// rail's top left (see ui/titlebar_darwin.odin), so start below them.
+	// rail's top left (see ui/titlebar/titlebar_darwin.odin), so start below them.
 	if ui.titlebar_left > 0 && ui.titlebar_height > 0 {
 		mu.layout_row(ctx, {-1}, ui.titlebar_height)
 		mu.layout_next(ctx)

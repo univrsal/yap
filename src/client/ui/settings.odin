@@ -1,5 +1,6 @@
 package ui
 
+import "titlebar"
 import "client:audio"
 import "client:conn"
 import "client:platform"
@@ -8,6 +9,8 @@ import log "common:wlog"
 import "core:fmt"
 import "core:sync"
 import mu "vendor:microui"
+
+_ :: titlebar // only used outside the web build
 
 
 // The settings page has two tabs. This client's tab has noise suppression,
@@ -385,10 +388,10 @@ ui_settings :: proc(ui: ^UI) {
 		if .CHANGE in
 		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
 			save_settings(ui)
-			titlebar_merge(ui.window, ui.settings.merge_title_bar)
+			titlebar.merge(ui.window, ui.settings.merge_title_bar)
 			ui_redraw(ui)
 		}
-		if note := titlebar_restart_note(ui.settings.merge_title_bar); note != "" {
+		if note := titlebar.restart_note(ui.settings.merge_title_bar); note != "" {
 			mu.layout_row(ctx, {-1})
 			with_text_color(ctx, theme.warning, fmt.tprintf("  %s", note), wrap_text)
 		}

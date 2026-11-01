@@ -60,7 +60,7 @@ Icon :: enum {
 	Back, // a chevron pointing left: back to a list, or the page before
 	Next, // a chevron pointing right: the page after
 	// The window's own controls, for where Windows does not provide them
-	// (ui/titlebar_windows.odin).
+	// (ui/titlebar/titlebar_windows.odin).
 	Minimize, // a line
 	Maximize, // a box
 	Restore, // two boxes, one behind the other

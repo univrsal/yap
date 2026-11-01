@@ -1,5 +1,6 @@
 package ui
 
+import "titlebar"
 import "redraw"
 import "base:intrinsics"
 import "client:audio"
@@ -74,7 +75,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	app_sound_play(ui, .Welcome)
 
 	glfw.SetErrorCallback(glfw_error_callback)
-	titlebar_init(ui.settings.merge_title_bar)
+	titlebar.init(ui.settings.merge_title_bar)
 	if !glfw.Init() {
 		log.error("failed to initialize GLFW")
 		return false
@@ -250,7 +251,7 @@ draw_frame :: proc(ui: ^UI) {
 		ui.metrics = m
 	}
 	ui.input_scale = m.input_scale
-	left, right, height := titlebar_area(ui)
+	left, right, height := titlebar.area(ui.window, ui.input_scale, ui.ctx.style.padding, ui.ctx.style.size.y)
 	ui.titlebar_left = i32(left * m.input_scale)
 	ui.titlebar_right = i32(right * m.input_scale)
 	ui.titlebar_height = i32(height * m.input_scale)
@@ -288,7 +289,7 @@ draw_frame :: proc(ui: ^UI) {
 		touch_after_frame(ui)
 		fields_after_frame(ui)
 	}
-	edge := Window_Edge.None
+	edge := titlebar.Edge.None
 	if ui.ctx.mouse_down_bits == {} {
 		edge = window_edge(ui, ui.ctx.mouse_pos.x, ui.ctx.mouse_pos.y)
 	}

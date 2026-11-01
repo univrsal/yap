@@ -1,4 +1,4 @@
-package ui
+package titlebar
 
 import "base:intrinsics"
 import glfw "client:wglfw"
@@ -8,7 +8,7 @@ import vglfw "vendor:glfw"
 // On macOS the window has no title bar of its own: the UI runs up to the top
 // edge, and the close, minimize and zoom buttons sit on it, over the start of
 // the first row (see title_row). On other platforms the desktop's own title bar
-// stays, or on X11 goes (ui_titlebar_x11.odin).
+// stays, or on X11 goes (titlebar_x11.odin).
 //
 // What is left of the strip that the title bar used to be still moves the
 // window when dragged and zooms it when double-clicked, as a title bar would,
@@ -21,13 +21,13 @@ ZOOM_BUTTON :: 2
 
 // Room left between the zoom button and the first row, in points.
 @(private = "file")
-TITLEBAR_GAP :: 8
+GAP :: 8
 
-// titlebar_merge lets the UI take the title bar's place, or gives it back.
+// merge lets the UI take the title bar's place, or gives it back.
 // Called once the window has its Metal layer, and when the setting changes.
 // The view changes size with it, and the next frame's drawable changes with
 // that (render/gpu_metal.odin).
-titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
+merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w := vglfw.GetCocoaWindow(window)
 	if w == nil {
 		return
@@ -46,13 +46,13 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w->setTitleVisibility(.Hidden if merged else .Visible)
 }
 
-// titlebar_area is the strip along the top that the title bar would have
+// area is the strip along the top that the title bar would have
 // taken, in window coordinates: how far in from the left and from the right
 // the window's own buttons reach (only the left here), and how tall the strip
 // is. It is zero in fullscreen, where the title bar only slides in over the UI
 // when the pointer goes up there.
-titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
-	w := vglfw.GetCocoaWindow(ui.window)
+area :: proc(window: glfw.WindowHandle, input_scale: f32, padding, size_y: i32) -> (left, right, height: f32) {
+	w := vglfw.GetCocoaWindow(window)
 	if w == nil ||
 	   .FullSizeContentView not_in intrinsics.objc_send(NS.WindowStyleMask, w, "styleMask") {
 		return
@@ -67,17 +67,17 @@ titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 		"standardWindowButton:",
 		NS.UInteger(ZOOM_BUTTON),
 	); zoom != nil {
-		left = f32(NS.MaxX(intrinsics.objc_send(NS.Rect, zoom, "frame"))) + TITLEBAR_GAP
+		left = f32(NS.MaxX(intrinsics.objc_send(NS.Rect, zoom, "frame"))) + GAP
 	}
 	return
 }
 
-// titlebar_press does what a title bar does with the press being handled:
+// press does what a title bar does with the press being handled:
 // move the window along with the pointer or, on a double click, whatever the
 // system settings say a double click on a title bar does. Called from the
 // mouse button callback while AppKit's event is still the current one. The drag
 // runs until the button is released.
-titlebar_press :: proc(window: glfw.WindowHandle) {
+press :: proc(window: glfw.WindowHandle) {
 	w := vglfw.GetCocoaWindow(window)
 	event := NS.Application.sharedApplication()->currentEvent()
 	if w == nil || event == nil {
@@ -106,20 +106,28 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 }
 
 // The buttons are the system's here, and so are the window's edges.
-titlebar_buttons :: proc(ui: ^UI, w: i32) {}
+button_gap :: proc(input_scale: f32) -> f32 {
+	return 0
+}
 
-titlebar_init :: proc(merged: bool) {}
-
-titlebar_window_hints :: proc(merged: bool) {}
-
-titlebar_motion :: proc(window: glfw.WindowHandle) {}
-
-titlebar_resizable :: proc(window: glfw.WindowHandle) -> bool {
+is_maximized :: proc(window: glfw.WindowHandle) -> bool {
 	return false
 }
 
-titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {}
+click_button :: proc(window: glfw.WindowHandle, i: int, maximized: bool) {}
 
-titlebar_restart_note :: proc(merged: bool) -> string {
+init :: proc(merged: bool) {}
+
+window_hints :: proc(merged: bool) {}
+
+motion :: proc(window: glfw.WindowHandle) {}
+
+resizable :: proc(window: glfw.WindowHandle) -> bool {
+	return false
+}
+
+resize :: proc(window: glfw.WindowHandle, edge: Edge) {}
+
+restart_note :: proc(merged: bool) -> string {
 	return ""
 }

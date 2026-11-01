@@ -1,5 +1,6 @@
 package ui
 
+import "titlebar"
 import "chrome"
 import "base:intrinsics"
 import "client:clipboard"
@@ -31,7 +32,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		glfw.WindowHintString(glfw.X11_CLASS_NAME, "yap")
 		glfw.WindowHintString(glfw.X11_INSTANCE_NAME, "yap")
 	}
-	titlebar_window_hints(ui.settings.merge_title_bar)
+	titlebar.window_hints(ui.settings.merge_title_bar)
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
 	delete(ui.window_title)
 	ui.window_title = strings.clone("Yap") // what the window title says
@@ -51,7 +52,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	// Before the title bar, whose window procedure goes in front of this one.
 	thumbbar_attach(ui.window)
-	titlebar_merge(ui.window, ui.settings.merge_title_bar)
+	titlebar.merge(ui.window, ui.settings.merge_title_bar)
 	set_swap_pace(ui)
 	ui.renderer.images = &ui.images.draws
 
@@ -293,7 +294,7 @@ when ODIN_OS == .Darwin {
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
-	titlebar_motion(window)
+	titlebar.motion(window)
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
@@ -333,13 +334,13 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	// press is somewhere else (because motion events were missed), it would click
 	// whatever was under the old position, so drop the hover instead.
 	// The edges of a window without a frame resize it (X11 only, see
-	// ui/titlebar_x11.odin), and the strip where a title bar would be moves
+	// ui/titlebar/titlebar_x11.odin), and the strip where a title bar would be moves
 	// it instead, where it isn't a control in the main window or the rail.
 	// The strip reaches down to the line under the title row
 	// (UI.title_line), if that is lower.
 	if btn == .LEFT && action == glfw.PRESS {
 		if edge := window_edge(g_ui, x, y); edge != .None {
-			titlebar_resize(window, edge)
+			titlebar.resize(window, edge)
 			return
 		}
 	}
@@ -349,7 +350,7 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	   g_ui.ctx.hover_id == 0 &&
 	   (g_ui.ctx.hover_root == mu.get_container(&g_ui.ctx, "yap") ||
 			   g_ui.ctx.hover_root == mu.get_container(&g_ui.ctx, RAIL_WINDOW)) {
-		titlebar_press(window)
+		titlebar.press(window)
 		return
 	}
 	if action == glfw.PRESS && g_ui.ctx.mouse_pos != {x, y} {

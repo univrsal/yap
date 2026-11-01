@@ -1,7 +1,7 @@
 #+build linux
-package ui
+package titlebar
 
-import "chrome"
+import "client:ui/chrome"
 import glfw "client:wglfw"
 import log "common:wlog"
 import "core:c"
@@ -27,7 +27,7 @@ import vglfw "vendor:glfw"
 // Wayland has the same request (xdg_toplevel.move and .resize), but GLFW keeps
 // the objects it needs to itself, so a window can't send it there. With the
 // setting on, a Wayland session gets the client as an X11 window through
-// XWayland instead (titlebar_init). This only takes effect when GLFW starts, so
+// XWayland instead (init). This only takes effect when GLFW starts, so
 // switching between the two needs a restart.
 //
 // libX11 is loaded at runtime, as for the clipboard. The request goes through
@@ -35,7 +35,7 @@ import vglfw "vendor:glfw"
 
 // Room left between the first row and the buttons, in logical pixels.
 @(private = "file")
-TITLEBAR_GAP :: 8
+GAP :: 8
 
 // Two presses on the strip this close together maximize or restore the window.
 @(private = "file")
@@ -96,16 +96,16 @@ g_x11: struct {
 	xwayland:   bool,
 	last_press: time.Tick,
 	// A press on the strip or an edge that becomes a move or resize once the
-	// pointer moves (titlebar_motion): which direction, and where.
+	// pointer moves (motion): which direction, and where.
 	pending:    bool,
 	direction:  c.long,
 	pressed_at: [2]f64,
 }
 
-// titlebar_init asks GLFW for X11 rather than Wayland when the title bar is to
+// init asks GLFW for X11 rather than Wayland when the title bar is to
 // be merged (see above), where there is an X server to ask: under XWayland,
 // DISPLAY is set alongside WAYLAND_DISPLAY.
-titlebar_init :: proc(merged: bool) {
+init :: proc(merged: bool) {
 	if !merged {
 		// The compositor draws the title bar, so libdecor (and GTK) isn't
 		// needed (see ui/chrome/wayland_decorations.odin).
@@ -124,15 +124,15 @@ titlebar_init :: proc(merged: bool) {
 	log.debug("ui: X11 rather than Wayland, for the merged title bar")
 }
 
-// titlebar_window_hints makes the window without decorations from the start,
+// window_hints makes the window without decorations from the start,
 // rather than removing them once it is up.
-titlebar_window_hints :: proc(merged: bool) {
+window_hints :: proc(merged: bool) {
 	glfw.WindowHint(vglfw.DECORATED, !(merged && on_x11()))
 }
 
-// titlebar_merge lets the UI take the title bar's place, or gives it back.
-// Only on X11. On Wayland it takes a restart (titlebar_init).
-titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
+// merge lets the UI take the title bar's place, or gives it back.
+// Only on X11. On Wayland it takes a restart (init).
+merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	if window == nil || !on_x11() {
 		return
 	}
@@ -142,7 +142,7 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	vglfw.SetWindowAttrib(window, vglfw.DECORATED, 0 if merged else 1)
 }
 
-// titlebar_area is the strip along the top that the title bar would have
+// area is the strip along the top that the title bar would have
 // taken, in window coordinates: how far in from the left and from the right
 // the window's own buttons reach (only the right here), and how tall the strip
 // is. It is zero where the window manager draws the title bar, or in
@@ -152,46 +152,50 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 // pixels, as the first row is, and scales with it. It reaches down to where the
 // first row ends, so that the buttons keep the same spacing from the second row
 // as the rows keep from each other.
-titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
-	if !merged(ui.window) || ui.input_scale <= 0 {
+area :: proc(window: glfw.WindowHandle, input_scale: f32, padding, size_y: i32) -> (left, right, height: f32) {
+	if !merged(window) || input_scale <= 0 {
 		return
 	}
-	style := ui.ctx.style
-	row := style.size.y + style.padding * 2 // a row's height (mu.layout_next)
-	height = f32(style.padding + row) / ui.input_scale
-	right = f32(TITLEBAR_BUTTON_WIDTH * TITLEBAR_BUTTON_COUNT + TITLEBAR_GAP) / ui.input_scale
+	row := size_y + padding * 2 // a row's height (mu.layout_next)
+	height = f32(padding + row) / input_scale
+	right = f32(BUTTON_WIDTH * BUTTON_COUNT + GAP) / input_scale
 	return
 }
 
-// titlebar_buttons draws the window's buttons in the top right corner of the
-// window, `w` wide, in the strip that titlebar_area made room for, and does
-// what they say when pressed.
-titlebar_buttons :: proc(ui: ^UI, w: i32) {
-	if ui.titlebar_right == 0 {
-		return
-	}
-	maximized := vglfw.GetWindowAttrib(ui.window, vglfw.MAXIMIZED) != 0
-	switch window_buttons(ui, w, TITLEBAR_GAP / ui.input_scale, maximized) {
+// button_gap is how far short of the strip's left end the window's buttons
+// start, in window coordinates.
+button_gap :: proc(input_scale: f32) -> f32 {
+	return GAP / input_scale
+}
+
+is_maximized :: proc(window: glfw.WindowHandle) -> bool {
+	return vglfw.GetWindowAttrib(window, vglfw.MAXIMIZED) != 0
+}
+
+// click_button does what the window's button `i` says (0 minimize, 1 maximize
+// or restore, 2 close).
+click_button :: proc(window: glfw.WindowHandle, i: int, maximized: bool) {
+	switch i {
 	case 0:
-		vglfw.IconifyWindow(ui.window)
+		vglfw.IconifyWindow(window)
 	case 1:
 		if maximized {
-			glfw.RestoreWindow(ui.window)
+			glfw.RestoreWindow(window)
 		} else {
-			vglfw.MaximizeWindow(ui.window)
+			vglfw.MaximizeWindow(window)
 		}
 	case 2:
 		// As the window manager's close button would: the client decides what
-		// closing does (ui_frame).
-		glfw.SetWindowShouldClose(ui.window, true)
+		// closing does (ui/frame.odin).
+		glfw.SetWindowShouldClose(window, true)
 	}
 }
 
-// titlebar_press does what a title bar does with the press being handled:
-// move the window along with the pointer once it moves (titlebar_motion), or
+// press does what a title bar does with the press being handled:
+// move the window along with the pointer once it moves (motion), or
 // maximize or restore it on a double click. Called from the mouse button
 // callback. The drag runs until the button is released.
-titlebar_press :: proc(window: glfw.WindowHandle) {
+press :: proc(window: glfw.WindowHandle) {
 	if g_x11.last_press != {} && time.tick_since(g_x11.last_press) < DOUBLE_CLICK {
 		g_x11.last_press = {}
 		g_x11.pending = false
@@ -206,10 +210,10 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 	start_drag(window, MOVERESIZE_MOVE)
 }
 
-// titlebar_motion hands a press on the strip or an edge over to the window
+// motion hands a press on the strip or an edge over to the window
 // manager once the pointer has moved far enough with the button held. Called
 // from the cursor position callback.
-titlebar_motion :: proc(window: glfw.WindowHandle) {
+motion :: proc(window: glfw.WindowHandle) {
 	if !g_x11.pending {
 		return
 	}
@@ -227,16 +231,16 @@ titlebar_motion :: proc(window: glfw.WindowHandle) {
 	move_resize(window, g_x11.direction)
 }
 
-// titlebar_resizable reports whether window_edge resizes the window: it has no
+// resizable reports whether window_edge resizes the window: it has no
 // frame to be resized by, and isn't maximized or fullscreen.
-titlebar_resizable :: proc(window: glfw.WindowHandle) -> bool {
+resizable :: proc(window: glfw.WindowHandle) -> bool {
 	return merged(window) && vglfw.GetWindowAttrib(window, vglfw.MAXIMIZED) == 0
 }
 
-// titlebar_resize resizes the window by `edge` while the button is held.
-titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {
+// resize resizes the window by `edge` while the button is held.
+resize :: proc(window: glfw.WindowHandle, edge: Edge) {
 	// _NET_WM_MOVERESIZE numbers the edges clockwise from the top left, as
-	// Window_Edge does from 1.
+	// Edge does from 1.
 	if edge != .None {
 		start_drag(window, c.long(edge) - 1)
 	}
@@ -245,9 +249,9 @@ titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {
 @(private = "file")
 XWAYLAND_NOTE :: "On Wayland this needs XWayland, which this window will use from the next start."
 
-// titlebar_restart_note says what the setting won't change until the client is
+// restart_note says what the setting won't change until the client is
 // started again, if anything.
-titlebar_restart_note :: proc(merged: bool) -> string {
+restart_note :: proc(merged: bool) -> string {
 	switch {
 	case merged && on_wayland():
 		return XWAYLAND_NOTE
@@ -262,7 +266,12 @@ on_x11 :: proc() -> bool {
 	return glfw.GetPlatform() == glfw.PLATFORM_X11
 }
 
-// merged reports whether `window` is one that titlebar_merge removed the
+@(private = "file")
+on_wayland :: proc() -> bool {
+	return glfw.GetPlatform() == glfw.PLATFORM_WAYLAND
+}
+
+// merged reports whether `window` is one that merge removed the
 // decorations from, and isn't fullscreen.
 @(private = "file")
 merged :: proc(window: glfw.WindowHandle) -> bool {
@@ -275,7 +284,7 @@ merged :: proc(window: glfw.WindowHandle) -> bool {
 }
 
 // start_drag notes a press that moves (MOVERESIZE_MOVE) or resizes the window,
-// for titlebar_motion.
+// for motion.
 @(private = "file")
 start_drag :: proc(window: glfw.WindowHandle, direction: c.long) {
 	x, y := glfw.GetCursorPos(window)

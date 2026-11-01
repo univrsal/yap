@@ -1,4 +1,4 @@
-package ui
+package titlebar
 
 import glfw "client:wglfw"
 import win "core:sys/windows"
@@ -28,7 +28,7 @@ foreign user32 {
 
 // Room left between the first row and the buttons, in pixels.
 @(private = "file")
-TITLEBAR_GAP :: 8
+GAP :: 8
 
 // The window procedure that GLFW installed, which ours passes messages on to.
 @(private = "file")
@@ -110,11 +110,11 @@ title_proc :: proc "system" (
 	return win.CallWindowProcW(g_glfw_proc, hwnd, msg, wparam, lparam)
 }
 
-// titlebar_merge lets the UI take the title bar's place, or gives it back.
+// merge lets the UI take the title bar's place, or gives it back.
 // Called once each window has its rendering set up (hiding to the tray takes
 // the window down, and the one that comes back is a new one), and when the
 // setting changes.
-titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
+merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	hwnd := win.HWND(glfw.GetWin32Window(window))
 	if hwnd == nil || merged == is_merged(hwnd) {
 		return
@@ -156,12 +156,12 @@ is_merged :: proc(hwnd: win.HWND) -> bool {
 	return win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == our_proc()
 }
 
-// titlebar_area is the strip along the top that the title bar would have
+// area is the strip along the top that the title bar would have
 // taken, in window coordinates: how far in from the left and from the right
 // the window's own buttons reach (only the right here), and how tall the strip
 // is. It is zero in fullscreen, where there is no title bar.
-titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
-	hwnd := win.HWND(glfw.GetWin32Window(ui.window))
+area :: proc(window: glfw.WindowHandle, input_scale: f32, padding, size_y: i32) -> (left, right, height: f32) {
+	hwnd := win.HWND(glfw.GetWin32Window(window))
 	if hwnd == nil || !is_merged(hwnd) {
 		return
 	}
@@ -170,20 +170,25 @@ titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	}
 	dpi := win.GetDpiForWindow(hwnd)
 	height = f32(win.GetSystemMetricsForDpi(win.SM_CYCAPTION, dpi))
-	right = f32(TITLEBAR_BUTTON_WIDTH * TITLEBAR_BUTTON_COUNT * i32(dpi) / 96) + TITLEBAR_GAP
+	right = f32(BUTTON_WIDTH * BUTTON_COUNT * i32(dpi) / 96) + GAP
 	return
 }
 
-// titlebar_buttons draws the window's buttons in the top right corner of the
-// window, `w` wide, in the strip that titlebar_area made room for, and does
-// what they say when pressed.
-titlebar_buttons :: proc(ui: ^UI, w: i32) {
-	if ui.titlebar_right == 0 {
-		return
-	}
-	hwnd := win.HWND(glfw.GetWin32Window(ui.window))
-	maximized := bool(win.IsZoomed(hwnd))
-	switch window_buttons(ui, w, TITLEBAR_GAP, maximized) {
+// button_gap is how far short of the strip's left end the window's buttons
+// start, in window coordinates.
+button_gap :: proc(input_scale: f32) -> f32 {
+	return GAP
+}
+
+is_maximized :: proc(window: glfw.WindowHandle) -> bool {
+	return bool(win.IsZoomed(win.HWND(glfw.GetWin32Window(window))))
+}
+
+// click_button does what the window's button `i` says (0 minimize, 1 maximize
+// or restore, 2 close).
+click_button :: proc(window: glfw.WindowHandle, i: int, maximized: bool) {
+	hwnd := win.HWND(glfw.GetWin32Window(window))
+	switch i {
 	case 0:
 		win.ShowWindow(hwnd, win.SW_MINIMIZE)
 	case 1:
@@ -193,11 +198,11 @@ titlebar_buttons :: proc(ui: ^UI, w: i32) {
 	}
 }
 
-// titlebar_press does what a title bar does with the press being handled:
+// press does what a title bar does with the press being handled:
 // move the window along with the pointer, or maximize or restore it on a
 // double click. Called from the mouse button callback. The drag runs until the
 // button is released.
-titlebar_press :: proc(window: glfw.WindowHandle) {
+press :: proc(window: glfw.WindowHandle) {
 	hwnd := win.HWND(glfw.GetWin32Window(window))
 	if hwnd == nil {
 		return
@@ -221,18 +226,18 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 }
 
 // The frame stays the system's, sizing borders and all (see title_proc).
-titlebar_init :: proc(merged: bool) {}
+init :: proc(merged: bool) {}
 
-titlebar_window_hints :: proc(merged: bool) {}
+window_hints :: proc(merged: bool) {}
 
-titlebar_motion :: proc(window: glfw.WindowHandle) {}
+motion :: proc(window: glfw.WindowHandle) {}
 
-titlebar_resizable :: proc(window: glfw.WindowHandle) -> bool {
+resizable :: proc(window: glfw.WindowHandle) -> bool {
 	return false
 }
 
-titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {}
+resize :: proc(window: glfw.WindowHandle, edge: Edge) {}
 
-titlebar_restart_note :: proc(merged: bool) -> string {
+restart_note :: proc(merged: bool) -> string {
 	return ""
 }
