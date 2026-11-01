@@ -169,6 +169,10 @@ rights), and the server's check in step 3 is the authority.
 		  "user": {"id": "4", "username": "uni", "display": "uni", "bot": false}}}
 
 - Resume replays it like other events.
+- *As built:* the model keeps the commands, so `READY` has a `commands` list
+  (`{bot, commands}` per bot) and a `COMMANDS_UPDATE` event, in the same
+  shape, follows each `Commands_Changed`. `PUT` answers with the set the
+  server now has. The code is in `lib/gateway/commands.odin`.
 - A headless client without the gateway (`src/stress/bot.odin` and what
   `bot-api.md` phase 2 made of it) gets the ops directly.
 - The server sends `Command_Invoked` only to the account the command
@@ -226,7 +230,7 @@ register a command for others; that is what a bot is for.
 | 1 | Protocol: the four ops, the codec and its tests; limits and sanitizing | S | `common/proto` | - | done (2026-11-01) |
 | 2 | Server: the in-memory registry, `Bot_Commands_Set`, `Commands_Changed` (also in the sync, and when a bot's last connection closes) | M | `server` | 1 | done (2026-11-01) |
 | 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | done (2026-11-01) |
-| 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | planned |
+| 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | done (2026-11-01) |
 | 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | planned |
 | 6 | Docs and an example: `API.md` (commands, the event), `Scripting.md` (script and bot commands are listed together), `scripting.md` D7 updated, `docs/examples/slash.py` | S | docs | 4, 5 | planned |
 

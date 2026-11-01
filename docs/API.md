@@ -346,9 +346,35 @@ one conversation (otherwise it searches all of yours). `limit` is 1–50
 (default 25). The answer is newest first. When `more` is true, ask
 again with `before` set to `searched_to` to go on further back.
 
+### Slash commands
+
+A bot can add `/commands` that everyone on the server is offered while
+typing. Running one reaches the bot as a [`COMMAND`](#events-the-websocket) event
+instead of a message to parse; the bot answers with an ordinary post.
+
+| | |
+| --- | --- |
+| `PUT /commands` | Replace the commands of the token's bot. The body is a list of `{name, description, usage}` (`description` and `usage` are optional). → 200 the bot's commands, as below. 403 for an account that isn't a bot. |
+| `GET /commands` | The commands of every bot that has some. → a list of `{bot, commands: [{name, description, usage}]}`, `bot` being the bot as an author |
+
+A `name` is 1 to 32 of `a`-`z`, `0`-`9`, `-` and `_`; a bot can have 50
+commands; `description` is cut at 100 bytes and `usage` (a hint for the
+arguments, like `<city> [days]`) at 64. Text is cleaned of line breaks
+and control characters.
+
+The commands belong to the bot's connection and go when it does, so set
+them again whenever you connect (after `READY`). Setting them replaces
+what you had, and an empty list `[]` removes them all. Running a command
+is checked like a post: the person must be able to write in that
+conversation, and your bot must be in it and able to write there too.
+Nothing is posted when someone runs a command; answer with
+`POST /convs/{conv_id}/messages`, with `thread` set to the event's
+`thread` when it isn't `null`.
+
 ### Files
 
 | | |
+| --- | --- |
 | --- | --- |
 | `POST /uploads?name=` | Upload a file, the body being the file. → 201 `{id, name, size}` |
 | `POST /avatars` | Upload a picture for a persona (see Posting): a JPEG of at most 256 pixels per side and 64 KB, the body being the file. → 201 `{id}` |
@@ -485,10 +511,12 @@ The first frame is **READY**, with everything you need to start:
 ```json
 {"t": "READY", "s": 117, "d": {
   "me": {...}, "server": {...}, "roles": [...], "accounts": [...],
-  "convs": [...], "online": ["2", "3"]}}
+  "convs": [...], "online": ["2", "3"], "commands": [...]}}
 ```
 
-`online` lists the accounts online at that moment. On a connection
+`online` lists the accounts online at that moment, and `commands` the
+[slash commands](#slash-commands) of the bots that have some (a list of
+`{bot, commands}`). On a connection
 that's only just been made, `PRESENCE_UPDATE`s may follow straight away
 for people who were already online. A READY can also come later in the
 stream: the gateway's connection to the server had to start over (the
@@ -515,6 +543,8 @@ reads.
 | `ROLE_UPDATE` | a [role](#role) |
 | `ROLE_DELETE` | `{id}` |
 | `PRESENCE_UPDATE` | `{account_id, online}` |
+| `COMMANDS_UPDATE` | `{bot, commands}`: a bot's [slash commands](#slash-commands) as they are now; an empty list means it has none any more |
+| `COMMAND` | `{id, conv_id, thread, name, args, user}`: `user` ran your command `name` with `args` (what they typed after it) in `conv_id`. `thread` is the root message's id, or `null`. Only the bot that owns the command gets it. |
 | `SERVER_UPDATE` | the [server](#server) |
 | `SELF_UPDATE` | [me](#me): your own permissions or flags changed |
 | `LOGGED_OUT` | `{reason, ban_reason}`: `revoked`, `password_changed`, `disabled`, `deleted` or `banned` (then `ban_reason` is why, otherwise `null`). The socket closes after this. |
