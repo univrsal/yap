@@ -28,6 +28,23 @@ For a more minimal version more similar to Mumble check out the
 See [the tutorial video](https://www.youtube.com/watch?v=zcZ0UOpUYG4) for basic
 server and client usage.
 
+### Goals
+
+Many want a Discord replacement but the bitter lesson is that there won't be one.
+Someone could release a 1:1 feature complete Discord alternative today and most
+would still not use it because it doesn't have the user base. So this should
+be more thought of as an alternative to Mattermost.
+
+The goal here is to make a chat application that contains most features within
+reason while trying to keep it somewhat lightweight (without having to manually
+write 100k lines of code). Specifically that means:
+
+- Both the client and server have to be easy to setup,
+- no overly cosmetic features (i.e. advanced profile customization),
+- try to keep memory usage low,
+- no focus on scalability (i.e. a server with 10,000 users is out of scope),
+- while the web client does run on mobiles, primary focus is on desktop users.
+
 ### [Running a server](docs/Server.md)
 
 ### [Building](docs/Building.md)
