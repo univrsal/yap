@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
@@ -437,7 +438,7 @@ completion_window :: proc(ui: ^UI) {
 		if item.color != 0 {
 			ctx.style.colors[.TEXT] = role_rgb(item.color)
 		}
-		if .SUBMIT in stable_button(ctx, "item", label) {
+		if .SUBMIT in widgets.stable_button(ctx, "item", label) {
 			completion_choose(ui, composer_of(ui, cm.thread), i)
 		}
 		ctx.style.colors[.BUTTON] = saved

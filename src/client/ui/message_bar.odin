@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:fmt"
@@ -171,7 +172,7 @@ message_bar :: proc(ui: ^UI) {
 	// part of its timeline that is on screen.
 	pad, spacing := ctx.style.padding, ctx.style.spacing
 	row_h := ctx.style.size.y + 2 * pad
-	w := i32(n) * icon_button_w(ctx) + i32(n - 1) * spacing + 2 * pad
+	w := i32(n) * widgets.icon_button_w(ctx) + i32(n - 1) * spacing + 2 * pad
 	h := row_h + 2 * pad
 	right := min(b.block.x + b.block.w, b.clip.x + b.clip.w) - BAR_INSET
 	x := max(right - w, b.clip.x)
@@ -198,7 +199,7 @@ message_bar :: proc(ui: ^UI) {
 
 	widths := make([]i32, n, context.temp_allocator)
 	for &bw in widths {
-		bw = icon_button_w(ctx)
+		bw = widgets.icon_button_w(ctx)
 	}
 	mu.layout_row(ctx, widths, row_h)
 	cmds := &ui.session.client.commands
@@ -211,27 +212,27 @@ message_bar :: proc(ui: ^UI) {
 		}
 		mu.pop_id(ctx)
 	}
-	if react && .SUBMIT in icon_button(ui, "react", .Smiley, "React") {
+	if react && .SUBMIT in widgets.icon_button(ui, "react", .Smiley, "React") {
 		open_picker(ui, m.id, r)
 		done = true
 	}
-	if reply && .SUBMIT in icon_button(ui, "reply", .Reply, "Reply in thread") {
+	if reply && .SUBMIT in widgets.icon_button(ui, "reply", .Reply, "Reply in thread") {
 		open_thread(ui, {b.target.conv, m.thread_root if m.thread_root != 0 else m.id})
 		done = true
 	}
-	if edit && .SUBMIT in icon_button(ui, "edit", .Edit, "Edit") {
+	if edit && .SUBMIT in widgets.icon_button(ui, "edit", .Edit, "Edit") {
 		start_editing(ui, m.id, m.text, composer_of(ui, b.target.slot))
 		done = true
 	}
 	if pin {
 		pinned := .Pinned in m.flags
 		hint := "Unpin" if pinned else "Pin"
-		if .SUBMIT in icon_button(ui, "pin", .Pin, hint, core.theme.pinned if pinned else {}) {
+		if .SUBMIT in widgets.icon_button(ui, "pin", .Pin, hint, core.theme.pinned if pinned else {}) {
 			conn.push_command(cmds, conn.Pin_Command{id = m.id, on = !pinned})
 			done = true
 		}
 	}
-	if del && .SUBMIT in icon_button(ui, "delete", .Trash, "Delete (Shift: without asking)") {
+	if del && .SUBMIT in widgets.icon_button(ui, "delete", .Trash, "Delete (Shift: without asking)") {
 		if .SHIFT in ctx.key_down_bits {
 			conn.push_command(cmds, conn.Delete_Command{id = m.id})
 			log.debug("ui: delete a message")

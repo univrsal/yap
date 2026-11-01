@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "client:conn"
 import "common:proto"
@@ -49,7 +50,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	if make_codes {
-		field_row(ui, FORM_LABEL, "Registrations", {CHOICE_WIDTH})
+		widgets.field_row(ui, FORM_LABEL, "Registrations", {widgets.CHOICE_WIDTH})
 		uses_labels: [len(USES)]string
 		uses_at := -1
 		for uses, i in USES {
@@ -58,10 +59,10 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				uses_at = i
 			}
 		}
-		if i, ok := choice_dropdown(ui, "uses", uses_labels[:], uses_at); ok {
+		if i, ok := widgets.choice_dropdown(ui, "uses", uses_labels[:], uses_at); ok {
 			st.uses = USES[i]
 		}
-		field_row(ui, FORM_LABEL, "Valid for", {CHOICE_WIDTH})
+		widgets.field_row(ui, FORM_LABEL, "Valid for", {widgets.CHOICE_WIDTH})
 		days_labels := [len(DAYS)]string{"Forever", "A day", "A week", "A month"}
 		days_at := -1
 		for days, i in DAYS {
@@ -69,11 +70,11 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				days_at = i
 			}
 		}
-		if i, ok := choice_dropdown(ui, "days", days_labels[:], days_at); ok {
+		if i, ok := widgets.choice_dropdown(ui, "days", days_labels[:], days_at); ok {
 			st.days = DAYS[i]
 		}
-		field_row(ui, FORM_LABEL, "", {150, -1})
-		if .SUBMIT in stable_button(ctx, "make", "Make invite code") {
+		widgets.field_row(ui, FORM_LABEL, "", {150, -1})
+		if .SUBMIT in widgets.stable_button(ctx, "make", "Make invite code") {
 			expires: proto.Unix_Ms
 			if st.days > 0 {
 				now := time.time_to_unix_nano(time.now()) / 1_000_000
@@ -81,15 +82,15 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 			}
 			command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
-		dim_note(ctx, "Anyone with the code can register an account on this server.")
+		widgets.dim_note(ctx, "Anyone with the code can register an account on this server.")
 
 		if v.invites.made != "" && v.invites.made_count > st.made_seen {
-			field_row(ui, FORM_LABEL, "New code", {150, 90, 90})
+			widgets.field_row(ui, FORM_LABEL, "New code", {150, 90, 90})
 			mu.label(ctx, v.invites.made)
-			if .SUBMIT in stable_button(ctx, "copy_made", "Copy") {
+			if .SUBMIT in widgets.stable_button(ctx, "copy_made", "Copy") {
 				set_clipboard(nil, v.invites.made)
 			}
-			if .SUBMIT in stable_button(ctx, "done_made", "Done") {
+			if .SUBMIT in widgets.stable_button(ctx, "done_made", "Done") {
 				st.made_seen = v.invites.made_count
 			}
 		}
@@ -97,7 +98,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	if len(v.invites.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "No invite codes yet.")
+		widgets.dim_label(ctx, "No invite codes yet.")
 		return
 	}
 	now := proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1_000_000)
@@ -107,7 +108,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 		// In a narrow window, two cells per line: the code and its uses, its
 		// state and its creator, and the buttons.
 		row := []i32{110, 110, 170, -(2 * 80 + 2 * ctx.style.spacing), 80, 80}
-		mu.layout_row(ctx, row if row_fits(ctx, row) else {110, -1})
+		mu.layout_row(ctx, row if widgets.row_fits(ctx, row) else {110, -1})
 		mu.label(ctx, inv.code)
 		if inv.max_uses == 0 {
 			mu.label(ctx, fmt.tprintf("%d used", inv.uses))
@@ -128,20 +129,20 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 		case:
 			state = "never expires"
 		}
-		with_text_color(ctx, ctx.style.colors[.TEXT] if usable else core.theme.dim, state, label_proc)
+		widgets.with_text_color(ctx, ctx.style.colors[.TEXT] if usable else core.theme.dim, state, widgets.label_proc)
 		by := ""
 		if inv.creator != v.me {
 			if acc, known := v.accounts[inv.creator]; known {
 				by = fmt.tprintf("by %s", acc.display)
 			}
 		}
-		dim_label(ctx, by)
+		widgets.dim_label(ctx, by)
 		if usable {
-			if .SUBMIT in stable_button(ctx, "copy", "Copy") {
+			if .SUBMIT in widgets.stable_button(ctx, "copy", "Copy") {
 				set_clipboard(nil, inv.code)
 			}
 			if inv.creator == v.me || .Manage_Accounts in v.permissions {
-				if .SUBMIT in stable_button(ctx, "revoke", "Revoke") {
+				if .SUBMIT in widgets.stable_button(ctx, "revoke", "Revoke") {
 					command(ui, conn.Invite_Revoke_Command{code = clone(inv.code)})
 				}
 			} else {

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:slice"
@@ -30,7 +31,7 @@ import "common:proto"
 UI_Palette :: struct {
 	open:      bool,
 	focus_box: bool, // just opened: the query box takes the focus
-	query:     Text_Field(128),
+	query:     widgets.Text_Field(128),
 	selected:  int, // among the matches
 	// The text box that had the focus when it opened, and its cursor, to
 	// get them back when it closes.
@@ -205,7 +206,7 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	v := ui.view
 	sync.guard(&v.mutex)
 	entries := palette_entries(ui, v)
-	matches := palette_matches(ui, entries, field_text(&p.query))
+	matches := palette_matches(ui, entries, widgets.field_text(&p.query))
 
 	// As tall as its rows, as microui lays them out.
 	row := ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
@@ -246,10 +247,10 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	res := text_box(ui, p.query.buf[:], &p.query.len)
+	res := widgets.text_box(ui, p.query.buf[:], &p.query.len)
 	if .CHANGE in res {
 		p.selected = 0
-		matches = palette_matches(ui, entries, field_text(&p.query))
+		matches = palette_matches(ui, entries, widgets.field_text(&p.query))
 	}
 	p.selected = clamp(p.selected, 0, max(len(matches) - 1, 0))
 	run := -1
@@ -264,14 +265,14 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 
 	if len(matches) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "No command matches.")
+		widgets.dim_label(ctx, "No command matches.")
 	}
 	// The rows around the selected one.
 	first := clamp(p.selected - PALETTE_ROWS + 1, 0, max(len(matches) - PALETTE_ROWS, 0))
 	for i in first ..< min(first + PALETTE_ROWS, len(matches)) {
 		e := &entries[matches[i]]
 		mu.layout_row(ctx, {-1})
-		if .SUBMIT in list_row(ctx, fmt.tprintf("row %d", i), e.name, i == p.selected) {
+		if .SUBMIT in widgets.list_row(ctx, fmt.tprintf("row %d", i), e.name, i == p.selected) {
 			run = i
 		}
 		if e.detail != "" {

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:slice"
@@ -30,7 +31,7 @@ UI_Manage :: struct {
 	// Whether the members window's list of people to add is open, and its
 	// search.
 	adding:         bool,
-	add_find:       Pager,
+	add_find:       widgets.Pager,
 	// The account whose roles are being edited (0: none), and its chosen roles.
 	account:        proto.Account_Id,
 	account_roles:  [dynamic]proto.Role_Id,
@@ -39,11 +40,11 @@ UI_Manage :: struct {
 	// The purge being set up: the conversation (0: all), how many days back,
 	// whether only pictures are purged, and whether Purge was pressed once.
 	purge_conv:     proto.Conv_Id,
-	purge_days:     Text_Field(6),
+	purge_days:     widgets.Text_Field(6),
 	purge_files:    bool,
 	purge_confirm:  bool,
 	// Only one account's messages: its username, or "" for everyone's.
-	purge_who:      Text_Field(proto.MAX_USERNAME_SIZE),
+	purge_who:      widgets.Text_Field(proto.MAX_USERNAME_SIZE),
 }
 
 ui_manage_destroy :: proc(ui: ^UI) {
@@ -60,7 +61,7 @@ ui_manage_destroy :: proc(ui: ^UI) {
 // pressed, or 0.
 people_list :: proc(
 	ui: ^UI,
-	p: ^Pager,
+	p: ^widgets.Pager,
 	ids: []proto.Account_Id,
 	action: string,
 	allowed: []bool = nil,
@@ -71,25 +72,25 @@ people_list :: proc(
 ) {
 	ctx := &ui.ctx
 	v := ui.view
-	if !searched && (len(ids) > PAGE_ROWS || p.find.len > 0) {
-		pager_search(ui, p, "Find someone")
+	if !searched && (len(ids) > widgets.PAGE_ROWS || p.find.len > 0) {
+		widgets.pager_search(ui, p, "Find someone")
 	}
-	query := pager_query(p)
+	query := widgets.pager_query(p)
 	shown := make([dynamic]int, 0, len(ids), context.temp_allocator)
 	for id, i in ids {
 		acc := v.accounts[id] or_else {}
-		if pager_matches(query, acc.display, acc.username) {
+		if widgets.pager_matches(query, acc.display, acc.username) {
 			append(&shown, i)
 		}
 	}
 	people_sort(v, ids, shown[:])
 	if len(shown) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "  Nobody." if query == "" else "  Nobody by that name.")
+		widgets.dim_label(ctx, "  Nobody." if query == "" else "  Nobody by that name.")
 	}
-	lo, hi := pager_window(p, len(shown))
+	lo, hi := widgets.pager_window(p, len(shown))
 	button_icon, has_icon := icon.?
-	w := icon_button_w(ctx) if has_icon else 90
+	w := widgets.icon_button_w(ctx) if has_icon else 90
 	for i in shown[lo:hi] {
 		id := ids[i]
 		mu.push_id(ctx, uintptr(id))
@@ -100,14 +101,14 @@ people_list :: proc(
 		case allowed != nil && !allowed[i]:
 			mu.label(ctx, "")
 		case has_icon:
-			if .SUBMIT in icon_button(ui, "act", button_icon, action) {
+			if .SUBMIT in widgets.icon_button(ui, "act", button_icon, action) {
 				pressed = id
 			}
-		case .SUBMIT in stable_button(ctx, "act", action, {.ALIGN_CENTER}):
+		case .SUBMIT in widgets.stable_button(ctx, "act", action, {.ALIGN_CENTER}):
 			pressed = id
 		}
 	}
-	pager_footer(ui, p, len(shown))
+	widgets.pager_footer(ui, p, len(shown))
 	return
 }
 
@@ -117,7 +118,7 @@ people_list :: proc(
 // It returns the account whose button was pressed, or 0.
 people_finder :: proc(
 	ui: ^UI,
-	p: ^Pager,
+	p: ^widgets.Pager,
 	ids: []proto.Account_Id,
 	action: string,
 	icon: Maybe(render.Icon) = nil,
@@ -127,11 +128,11 @@ people_finder :: proc(
 	ctx := &ui.ctx
 	if len(ids) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "  Everyone is in it already.")
+		widgets.dim_label(ctx, "  Everyone is in it already.")
 		return
 	}
-	pager_search(ui, p, "Type a name")
-	if pager_query(p) == "" {
+	widgets.pager_search(ui, p, "Type a name")
+	if widgets.pager_query(p) == "" {
 		return
 	}
 	return people_list(ui, p, ids, action, searched = true, icon = icon)
@@ -187,7 +188,7 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	}
 	mu.layout_row(ctx, {-1})
 	if .SUBMIT in
-	   stable_button(ctx, "add people", "Hide" if m.adding else "Add people...", {.ALIGN_CENTER}) {
+	   widgets.stable_button(ctx, "add people", "Hide" if m.adding else "Add people...", {.ALIGN_CENTER}) {
 		m.adding = !m.adding
 		m.add_find.find.len = 0
 	}
@@ -234,13 +235,13 @@ account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	field_row(ui, FORM_LABEL, "Account", {100, 100})
+	widgets.field_row(ui, FORM_LABEL, "Account", {100, 100})
 	disabled := .Disabled in acc.flags
 	if .SUBMIT in
-	   stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
+	   widgets.stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
 		command(ui, conn.Account_Disable_Command{account = id, on = !disabled})
 	}
-	if .SUBMIT in stable_button(ctx, "delete?", "Delete...", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "delete?", "Delete...", {.ALIGN_CENTER}) {
 		m.delete_account = 0 if m.delete_account == id else id
 	}
 }
@@ -254,7 +255,7 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	widgets.with_text_color(
 		ctx,
 		core.theme.warning,
 		fmt.tprintf(
@@ -262,14 +263,14 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 			acc.username,
 			proto.DELETED_NAME,
 		),
-		wrap_text,
+		widgets.wrap_text,
 	)
-	field_row(ui, FORM_LABEL, "", {140, 100})
-	if .SUBMIT in stable_button(ctx, "delete account", "Delete for good", {.ALIGN_CENTER}) {
+	widgets.field_row(ui, FORM_LABEL, "", {140, 100})
+	if .SUBMIT in widgets.stable_button(ctx, "delete account", "Delete for good", {.ALIGN_CENTER}) {
 		command(ui, conn.Account_Delete_Command{account = id})
 		m.delete_account = 0
 	}
-	if .SUBMIT in stable_button(ctx, "cancel delete", "Cancel", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "cancel delete", "Cancel", {.ALIGN_CENTER}) {
 		m.delete_account = 0
 	}
 }
@@ -291,7 +292,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 	}
 	mu.label(ctx, "Roles")
 	if len(v.roles) <= 1 {
-		dim_label(ctx, "There are no roles to give yet.")
+		widgets.dim_label(ctx, "There are no roles to give yet.")
 		return
 	}
 	for r in v.roles {
@@ -303,11 +304,11 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 		mu.layout_row(ctx, {-1})
 		i, has := slice.linear_search(m.account_roles[:], r.id)
 		if !(r.perms <= v.permissions) {
-			dim_label(ctx, fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name))
+			widgets.dim_label(ctx, fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name))
 			continue
 		}
 		on := has
-		if .CHANGE in checkbox(ctx, r.name, &on) {
+		if .CHANGE in widgets.checkbox(ctx, r.name, &on) {
 			if on && !has {
 				append(&m.account_roles, r.id)
 			} else if !on && has {
@@ -321,7 +322,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 	}
 	mu.layout_row(ctx, {100, 100})
 	if .SUBMIT in
-		   stable_button(ctx, "save roles", "Save" if changed else "Saved", {.ALIGN_CENTER}) &&
+		   widgets.stable_button(ctx, "save roles", "Save" if changed else "Saved", {.ALIGN_CENTER}) &&
 	   changed {
 		cmd := conn.Account_Roles_Command {
 			account = id,
@@ -334,7 +335,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 		}
 		command(ui, cmd)
 	}
-	if changed && .SUBMIT in stable_button(ctx, "undo roles", "Undo", {.ALIGN_CENTER}) {
+	if changed && .SUBMIT in widgets.stable_button(ctx, "undo roles", "Undo", {.ALIGN_CENTER}) {
 		m.account = 0 // taken from the account again
 	}
 }
@@ -349,7 +350,7 @@ purge_settings :: proc(ui: ^UI) {
 	v := ui.view
 	m := &ui.manage
 	if m.purge_days.len == 0 && !m.purge_confirm {
-		field_set(&m.purge_days, "90")
+		widgets.field_set(&m.purge_days, "90")
 	}
 
 	// What can be picked: all conversations, our channels or our DMs.
@@ -370,23 +371,23 @@ purge_settings :: proc(ui: ^UI) {
 	m.purge_conv = choices[at]
 	place := purge_place(v, m.purge_conv)
 
-	field_row(ui, FORM_LABEL, "Conversation", {30, 220, 30})
-	if .SUBMIT in icon_button(ui, "purge prev", .Back, "Conversation before") {
+	widgets.field_row(ui, FORM_LABEL, "Conversation", {30, 220, 30})
+	if .SUBMIT in widgets.icon_button(ui, "purge prev", .Back, "Conversation before") {
 		m.purge_conv = choices[(at + len(choices) - 1) % len(choices)]
 		m.purge_confirm = false
 	}
 	mu.label(ctx, place)
-	if .SUBMIT in icon_button(ui, "purge next", .Next, "Conversation after") {
+	if .SUBMIT in widgets.icon_button(ui, "purge next", .Next, "Conversation after") {
 		m.purge_conv = choices[(at + 1) % len(choices)]
 		m.purge_confirm = false
 	}
 
 	// One account's messages, or everyone's.
-	field_row(ui, FORM_LABEL, "Whose", {220, -1})
-	if .CHANGE in text_box(ui, m.purge_who.buf[:], &m.purge_who.len) {
+	widgets.field_row(ui, FORM_LABEL, "Whose", {220, -1})
+	if .CHANGE in widgets.text_box(ui, m.purge_who.buf[:], &m.purge_who.len) {
 		m.purge_confirm = false
 	}
-	who := strings.trim_space(field_text(&m.purge_who))
+	who := strings.trim_space(widgets.field_text(&m.purge_who))
 	author: proto.Account_Id
 	author_name: string
 	if who != "" {
@@ -396,45 +397,45 @@ purge_settings :: proc(ui: ^UI) {
 			}
 		}
 		if author == 0 {
-			dim_label(ctx, "Nobody here is called that.")
+			widgets.dim_label(ctx, "Nobody here is called that.")
 			return
 		}
-		dim_label(ctx, author_name)
+		widgets.dim_label(ctx, author_name)
 	} else {
-		dim_label(ctx, "Everyone's (or a username)")
+		widgets.dim_label(ctx, "Everyone's (or a username)")
 	}
 
 	// Everyone's messages from before a time, or one account's from a time on.
 	mu.layout_row(ctx, {FORM_LABEL, 60, -1})
 	mu.label(ctx, "From the last" if author != 0 else "Older than")
-	if .CHANGE in text_box(ui, m.purge_days.buf[:], &m.purge_days.len) {
+	if .CHANGE in widgets.text_box(ui, m.purge_days.buf[:], &m.purge_days.len) {
 		m.purge_confirm = false
 	}
 	mu.label(ctx, "days (0: all of them)" if author != 0 else "days")
-	days, days_ok := strconv.parse_int(field_text(&m.purge_days), 10)
+	days, days_ok := strconv.parse_int(widgets.field_text(&m.purge_days), 10)
 	days_ok = days_ok && days >= 0
 
-	field_row(ui, FORM_LABEL, "", {-1}, fill_min = 240)
-	if .CHANGE in checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
+	widgets.field_row(ui, FORM_LABEL, "", {-1}, fill_min = 240)
+	if .CHANGE in widgets.checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
 		m.purge_confirm = false
 	}
 
-	field_row(ui, FORM_LABEL, "", {140, -1})
+	widgets.field_row(ui, FORM_LABEL, "", {140, -1})
 	if !days_ok {
 		mu.label(ctx, "")
-		dim_note(ctx, "How many days, as a number.")
+		widgets.dim_note(ctx, "How many days, as a number.")
 		return
 	}
 	now_ms := time.time_to_unix_nano(time.now()) / 1_000_000
 	before := now_ms - i64(days) * 24 * 60 * 60 * 1000
 	if !m.purge_confirm {
-		if .SUBMIT in stable_button(ctx, "purge", "Purge...", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "purge", "Purge...", {.ALIGN_CENTER}) {
 			m.purge_confirm = true
 		}
 		if author != 0 {
-			dim_note(ctx, "Asks first. Their pinned messages go too.")
+			widgets.dim_note(ctx, "Asks first. Their pinned messages go too.")
 		} else {
-			dim_note(ctx, "Asks first. Pinned messages are always kept.")
+			widgets.dim_note(ctx, "Asks first. Pinned messages are always kept.")
 		}
 		return
 	}
@@ -451,7 +452,7 @@ purge_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "")
 	switch {
 	case author != 0 && days == 0:
-		error_note(
+		widgets.error_note(
 			ctx,
 			fmt.tprintf(
 				"This removes for good %s's %s in %s, all of them.",
@@ -461,7 +462,7 @@ purge_settings :: proc(ui: ^UI) {
 			),
 		)
 	case author != 0:
-		error_note(
+		widgets.error_note(
 			ctx,
 			fmt.tprintf(
 				"This removes for good %s's %s in %s from %s on.",
@@ -472,7 +473,7 @@ purge_settings :: proc(ui: ^UI) {
 			),
 		)
 	case:
-		error_note(
+		widgets.error_note(
 			ctx,
 			fmt.tprintf(
 				"This removes for good the %s in %s from before %s.",
@@ -482,8 +483,8 @@ purge_settings :: proc(ui: ^UI) {
 			),
 		)
 	}
-	field_row(ui, FORM_LABEL, "", {140, 140})
-	if .SUBMIT in stable_button(ctx, "purge yes", "Purge them", {.ALIGN_CENTER}) {
+	widgets.field_row(ui, FORM_LABEL, "", {140, 140})
+	if .SUBMIT in widgets.stable_button(ctx, "purge yes", "Purge them", {.ALIGN_CENTER}) {
 		command(
 			ui,
 			conn.Purge_Command {
@@ -497,7 +498,7 @@ purge_settings :: proc(ui: ^UI) {
 		)
 		m.purge_confirm = false
 	}
-	if .SUBMIT in stable_button(ctx, "purge no", "Cancel", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "purge no", "Cancel", {.ALIGN_CENTER}) {
 		m.purge_confirm = false
 	}
 }
@@ -573,11 +574,11 @@ account_pick :: proc(ui: ^UI, id: proto.Account_Id) {
 accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	a := &ui.account
-	pager_search(ui, &a.accounts_find, "Find an account")
-	query := pager_query(&a.accounts_find)
+	widgets.pager_search(ui, &a.accounts_find, "Find an account")
+	query := widgets.pager_query(&a.accounts_find)
 	ids := make([dynamic]proto.Account_Id, 0, len(v.accounts), context.temp_allocator)
 	for id, acc in v.accounts {
-		if .Deleted not_in acc.flags && pager_matches(query, acc.display, acc.username) {
+		if .Deleted not_in acc.flags && widgets.pager_matches(query, acc.display, acc.username) {
 			append(&ids, id)
 		}
 	}
@@ -595,9 +596,9 @@ accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 	})
 	if len(ids) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Nobody by that name.")
+		widgets.dim_label(ctx, "Nobody by that name.")
 	}
-	lo, hi := pager_window(&a.accounts_find, len(ids))
+	lo, hi := widgets.pager_window(&a.accounts_find, len(ids))
 	for id in ids[lo:hi] {
 		acc := v.accounts[id]
 		mu.push_id(ctx, uintptr(id))
@@ -608,17 +609,17 @@ accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 			ctx.style.colors[.TEXT] = core.theme.dim
 		}
 		_, banned := ban_of(v, id)
-		if .SUBMIT in list_row(ctx, "account", account_line(acc, banned), a.picked == id) {
+		if .SUBMIT in widgets.list_row(ctx, "account", account_line(acc, banned), a.picked == id) {
 			account_pick(ui, id)
 		}
 		ctx.style.colors[.TEXT] = saved
 	}
-	pager_footer(ui, &a.accounts_find, len(ids))
+	widgets.pager_footer(ui, &a.accounts_find, len(ids))
 
 	if .Manage_Accounts in v.permissions {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, "")
-		if .SUBMIT in stable_button(ctx, "new account", "New account...", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "new account", "New account...", {.ALIGN_CENTER}) {
 			account_pick(ui, 0)
 			a.creating = true
 		}
@@ -663,7 +664,7 @@ account_detail :: proc(ui: ^UI, v: ^conn.View) {
 			account_create(ui, v)
 		} else {
 			mu.layout_row(ctx, {-1})
-			dim_label(ctx, "Pick an account to see and change its roles.")
+			widgets.dim_label(ctx, "Pick an account to see and change its roles.")
 		}
 		return
 	}
@@ -684,9 +685,9 @@ account_detail :: proc(ui: ^UI, v: ^conn.View) {
 	if len(roles) > 0 {
 		about = fmt.tprintf("Roles: %s", strings.join(roles[:], ", ", context.temp_allocator))
 	}
-	dim_note(ctx, about)
+	widgets.dim_note(ctx, about)
 	if invited := invited_by_line(ui, v, id); invited != "" {
-		dim_note(ctx, invited)
+		widgets.dim_note(ctx, invited)
 	}
 
 	// Its password, or a bot's tokens. The owner's password is the owner's
@@ -718,40 +719,40 @@ account_password :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) 
 	ctx := &ui.ctx
 	a := &ui.account
 	if a.set_account != id {
-		field_row(ui, FORM_LABEL, "Password", {140})
-		if .SUBMIT in stable_button(ctx, "setpass", "New password...") {
+		widgets.field_row(ui, FORM_LABEL, "Password", {140})
+		if .SUBMIT in widgets.stable_button(ctx, "setpass", "New password...") {
 			a.set_account = id
 			wipe(a.set_pass.buf[:], &a.set_pass.len)
 		}
 		return
 	}
-	field_row(ui, FORM_LABEL, "New password", {FORM_FIELD, 60, 70})
-	submitted := .SUBMIT in password_box(ui, a.set_pass.buf[:], &a.set_pass.len)
-	if (.SUBMIT in button(ctx, "Set") || submitted) && a.set_pass.len > 0 {
+	widgets.field_row(ui, FORM_LABEL, "New password", {FORM_FIELD, 60, 70})
+	submitted := .SUBMIT in widgets.password_box(ui, a.set_pass.buf[:], &a.set_pass.len)
+	if (.SUBMIT in widgets.button(ctx, "Set") || submitted) && a.set_pass.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
 			conn.Account_Password_Command {
 				account = id,
-				password = strings.clone(field_text(&a.set_pass)),
+				password = strings.clone(widgets.field_text(&a.set_pass)),
 			},
 		)
 		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
-	if .SUBMIT in button(ctx, "Cancel") {
+	if .SUBMIT in widgets.button(ctx, "Cancel") {
 		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	widgets.with_text_color(
 		ctx,
 		core.theme.warning,
 		fmt.tprintf(
 			"It logs %s's devices out, and they have to choose their own on logging in.",
 			acc.username,
 		),
-		wrap_text,
+		widgets.wrap_text,
 	)
 }
 
@@ -763,24 +764,24 @@ account_create :: proc(ui: ^UI, v: ^conn.View) {
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "Create an account")
 	submit := false
-	field_row(ui, FORM_LABEL, "Username", {FORM_FIELD})
-	submit |= .SUBMIT in text_box(ui, a.add_user.buf[:], &a.add_user.len)
-	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
-	submit |= .SUBMIT in text_box(ui, a.add_name.buf[:], &a.add_name.len)
-	field_row(ui, FORM_LABEL, "Initial password", {FORM_FIELD})
-	submit |= .SUBMIT in password_box(ui, a.add_pass.buf[:], &a.add_pass.len)
-	field_row(ui, FORM_LABEL, "", {140, 140, -1})
-	submit |= .SUBMIT in button(ctx, "Create account")
+	widgets.field_row(ui, FORM_LABEL, "Username", {FORM_FIELD})
+	submit |= .SUBMIT in widgets.text_box(ui, a.add_user.buf[:], &a.add_user.len)
+	widgets.field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
+	submit |= .SUBMIT in widgets.text_box(ui, a.add_name.buf[:], &a.add_name.len)
+	widgets.field_row(ui, FORM_LABEL, "Initial password", {FORM_FIELD})
+	submit |= .SUBMIT in widgets.password_box(ui, a.add_pass.buf[:], &a.add_pass.len)
+	widgets.field_row(ui, FORM_LABEL, "", {140, 140, -1})
+	submit |= .SUBMIT in widgets.button(ctx, "Create account")
 	// A bot takes no password. It gets a token (see ui/bots.odin).
-	bot := .SUBMIT in button(ctx, "Create bot")
+	bot := .SUBMIT in widgets.button(ctx, "Create bot")
 	notice_label(ui, v)
 	if bot && a.add_user.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
 			conn.Bot_Create_Command {
-				username = strings.clone(field_text(&a.add_user)),
-				display = strings.clone(field_text(&a.add_name)),
+				username = strings.clone(widgets.field_text(&a.add_user)),
+				display = strings.clone(widgets.field_text(&a.add_name)),
 			},
 		)
 		wipe(a.add_pass.buf[:], &a.add_pass.len)
@@ -790,9 +791,9 @@ account_create :: proc(ui: ^UI, v: ^conn.View) {
 		command(
 			ui,
 			conn.Account_Create_Command {
-				username = strings.clone(field_text(&a.add_user)),
-				password = strings.clone(field_text(&a.add_pass)),
-				display = strings.clone(field_text(&a.add_name)),
+				username = strings.clone(widgets.field_text(&a.add_user)),
+				password = strings.clone(widgets.field_text(&a.add_pass)),
+				display = strings.clone(widgets.field_text(&a.add_name)),
 			},
 		)
 		wipe(a.add_pass.buf[:], &a.add_pass.len)

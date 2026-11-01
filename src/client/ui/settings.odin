@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "titlebar"
 import "client:audio"
@@ -114,7 +115,7 @@ settings_page :: proc(ui: ^UI) {
 	// with a way back to the list.
 	if narrow && !ui.settings_list {
 		title_row(ui, {40, -1})
-		if .SUBMIT in icon_button(ui, "to settings list", .Back, "Settings") {
+		if .SUBMIT in widgets.icon_button(ui, "to settings list", .Back, "Settings") {
 			ui.settings_list = true
 		}
 		if ui.settings_tab == .Server {
@@ -133,11 +134,11 @@ settings_page :: proc(ui: ^UI) {
 	mu.label(ctx, "Settings")
 	if server != "" {
 		mu.layout_row(ctx, {110, -1} if narrow else {140, 260})
-		if .SUBMIT in tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {
+		if .SUBMIT in widgets.tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {
 			ui.settings_tab = .Client
 		}
 		if .SUBMIT in
-		   tab_button(
+		   widgets.tab_button(
 			   ctx,
 			   "server tab",
 			   fmt.tprintf("Server: %s", server),
@@ -218,7 +219,7 @@ settings_body :: proc(ui: ^UI) {
 	case .Audio:
 		if a := &ui.audio; a.ctx == nil {
 			mu.layout_row(ctx, {-1})
-			error_label(ctx, a.error)
+			widgets.error_label(ctx, a.error)
 		} else {
 			audio_settings(ui)
 		}
@@ -257,12 +258,12 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 	mu.layout_row(ctx, {-1})
 	full := fmt.tprintf("%s (%s)", label, note)
 	box := ctx.style.size.y + 2 * ctx.style.padding
-	if ctx.text_width(ctx.style.font, full) + box + ctx.style.padding <= row_room(ctx) {
-		return checkbox(ctx, full, state)
+	if ctx.text_width(ctx.style.font, full) + box + ctx.style.padding <= widgets.row_room(ctx) {
+		return widgets.checkbox(ctx, full, state)
 	}
-	res := checkbox(ctx, label, state)
+	res := widgets.checkbox(ctx, label, state)
 	mu.layout_row(ctx, {-1})
-	dim_note(ctx, fmt.tprintf("  %s", note))
+	widgets.dim_note(ctx, fmt.tprintf("  %s", note))
 	return res
 }
 
@@ -270,7 +271,7 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 // Roles list, ui/roles.odin), a list_row. It returns true when clicked.
 category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 	mu.layout_row(ctx, {-1})
-	return .SUBMIT in list_row(ctx, label, label, selected, accent = true)
+	return .SUBMIT in widgets.list_row(ctx, label, label, selected, accent = true)
 }
 
 // audio_settings picks the send quality preset (see audio/quality.odin),
@@ -280,27 +281,27 @@ category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	current := settings.settings_quality(&ui.settings)
-	field_row(ui, 60, "Quality", {CHOICE_WIDTH})
+	widgets.field_row(ui, 60, "Quality", {widgets.CHOICE_WIDTH})
 	labels: [audio.Quality]string
 	for preset, q in audio.QUALITY_PRESETS {
 		labels[q] = preset.label
 	}
 	hint := audio.QUALITY_PRESETS[current].description
-	if q, ok := enum_dropdown(ui, "quality", labels, current, hint); ok {
+	if q, ok := widgets.enum_dropdown(ui, "quality", labels, current, hint); ok {
 		settings.set_setting(&ui.settings.quality, audio.QUALITY_PRESETS[q].name)
 		save_settings(ui)
 		command_all(ui, conn.Quality_Command{q})
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
+	if .CHANGE in widgets.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		save_settings(ui)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
 	if app_audio_setting(ui) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   checkbox(
+		   widgets.checkbox(
 			   ctx,
 			   "Mute audio sharing when microphone is muted",
 			   &ui.settings.mute_app_audio_with_mic,
@@ -325,8 +326,8 @@ ANIMATE_CHOICE_LABELS := [settings.Animate_Pictures]string {
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	// Dark, light, or whichever the system uses (theme.odin).
-	field_row(ui, 120, "Theme", {CHOICE_WIDTH})
-	if choice, ok := enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, theme_choice(&ui.settings));
+	widgets.field_row(ui, 120, "Theme", {widgets.CHOICE_WIDTH})
+	if choice, ok := widgets.enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, theme_choice(&ui.settings));
 	   ok {
 		settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
 		save_settings(ui)
@@ -334,9 +335,9 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	// When animated pictures in the chat play (ui/images.odin).
-	field_row(ui, 120, "Animate pictures", {CHOICE_WIDTH})
+	widgets.field_row(ui, 120, "Animate pictures", {widgets.CHOICE_WIDTH})
 	animate := settings.animate_pictures(&ui.settings)
-	if choice, ok := enum_dropdown(ui, "animate", ANIMATE_CHOICE_LABELS, animate); ok {
+	if choice, ok := widgets.enum_dropdown(ui, "animate", ANIMATE_CHOICE_LABELS, animate); ok {
 		settings.set_setting(
 			&ui.settings.animate_pictures,
 			settings.ANIMATE_PICTURES_NAMES[choice],
@@ -350,7 +351,7 @@ ui_settings :: proc(ui: ^UI) {
 	// ui.ui_scale_draft reaches settings.ui_scale (and with it window_metrics)
 	// once the slider is released, as resizing the window while dragging would
 	// move the slider out from under the pointer.
-	if release_slider(
+	if widgets.release_slider(
 		ctx,
 		&ui.ui_scale_draft,
 		settings.MIN_UI_SCALE * 100,
@@ -365,7 +366,7 @@ ui_settings :: proc(ui: ^UI) {
 	// Also applied when released, because the glyphs are rasterized again.
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Chat text size")
-	if release_slider(
+	if widgets.release_slider(
 		ctx,
 		&ui.chat_scale_draft,
 		settings.MIN_CHAT_SCALE * 100,
@@ -378,7 +379,7 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
+	if .CHANGE in widgets.checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
 		save_settings(ui)
 	}
 
@@ -387,18 +388,18 @@ ui_settings :: proc(ui: ^UI) {
 		// of the desktop's (ui/titlebar.odin).
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
+		   widgets.checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
 			save_settings(ui)
 			titlebar.merge(ui.window, ui.settings.merge_title_bar)
 			core.redraw_now(ui)
 		}
 		if note := titlebar.restart_note(ui.settings.merge_title_bar); note != "" {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, core.theme.warning, fmt.tprintf("  %s", note), wrap_text)
+			widgets.with_text_color(ctx, core.theme.warning, fmt.tprintf("  %s", note), widgets.wrap_text)
 		}
 
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
+		if .CHANGE in widgets.checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
 			save_settings(ui)
 			tray_update(ui)
 		}
@@ -410,11 +411,11 @@ ui_settings :: proc(ui: ^UI) {
 		}
 
 		// One under the other where they don't fit side by side.
-		mu.layout_row(ctx, {230, -1} if row_fits(ctx, {230, 200}) else {-1})
-		if .CHANGE in checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
+		mu.layout_row(ctx, {230, -1} if widgets.row_fits(ctx, {230, 200}) else {-1})
+		if .CHANGE in widgets.checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
 			save_settings(ui)
 		}
-		if .CHANGE in checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
+		if .CHANGE in widgets.checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
 			save_settings(ui)
 		}
 		// Only the desktop can tell us that a window has been minimized, and
@@ -422,11 +423,11 @@ ui_settings :: proc(ui: ^UI) {
 		// setting looking broken.
 		if ui.settings.minimize_to_tray && on_wayland() {
 			mu.layout_row(ctx, {-1})
-			with_text_color(
+			widgets.with_text_color(
 				ctx,
 				core.theme.warning,
 				"  Wayland doesn't tell a window that it has been minimized, so here it will just minimize.",
-				wrap_text,
+				widgets.wrap_text,
 			)
 		}
 	}
@@ -441,13 +442,13 @@ transfer_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "Upload limit")
 	changed |=
 		.CHANGE in
-		slider(ctx, &ui.settings.upload_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+		widgets.slider(ctx, &ui.settings.upload_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.label(ctx, "Download limit")
 	changed |=
 		.CHANGE in
-		slider(ctx, &ui.settings.download_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+		widgets.slider(ctx, &ui.settings.download_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.layout_row(ctx, {-1})
-	dim_note(ctx, "  0 means no limit. A download limit also slows down whoever is sending.")
+	widgets.dim_note(ctx, "  0 means no limit. A download limit also slows down whoever is sending.")
 	if changed {
 		// Sliders change every frame while dragged, so save within a second.
 		ui.settings_dirty = true
@@ -461,13 +462,13 @@ transfer_settings :: proc(ui: ^UI) {
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
-	if .ACTIVE not_in begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
+	if .ACTIVE not_in widgets.begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
 		return
 	}
 	defer mu.end_treenode(ctx)
 	mu.layout_row(ctx, {120})
 
-	if .SUBMIT in button(ctx, "Refresh device list") {
+	if .SUBMIT in widgets.button(ctx, "Refresh device list") {
 		log.debug("ui: refresh audio devices")
 		audio.audio_refresh(a)
 	}
@@ -526,19 +527,19 @@ device_choice :: proc(
 			current = i + 1
 		}
 	}
-	field_row(ui, 60, title, {-1})
-	if picked, ok := choice_dropdown(ui, id, labels, current); ok {
+	widgets.field_row(ui, 60, title, {-1})
+	if picked, ok := widgets.choice_dropdown(ui, id, labels, current); ok {
 		choice = "" if picked == 0 else devices[picked - 1].name
 		changed = choice != selected
 	}
 	if missing {
 		mu.layout_row(ctx, {60, -1})
 		mu.label(ctx, "")
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			core.theme.warning,
 			fmt.tprintf("%s is not available, using the default", selected),
-			wrap_text,
+			widgets.wrap_text,
 		)
 	}
 	return
@@ -591,16 +592,16 @@ server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category
 server_category_opened :: proc(ui: ^UI, c: Server_Category) {
 	#partial switch c {
 	case .Roles:
-		notice_mark_reset(&ui.roles.notice)
+		widgets.notice_mark_reset(&ui.roles.notice)
 	case .Channels:
 		channels_category_opened(ui) // ui/channel_settings.odin
 	case .Bans, .Accounts:
 		bans_opened(ui) // ui/bans.odin
-		notice_mark_reset(&ui.account.notice)
+		widgets.notice_mark_reset(&ui.account.notice)
 	case:
 		// The others share the account screen's mark, so a notice about
 		// something done in another category doesn't show up here.
-		notice_mark_reset(&ui.account.notice)
+		widgets.notice_mark_reset(&ui.account.notice)
 	}
 }
 
@@ -612,7 +613,7 @@ server_settings :: proc(ui: ^UI, c: Server_Category) {
 	v := ui.view
 	a := &ui.account
 	sync.guard(&v.mutex)
-	notice_mark_update(&a.notice, v)
+	widgets.notice_mark_update(&a.notice, v)
 	if v.status != .Connected || v.login.state != .Done {
 		return
 	}

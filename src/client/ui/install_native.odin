@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "widgets"
 import "core"
 import "chrome"
 import "client:settings"
@@ -96,7 +97,7 @@ install_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	wrap_text(ctx, settings.INSTALL_DESCRIPTION)
+	widgets.wrap_text(ctx, settings.INSTALL_DESCRIPTION)
 
 	// Windows paths are case-insensitive.
 	same := strings.equal_fold(st.target, st.exe) if ODIN_OS == .Windows else st.target == st.exe
@@ -104,23 +105,23 @@ install_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-(2 * (110 + ctx.style.spacing)), 109, 109})
 	switch {
 	case !st.installed:
-		dim_label(ctx, "  Not installed.")
+		widgets.dim_label(ctx, "  Not installed.")
 	case elsewhere:
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			core.theme.warning,
 			fmt.tprintf("  Installed, but points to %s", st.target),
-			label_proc,
+			widgets.label_proc,
 		)
 	case:
 		mu.label(ctx, "  Installed.")
 	}
 	if !st.installed {
-		if .SUBMIT in button(ctx, "Install") {
+		if .SUBMIT in widgets.button(ctx, "Install") {
 			install_do(ui, true)
 		}
 	} else if elsewhere {
-		if .SUBMIT in button(ctx, "Use this copy") {
+		if .SUBMIT in widgets.button(ctx, "Use this copy") {
 			install_do(ui, true)
 		}
 	} else {
@@ -128,12 +129,12 @@ install_settings :: proc(ui: ^UI) {
 		mu.label(ctx, "")
 	}
 	if st.installed {
-		if .SUBMIT in button(ctx, "Uninstall") {
+		if .SUBMIT in widgets.button(ctx, "Uninstall") {
 			install_do(ui, false)
 		}
 	}
 	if st.error != "" {
 		mu.layout_row(ctx, {-1})
-		error_label(ctx, st.error)
+		widgets.error_label(ctx, st.error)
 	}
 }

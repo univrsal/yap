@@ -1,5 +1,5 @@
 #+build !wasi
-package ui
+package widgets
 
 import "core:testing"
 

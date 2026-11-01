@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -146,7 +147,7 @@ share_button :: proc(ui: ^UI) {
 		color = core.theme.off
 	case .Off:
 	}
-	if .SUBMIT in icon_button(ui, "share", .Screen, hint, color) {
+	if .SUBMIT in widgets.icon_button(ui, "share", .Screen, hint, color) {
 		if state == .Live || state == .Starting {
 			video.share_stop()
 		} else if system && !app_audio_available(ui) {
@@ -206,7 +207,7 @@ share_menu :: proc(ui: ^UI) {
 	share_audio_choice(ui, SHARE_MENU_WIDTH)
 	if system {
 		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-		if .SUBMIT in stable_button(ctx, "pick", "Choose a screen or window...") {
+		if .SUBMIT in widgets.stable_button(ctx, "pick", "Choose a screen or window...") {
 			video.share_source({}, share_config(ui))
 			share_audio_start(ui)
 			mu.get_current_container(ctx).open = false
@@ -214,7 +215,7 @@ share_menu :: proc(ui: ^UI) {
 		return
 	}
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	dim_label(ctx, "Share a monitor:")
+	widgets.dim_label(ctx, "Share a monitor:")
 	picked := -1
 	windows := 0
 	for s in vid.sources {
@@ -224,7 +225,7 @@ share_menu :: proc(ui: ^UI) {
 	}
 	// The monitors and windows scroll beyond a certain size (menu_list_begin).
 	rows := len(vid.sources) + (1 if windows > 0 else 0)
-	menu_list_begin(ui, "sources", SHARE_MENU_WIDTH, rows)
+	widgets.menu_list_begin(ui, "sources", SHARE_MENU_WIDTH, rows)
 	for s, i in vid.sources {
 		if s.kind != .Monitor {
 			continue
@@ -238,14 +239,14 @@ share_menu :: proc(ui: ^UI) {
 			s.height,
 			" (main)" if s.primary else "",
 		)
-		if .SUBMIT in stable_button(ctx, "source", label) {
+		if .SUBMIT in widgets.stable_button(ctx, "source", label) {
 			picked = i
 		}
 		mu.pop_id(ctx)
 	}
 	if windows > 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Or a window:")
+		widgets.dim_label(ctx, "Or a window:")
 	}
 	for s, i in vid.sources {
 		if s.kind != .Window {
@@ -253,14 +254,14 @@ share_menu :: proc(ui: ^UI) {
 		}
 		mu.push_id(ctx, uintptr(i))
 		mu.layout_row(ctx, {-1})
-		if .SUBMIT in stable_button(ctx, "source", s.name) {
+		if .SUBMIT in widgets.stable_button(ctx, "source", s.name) {
 			picked = i
 		}
 		mu.pop_id(ctx)
 	}
 	mu.end_panel(ctx)
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	if .SUBMIT in stable_button(ctx, "refresh", "Refresh") {
+	if .SUBMIT in widgets.stable_button(ctx, "refresh", "Refresh") {
 		vid.menu_requested = true
 	}
 	if picked >= 0 {
@@ -275,7 +276,7 @@ share_menu :: proc(ui: ^UI) {
 allow_capture :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	with_text_color(
+	widgets.with_text_color(
 		ctx,
 		core.theme.dim,
 		"To share, allow yap to record the screen (System Settings, Privacy & Security, " +
@@ -283,11 +284,11 @@ allow_capture :: proc(ui: ^UI) {
 		mu.text,
 	)
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	if .SUBMIT in stable_button(ctx, "allow", "Allow screen recording") {
+	if .SUBMIT in widgets.stable_button(ctx, "allow", "Allow screen recording") {
 		video.allow_capture()
 	}
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	if .SUBMIT in stable_button(ctx, "refresh", "Check again") {
+	if .SUBMIT in widgets.stable_button(ctx, "refresh", "Check again") {
 		ui.video.menu_requested = true
 	}
 }
@@ -349,21 +350,21 @@ screen_panel :: proc(ui: ^UI) {
 		// -1 fills the row: -n leaves n - 1 for the buttons and the gaps
 		// before them.
 		{
-			-(3 * icon_button_w(ctx) + 3 * ctx.style.spacing + 1),
-			icon_button_w(ctx),
-			icon_button_w(ctx),
-			icon_button_w(ctx),
+			-(3 * widgets.icon_button_w(ctx) + 3 * ctx.style.spacing + 1),
+			widgets.icon_button_w(ctx),
+			widgets.icon_button_w(ctx),
+			widgets.icon_button_w(ctx),
 		},
 	)
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui.view)))
-	if .SUBMIT in icon_button(ui, "pop out", .Pop_Out, "Pop out into its own window") {
+	if .SUBMIT in widgets.icon_button(ui, "pop out", .Pop_Out, "Pop out into its own window") {
 		ui.video.popped = true
 		ui.chat.tab = .Chat
 	}
-	if .SUBMIT in icon_button(ui, "fullscreen", .Fullscreen, "Fullscreen") {
+	if .SUBMIT in widgets.icon_button(ui, "fullscreen", .Fullscreen, "Fullscreen") {
 		video.set_fullscreen(true)
 	}
-	if .SUBMIT in icon_button(ui, "stop watching", .Screen_Off, "Stop watching") {
+	if .SUBMIT in widgets.icon_button(ui, "stop watching", .Screen_Off, "Stop watching") {
 		watch(ui, 0)
 	}
 	picture_and_figures(ui, ui.view)
@@ -457,17 +458,17 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		buttons = 2 if shown_here else 1
 	}
 	widths := [3]i32 {
-		-(buttons * (icon_button_w(ctx) + ctx.style.spacing) + 1),
-		icon_button_w(ctx),
-		icon_button_w(ctx),
+		-(buttons * (widgets.icon_button_w(ctx) + ctx.style.spacing) + 1),
+		widgets.icon_button_w(ctx),
+		widgets.icon_button_w(ctx),
 	}
 	mu.layout_row(ctx, widths[:buttons + 1])
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(v)))
-	if shown_here && .SUBMIT in icon_button(ui, "popped fullscreen", .Fullscreen, "Fullscreen") {
+	if shown_here && .SUBMIT in widgets.icon_button(ui, "popped fullscreen", .Fullscreen, "Fullscreen") {
 		video.set_fullscreen(true)
 	}
 	if ns == ui.session &&
-	   .SUBMIT in icon_button(ui, "pop in", .Pop_In, "Put back beside the chat") {
+	   .SUBMIT in widgets.icon_button(ui, "pop in", .Pop_In, "Put back beside the chat") {
 		vid.popped = false
 		ui.chat.tab = .Screen
 	}
@@ -521,7 +522,7 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 			color = core.theme.warning
 		}
 	}
-	with_text_color(ctx, color, strings.to_string(b), label_proc)
+	widgets.with_text_color(ctx, color, strings.to_string(b), widgets.label_proc)
 }
 
 // fullscreen_screen is all there is while the page (or, on the desktop, the
@@ -529,9 +530,9 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 // locked.
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
-	dim_label(ctx, fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)))
-	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
+	title_row(ui, {-(widgets.icon_button_w(ctx) + ctx.style.spacing + 1), widgets.icon_button_w(ctx)})
+	widgets.dim_label(ctx, fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)))
+	if .SUBMIT in widgets.icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
 	   .Escape in ui.keys {
 		ui.keys -= {.Escape}
 		video.set_fullscreen(false)

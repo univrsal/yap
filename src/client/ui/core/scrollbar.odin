@@ -31,7 +31,7 @@ Scrollbar_Fade :: struct {
 // and then fades out over SCROLLBAR_FADE. A container that hasn't scrolled
 // since it was first drawn shows none until the pointer is on it.
 //
-// A text area's scrollbar (ui/text_area.odin) is drawn the same way, without
+// A text area's scrollbar (ui/widgets/text_area.odin) is drawn the same way, without
 // fading: it only has one while its text doesn't fit.
 
 SCROLLBAR_THIN :: 4

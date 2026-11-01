@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "client:conn"
 import "client:platform"
 import "client:settings"
@@ -15,7 +16,7 @@ import mu "vendor:microui"
 
 // image_cache_start opens the cache where the settings say.
 image_cache_start :: proc(ui: ^UI) {
-	field_set(&ui.image_cache_dir, ui.settings.image_cache_dir)
+	widgets.field_set(&ui.image_cache_dir, ui.settings.image_cache_dir)
 	image_cache_reopen(ui)
 }
 
@@ -33,16 +34,16 @@ image_cache_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 
 	bytes, count := conn.image_cache_usage(&ui.image_cache)
-	field_row(ui, 120, "In use", {-90, -1})
+	widgets.field_row(ui, 120, "In use", {-90, -1})
 	mu.label(ctx, fmt.tprintf("%s in %d pictures", conn.format_bytes(u64(bytes)), count))
-	if .SUBMIT in button(ctx, "Clear") {
+	if .SUBMIT in widgets.button(ctx, "Clear") {
 		conn.image_cache_clear(&ui.image_cache)
 	}
 
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Maximum size")
 	if .CHANGE in
-	   slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
+	   widgets.slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
 		// Sliders change every frame while dragged. The settings are saved within a second.
 		ui.settings_dirty = true
 		conn.image_cache_set_max(&ui.image_cache, settings.image_cache_bytes(&ui.settings))
@@ -50,7 +51,7 @@ image_cache_settings :: proc(ui: ^UI) {
 
 	when platform.WEB {
 		mu.layout_row(ctx, {-1})
-		dim_note(
+		widgets.dim_note(
 			ctx,
 			"  People's pictures and servers' emoji, kept in this browser for this site. 0 keeps none.",
 		)
@@ -63,11 +64,11 @@ image_cache_settings :: proc(ui: ^UI) {
 @(private = "file")
 folder_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	field_row(ui, 120, "Folder", {-90, -1})
-	submit := .SUBMIT in text_box(ui, ui.image_cache_dir.buf[:], &ui.image_cache_dir.len)
-	submit |= .SUBMIT in button(ctx, "Apply")
+	widgets.field_row(ui, 120, "Folder", {-90, -1})
+	submit := .SUBMIT in widgets.text_box(ui, ui.image_cache_dir.buf[:], &ui.image_cache_dir.len)
+	submit |= .SUBMIT in widgets.button(ctx, "Apply")
 	if submit {
-		dir := field_text(&ui.image_cache_dir)
+		dir := widgets.field_text(&ui.image_cache_dir)
 		if dir != ui.settings.image_cache_dir {
 			settings.set_setting(&ui.settings.image_cache_dir, dir)
 			save_settings(ui)
@@ -80,12 +81,12 @@ folder_settings :: proc(ui: ^UI) {
 	if folder == "" {
 		folder = "nowhere: the folder couldn't be created"
 	}
-	dim_note(
+	widgets.dim_note(
 		ctx,
 		fmt.tprintf(
 			"  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.",
 			folder,
 		),
 	)
-	dim_note(ctx, "  People's pictures and servers' emoji. 0 keeps none.")
+	widgets.dim_note(ctx, "  People's pictures and servers' emoji. 0 keeps none.")
 }

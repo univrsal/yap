@@ -368,7 +368,7 @@ settings dirty, and a `release_slider` helper.
 `with_text_color(ctx, theme.dim, …)` is called 94 times, 57 of them right
 after a `{-1}` row.
 
-**Proposal:** move these into a `ui/widgets.odin`, together with
+**Proposal:** move these into a `ui/widgets/widgets.odin`, together with
 `dim_note` / `warn_note`.
 
 ### D6. Text buffers as buf/len pairs
@@ -385,7 +385,7 @@ There are ~35 `*_buf: [N]u8` + `*_len: int` field pairs (18 in
   - `ui/frame.odin`: 395-860
   - `ui/window.odin`: 861-1100 and 2245-2575
   - `ui/sessions.odin`: 1103-1500
-  - `ui/widgets.odin`: 1882-2245
+  - `ui/widgets/widgets.odin`: 1882-2245
 - **`ui/account.odin` (1170 lines):**
   - the login screens stay
   - `Server_Category` (510-616) → `ui/settings.odin`

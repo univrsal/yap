@@ -30,12 +30,13 @@ Env :: struct {
 	// The emoji the hint is about, drawn large above it (icon_hint).
 	hint_emoji:          Hint_Emoji,
 	// Where this frame's text boxes are, and whether one has the focus,
-	// for a phone's keyboard in a web build (see ui/text_box.odin).
+	// for a phone's keyboard in a web build (see ui/widgets/text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
 	// Each panel's and window's scrollbar (ui/core/scrollbar.odin).
 	scrollbar_fades:     map[^mu.Container]Scrollbar_Fade,
 	// Icon buttons are drawn flat, with a background only while the pointer
 	// is on them (the composer's, inside its box, see composer_buttons).
+	touched:             bool,
 	flat_buttons:        bool,
 	// A finger is scrolling, with the pointer under it: nothing is hovered.
 	touch_scrolling:     bool,

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -102,11 +103,11 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	append(&widths, slot + PICTURE_GAP)
 	name_w := -(60 + render.ICON_SIZE + 2 * ctx.style.spacing)
 	if can_watch {
-		name_w -= icon_button_w(ctx) + ctx.style.spacing
+		name_w -= widgets.icon_button_w(ctx) + ctx.style.spacing
 	}
 	append(&widths, name_w, render.ICON_SIZE + 4)
 	if can_watch {
-		append(&widths, icon_button_w(ctx))
+		append(&widths, widgets.icon_button_w(ctx))
 	}
 	append(&widths, 56)
 	mu.layout_row(ctx, widths[:], max(slot, ctx.style.size.y + 2 * ctx.style.padding))
@@ -126,7 +127,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	}
 	if can_watch {
 		if .SUBMIT in
-		   icon_button(
+		   widgets.icon_button(
 			   ui,
 			   "watch peer",
 			   .Screen_Off if watching else .Screen,
@@ -137,7 +138,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 		}
 	}
 	length := call_length_shown(ui, p.since)
-	dim_label(ctx, length)
+	widgets.dim_label(ctx, length)
 }
 
 // A picture in the panel, with the room that its ring takes around it
@@ -299,14 +300,14 @@ voice_panel :: proc(ui: ^UI) {
 			where_ = call_peer_name(v)
 		}
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, color, what, label_proc)
+		widgets.with_text_color(ctx, color, what, widgets.label_proc)
 		if state == .Call {
 			call_peer_row(ui, p)
 		} else if state == .Voice {
 			mu.layout_row(ctx, {-60, 56})
 			mu.label(ctx, where_)
 			length := call_length_shown(ui, p.since)
-			dim_label(ctx, length)
+			widgets.dim_label(ctx, length)
 		} else {
 			mu.layout_row(ctx, {-1})
 			mu.label(ctx, where_)
@@ -345,13 +346,13 @@ voice_panel :: proc(ui: ^UI) {
 				camera_available(v) &&
 				((v.video_link && v.may_video) || video.camera_state() != .Off)
 			if can_music {
-				append(&widths, icon_button_w(ctx))
+				append(&widths, widgets.icon_button_w(ctx))
 			}
 			if can_share {
-				append(&widths, icon_button_w(ctx))
+				append(&widths, widgets.icon_button_w(ctx))
 			}
 			if can_camera {
-				append(&widths, icon_button_w(ctx))
+				append(&widths, widgets.icon_button_w(ctx))
 			}
 			append(&widths, -1)
 			mu.layout_row(ctx, widths[:])
@@ -383,9 +384,9 @@ voice_panel :: proc(ui: ^UI) {
 		ctx,
 		{
 			slot + PICTURE_GAP,
-			-(2 * icon_button_w(ctx) + 2 * ctx.style.spacing),
-			icon_button_w(ctx),
-			icon_button_w(ctx),
+			-(2 * widgets.icon_button_w(ctx) + 2 * ctx.style.spacing),
+			widgets.icon_button_w(ctx),
+			widgets.icon_button_w(ctx),
 		},
 		max(slot, ctx.style.size.y + 2 * ctx.style.padding),
 	)
@@ -434,7 +435,7 @@ mute_button :: proc(ui: ^UI) {
 		mic_hint =
 			"You may only listen in this room (click to unmute yourself elsewhere)" if ui.muted else "You may only listen in this room (click to mute yourself elsewhere too)"
 	}
-	if .SUBMIT in icon_button(ui, "mute", mic_icon, mic_hint, mic_color) {
+	if .SUBMIT in widgets.icon_button(ui, "mute", mic_icon, mic_hint, mic_color) {
 		set_muted(ui, !ui.muted)
 	}
 }
@@ -443,7 +444,7 @@ mute_button :: proc(ui: ^UI) {
 // next cell.
 deafen_button :: proc(ui: ^UI) {
 	if .SUBMIT in
-	   icon_button(
+	   widgets.icon_button(
 		   ui,
 		   "deafen",
 		   .Sound_Off if ui.deafened else .Sound,
@@ -476,11 +477,11 @@ answer_buttons :: proc(
 	}
 	mu.push_id(ctx, id_name)
 	defer mu.pop_id(ctx)
-	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", core.theme.connected)
+	accept = .SUBMIT in widgets.icon_button(ui, "accept", .Phone, "Accept", core.theme.connected)
 	if video {
 		with_video =
 			.SUBMIT in
-			icon_button(ui, "accept video", .Camera, "Answer with video", core.theme.connected)
+			widgets.icon_button(ui, "accept video", .Camera, "Answer with video", core.theme.connected)
 	}
 	decline = hang_up_button(ui, "decline", "Decline")
 	return
@@ -490,7 +491,7 @@ answer_buttons :: proc(
 // ringing: a red receiver put down, with `hint` saying what it does.
 @(private = "file")
 hang_up_button :: proc(ui: ^UI, id_name, hint: string) -> bool {
-	return .SUBMIT in icon_button(ui, id_name, .Hang_Up, hint, core.theme.off)
+	return .SUBMIT in widgets.icon_button(ui, id_name, .Hang_Up, hint, core.theme.off)
 }
 
 // voice_elsewhere_part is the panel's part for voice, or a call that is
@@ -514,11 +515,11 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 		what, color = "Calling...", core.theme.ringing
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, color, fmt.tprintf("%s on %s", what, e.server), label_proc)
+	widgets.with_text_color(ctx, color, fmt.tprintf("%s on %s", what, e.server), widgets.label_proc)
 	if e.state == .Voice || e.state == .Call {
 		mu.layout_row(ctx, {-60, 56})
 		mu.label(ctx, e.where_)
-		dim_label(ctx, call_length_shown(ui, e.since))
+		widgets.dim_label(ctx, call_length_shown(ui, e.since))
 	} else {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, e.where_)
@@ -539,7 +540,7 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 			conn.push_command(cmds, conn.Call_Hangup_Command{})
 		}
 	case .Ringing_Out, .Voice, .Call:
-		if .SUBMIT in stable_button(ctx, "other show", "Show", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "other show", "Show", {.ALIGN_CENTER}) {
 			ui.switch_to, ui.switching = e.ns, true
 		}
 		hint :=

@@ -1,7 +1,7 @@
-package ui
+package widgets
 
-import "core"
-import txt "text"
+import "client:ui/core"
+import txt "client:ui/text"
 import "core:strings"
 import textedit "core:text/edit"
 import mu "vendor:microui"
@@ -51,7 +51,7 @@ area_vertical :: proc(
 		return len(text)
 	}
 	l := lines[i]
-	return offset_at(ctx, font, text, l.start, l.stop, x)
+	return txt.offset_at(ctx, font, text, l.start, l.stop, x)
 }
 
 // text_area lays out a text area in the next layout cell, as tall as
@@ -60,7 +60,7 @@ area_vertical :: proc(
 // focus then).
 //
 // In a web build the page's own text field draws and edits the text instead,
-// over the box (ui/field_web.odin), unless something covers it.
+// over the box (ui/widgets/field_web.odin), unless something covers it.
 text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: mu.Result_Set) {
 	ctx := &env.ctx
 	id := mu.get_id(ctx, uintptr(&buf[0]))
@@ -243,7 +243,7 @@ text_area :: proc(env: ^core.Env, buf: []u8, textlen: ^int, area: ^txt.Area) -> 
 					i32(len(lines) - 1),
 				)
 				pl := lines[i]
-				at := offset_at(
+				at := txt.offset_at(
 					ctx,
 					font,
 					text,

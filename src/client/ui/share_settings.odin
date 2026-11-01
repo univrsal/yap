@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:sync"
@@ -25,10 +26,10 @@ share_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	if platform.WEB && !video.can_share() {
 		mu.layout_row(ctx, {-1})
-		dim_note(ctx, "This browser can't share its screen.")
+		widgets.dim_note(ctx, "This browser can't share its screen.")
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
+		   widgets.checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
 			save_settings(ui)
 		}
 		return
@@ -50,7 +51,7 @@ share_settings :: proc(ui: ^UI) {
 				video.library_dir(),
 			)
 		}
-		dim_note(ctx, text)
+		widgets.dim_note(ctx, text)
 		return
 	}
 
@@ -63,12 +64,12 @@ share_settings :: proc(ui: ^UI) {
 	cfg := conn.share_config(&ui.settings, limit)
 	preset := conn.share_preset(&ui.settings)
 
-	field_row(ui, 120, "Size", {CHOICE_WIDTH})
+	widgets.field_row(ui, 120, "Size", {widgets.CHOICE_WIDTH})
 	sizes := make([]string, len(conn.SHARE_PRESETS), context.temp_allocator)
 	for p, i in conn.SHARE_PRESETS {
 		sizes[i] = p.label
 	}
-	if i, ok := choice_dropdown(ui, "share preset", sizes, preset); ok {
+	if i, ok := widgets.choice_dropdown(ui, "share preset", sizes, preset); ok {
 		settings.set_setting(&ui.settings.share_preset, conn.SHARE_PRESETS[i].name)
 		save_settings(ui)
 	}
@@ -81,7 +82,7 @@ share_settings :: proc(ui: ^UI) {
 	if wanted := conn.share_config(&ui.settings, 0).kbit; wanted > cfg.kbit {
 		held = fmt.tprintf(", as this server takes no more (%.1f asked for)", f64(wanted) / 1000)
 	}
-	dim_note(
+	widgets.dim_note(
 		ctx,
 		fmt.tprintf(
 			"Shares %s, at %d frames a second and %.1f Mbit/s%s.",
@@ -93,15 +94,15 @@ share_settings :: proc(ui: ^UI) {
 	)
 
 	mu.layout_row(ctx, {-1})
-	if header(ctx, "Advanced") != {} {
+	if widgets.header(ctx, "Advanced") != {} {
 		share_advanced(ui, cfg, limit)
 	}
 
 	mu.layout_row(ctx, {-1})
-	dim_note(ctx, "Changes apply the next time you start sharing.")
+	widgets.dim_note(ctx, "Changes apply the next time you start sharing.")
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
+	if .CHANGE in widgets.checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
 		save_settings(ui)
 	}
 }
@@ -113,7 +114,7 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 	ctx := &ui.ctx
 	vid := &ui.video
 
-	field_row(ui, 120, "Frame rate", {CHOICE_WIDTH})
+	widgets.field_row(ui, 120, "Frame rate", {widgets.CHOICE_WIDTH})
 	fps_choices := conn.SHARE_FPS_CHOICES
 	rates := make([]string, len(fps_choices), context.temp_allocator)
 	rate_at := -1
@@ -123,7 +124,7 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 			rate_at = i
 		}
 	}
-	if i, ok := choice_dropdown(
+	if i, ok := widgets.choice_dropdown(
 		ui,
 		"share fps",
 		rates,
@@ -136,15 +137,15 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 
 	// Applied when the slider is released, like the UI scale.
 	top := f32(limit if limit > 0 else conn.SHARE_KBIT_MAX)
-	field_row(ui, 120, "Bitrate", {-120, 110})
-	if !slider_dragged(ctx, &vid.kbit_draft) {
+	widgets.field_row(ui, 120, "Bitrate", {-120, 110})
+	if !widgets.slider_dragged(ctx, &vid.kbit_draft) {
 		vid.kbit_draft = f32(cfg.kbit)
 	}
-	if release_slider(ctx, &vid.kbit_draft, conn.SHARE_KBIT_MIN, top, 100, "%.0f kbit/s") {
+	if widgets.release_slider(ctx, &vid.kbit_draft, conn.SHARE_KBIT_MIN, top, 100, "%.0f kbit/s") {
 		ui.settings.share_kbit = int(vid.kbit_draft)
 		save_settings(ui)
 	}
-	if choice_button(ui, "share kbit preset", "Auto", ui.settings.share_kbit == 0) &&
+	if widgets.choice_button(ui, "share kbit preset", "Auto", ui.settings.share_kbit == 0) &&
 	   ui.settings.share_kbit != 0 {
 		ui.settings.share_kbit = 0
 		save_settings(ui)
@@ -168,15 +169,15 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 		append(&names, e.name)
 		append(&labels, e.label if e.works else fmt.tprintf("%s (doesn't work here)", e.label))
 	}
-	field_row(ui, 120, "Encoder", {-1})
-	if i, ok := choice_dropdown(ui, "share encoder", labels[:], encoder_at); ok {
+	widgets.field_row(ui, 120, "Encoder", {-1})
+	if i, ok := widgets.choice_dropdown(ui, "share encoder", labels[:], encoder_at); ok {
 		settings.set_setting(&ui.settings.share_encoder, names[i])
 		save_settings(ui)
 	}
 	if encoders == nil {
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		dim_note(ctx, "Still trying the encoders...")
+		widgets.dim_note(ctx, "Still trying the encoders...")
 		core.redraw_in(ui, core.ANIMATION_FRAME * 15)
 	}
 	if cfg.encoder != "" && encoders != nil {
@@ -184,7 +185,7 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 		// decode (conn/video.odin). A chosen encoder is used regardless.
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		dim_note(
+		widgets.dim_note(
 			ctx,
 			"Devices that do not support this codec will not be able to view your stream",
 		)
@@ -194,7 +195,7 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in checkbox(ctx, "Show mouse cursor", &ui.settings.share_cursor) {
+	if .CHANGE in widgets.checkbox(ctx, "Show mouse cursor", &ui.settings.share_cursor) {
 		save_settings(ui)
 	}
 }

@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:os"
@@ -154,7 +155,7 @@ app_audio_button :: proc(ui: ^UI) {
 		)
 		color = core.theme.speaking
 	}
-	if .SUBMIT in icon_button(ui, "app audio", .App_Audio, hint, color) {
+	if .SUBMIT in widgets.icon_button(ui, "app audio", .App_Audio, hint, color) {
 		app_audio_refresh(ui)
 		a.volume = settings.app_audio_gain(&ui.settings) * 100
 		a.requested = true
@@ -184,21 +185,21 @@ app_audio_menu :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		mu.label(ctx, strings.concatenate({"Sharing ", a.name}, context.temp_allocator))
 		mu.layout_row(ctx, {MENU_WIDTH})
-		if .SUBMIT in stable_button(ctx, "stop", "Stop sharing") {
+		if .SUBMIT in widgets.stable_button(ctx, "stop", "Stop sharing") {
 			app_audio_stop(ui)
 		}
 	}
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
-	if .CHANGE in slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in widgets.slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
 		command_all(ui, conn.app_audio_command(&ui.settings))
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
-	dim_label(ctx, "Share the audio of:")
+	widgets.dim_label(ctx, "Share the audio of:")
 	// Not ourselves, because everyone would hear themselves back.
 	me := u32(os.get_pid())
 	count := 0
@@ -210,7 +211,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		}
 	}
 	if count > 0 {
-		menu_list_begin(ui, "apps", MENU_WIDTH, count)
+		widgets.menu_list_begin(ui, "apps", MENU_WIDTH, count)
 		menu := mu.get_container(ctx, MENU_NAME)
 		for i in 0 ..< aac.app_list_count(a.list) {
 			app := aac.app_list_get(a.list, i)
@@ -220,7 +221,7 @@ app_audio_menu :: proc(ui: ^UI) {
 			name := app_label(app)
 			mu.push_id(ctx, uintptr(i))
 			mu.layout_row(ctx, {-1})
-			if .SUBMIT in stable_button(ctx, "app", name) {
+			if .SUBMIT in widgets.stable_button(ctx, "app", name) {
 				app_audio_start(ui, i, name)
 				menu.open = false
 			}
@@ -229,15 +230,15 @@ app_audio_menu :: proc(ui: ^UI) {
 		mu.end_panel(ctx)
 	} else {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		dim_label(ctx, "Nothing is playing audio.")
+		widgets.dim_label(ctx, "Nothing is playing audio.")
 	}
 	mu.layout_row(ctx, {MENU_WIDTH})
-	if .SUBMIT in stable_button(ctx, "refresh", "Refresh") {
+	if .SUBMIT in widgets.stable_button(ctx, "refresh", "Refresh") {
 		app_audio_refresh(ui)
 	}
 	if a.error != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, core.theme.off, a.error, label_proc)
+		widgets.with_text_color(ctx, core.theme.off, a.error, widgets.label_proc)
 	}
 }
 
@@ -382,10 +383,10 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 	current := share_audio_index(ui)
 	count := int(aac.app_list_count(a.devices))
 	mu.layout_row(ctx, {width})
-	dim_label(ctx, "Share the audio of:")
-	menu_list_begin(ui, "audio", width, 1 + count)
+	widgets.dim_label(ctx, "Share the audio of:")
+	widgets.menu_list_begin(ui, "audio", width, 1 + count)
 	mu.layout_row(ctx, {-1})
-	if .SUBMIT in list_row(ctx, "none", "No audio", current < 0) {
+	if .SUBMIT in widgets.list_row(ctx, "none", "No audio", current < 0) {
 		settings.set_setting(&ui.settings.share_audio, "")
 		ui.settings_dirty = true
 	}
@@ -397,7 +398,7 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 			context.temp_allocator,
 		)
 		mu.push_id(ctx, uintptr(i))
-		if .SUBMIT in list_row(ctx, "device", label, i == current) {
+		if .SUBMIT in widgets.list_row(ctx, "device", label, i == current) {
 			// The default device is followed to wherever the system moves it.
 			settings.set_setting(&ui.settings.share_audio, "default" if d.is_default else name)
 			ui.settings_dirty = true

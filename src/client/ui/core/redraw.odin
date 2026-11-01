@@ -20,3 +20,7 @@ redraw_in :: proc(env: ^Env, after: time.Duration) {
 
 // How often things that move smoothly (a fade, the level meter) are redrawn.
 ANIMATION_FRAME :: redraw_pkg.ANIMATION_FRAME
+
+// wake asks the UI's loop for a frame from any thread (ui_wake). Set when the
+// UI starts, for the callbacks of the web build that are not given the UI.
+wake: proc "c" ()

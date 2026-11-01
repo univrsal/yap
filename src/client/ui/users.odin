@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:fmt"
@@ -359,23 +360,23 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	}
 	if status := status_line(acc); status != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, ctx.style.colors[.TEXT], status, label_proc)
+		widgets.with_text_color(ctx, ctx.style.colors[.TEXT], status, widgets.label_proc)
 		if acc.status_until != 0 {
 			mu.layout_row(ctx, {MENU_WIDTH})
 			until := chat_time(ui, proto.Unix_Time(acc.status_until / 1000))
-			dim_label(ctx, fmt.tprintf("Until %s", until))
+			widgets.dim_label(ctx, fmt.tprintf("Until %s", until))
 		}
 	}
 	if .Server_Muted in acc.flags {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, core.theme.warning, "Muted by a moderator", label_proc)
+		widgets.with_text_color(ctx, core.theme.warning, "Muted by a moderator", widgets.label_proc)
 	}
 	if len(acc.roles) > 0 {
 		role_chips(ui, acc.roles, MENU_WIDTH)
 	}
 	if invited := invited_by_line(ui, v, account); invited != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		dim_label(ctx, invited)
+		widgets.dim_label(ctx, invited)
 	}
 }
 
@@ -417,7 +418,7 @@ user_menu :: proc(ui: ^UI) {
 		if .Deleted in acc.flags {
 			mu.layout_row(ctx, {MENU_WIDTH})
 			mu.label(ctx, name)
-			dim_label(ctx, "This account was deleted.")
+			widgets.dim_label(ctx, "This account was deleted.")
 			return
 		}
 	}
@@ -438,25 +439,25 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	widths := make([dynamic]i32, context.temp_allocator)
-	append(&widths, 0, icon_button_w(ctx), icon_button_w(ctx))
+	append(&widths, 0, widgets.icon_button_w(ctx), widgets.icon_button_w(ctx))
 	if user_is_screen_sharing {
-		append(&widths, icon_button_w(ctx))
+		append(&widths, widgets.icon_button_w(ctx))
 	}
 	can_call := may_call(v, account)
 	if can_call {
-		append(&widths, icon_button_w(ctx))
+		append(&widths, widgets.icon_button_w(ctx))
 	}
 	can_video_call := can_call && camera_available(v)
 	if can_video_call {
-		append(&widths, icon_button_w(ctx))
+		append(&widths, widgets.icon_button_w(ctx))
 	}
 	if talking_to {
-		append(&widths, icon_button_w(ctx))
+		append(&widths, widgets.icon_button_w(ctx))
 	}
 	// At the menu's right end, narrower if they don't all fit (on a phone,
 	// where buttons are wider).
 	n := i32(len(widths) - 1)
-	bw := min(icon_button_w(ctx), (MENU_WIDTH + ctx.style.spacing) / n - ctx.style.spacing)
+	bw := min(widgets.icon_button_w(ctx), (MENU_WIDTH + ctx.style.spacing) / n - ctx.style.spacing)
 	for &w in widths[1:] {
 		w = bw
 	}
@@ -466,7 +467,7 @@ user_menu :: proc(ui: ^UI) {
 	mu.label(ctx, "")
 	if talking_to &&
 	   .SUBMIT in
-		   icon_button(
+		   widgets.icon_button(
 			   ui,
 			   "mute",
 			   .Mic_Off if u.muted else .Mic,
@@ -481,7 +482,7 @@ user_menu :: proc(ui: ^UI) {
 		if can_watch_screens(ui) || ui.view.watching == ui.menu_user {
 			watching := ui.view.watching == ui.menu_user
 			if .SUBMIT in
-			   icon_button(
+			   widgets.icon_button(
 				   ui,
 				   "watch",
 				   .Screen,
@@ -490,7 +491,7 @@ user_menu :: proc(ui: ^UI) {
 				watch(ui, 0 if watching else ui.menu_user)
 			}
 		} else {
-			icon_button(
+			widgets.icon_button(
 				ui,
 				"watch",
 				.Screen,
@@ -500,20 +501,20 @@ user_menu :: proc(ui: ^UI) {
 		}
 	}
 	// Anyone can be messaged.
-	if .SUBMIT in icon_button(ui, "message", .Send, "Write to them") {
+	if .SUBMIT in widgets.icon_button(ui, "message", .Send, "Write to them") {
 		open_conversation(ui, account)
 		mu.get_current_container(ctx).open = false
 	}
-	if can_call && .SUBMIT in icon_button(ui, "call", .Phone, "Call") {
+	if can_call && .SUBMIT in widgets.icon_button(ui, "call", .Phone, "Call") {
 		call_account(ui, account)
 		mu.get_current_container(ctx).open = false
 	}
-	if can_video_call && .SUBMIT in icon_button(ui, "video call", .Camera, "Video call") {
+	if can_video_call && .SUBMIT in widgets.icon_button(ui, "video call", .Camera, "Video call") {
 		call_account(ui, account, video = true)
 		mu.get_current_container(ctx).open = false
 	}
 	if .SUBMIT in
-	   icon_button(
+	   widgets.icon_button(
 		   ui,
 		   "buddy",
 		   .Remove_Buddy if buddy else .Buddies,
@@ -532,7 +533,7 @@ user_menu :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 		mu.label(ctx, "Volume")
 		if .CHANGE in
-		   slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+		   widgets.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 			u.volume = ui.menu_volume / 100
 			changed = true
 		}
@@ -583,11 +584,11 @@ moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_
 		mu.get_current_container(ctx).open = false
 	}
 	mu.layout_row(ctx, {MENU_WIDTH})
-	dim_label(ctx, "Moderation")
+	widgets.dim_label(ctx, "Moderation")
 	if can_mute {
 		muted := .Server_Muted in acc.flags
 		label := "Unmute for everyone" if muted else "Mute for everyone"
-		if .SUBMIT in stable_button(ctx, "server mute", label) {
+		if .SUBMIT in widgets.stable_button(ctx, "server mute", label) {
 			command(ui, conn.Voice_Mute_Command{account = account, on = !muted})
 		}
 	}
@@ -615,7 +616,7 @@ move_items :: proc(ui: ^UI, account: proto.Account_Id, room: proto.Room) {
 	close :: proc(ctx: ^mu.Context) {
 		mu.get_current_container(ctx).open = false
 	}
-	if .SUBMIT in stable_button(ctx, "move", "Move to..." if !ui.menu_moving else "Move to:") {
+	if .SUBMIT in widgets.stable_button(ctx, "move", "Move to..." if !ui.menu_moving else "Move to:") {
 		ui.menu_moving = !ui.menu_moving
 	}
 	if ui.menu_moving {
@@ -626,7 +627,7 @@ move_items :: proc(ui: ^UI, account: proto.Account_Id, room: proto.Room) {
 			}
 			listed = true
 			mu.push_id(ctx, uintptr(ch.id))
-			pressed := .SUBMIT in stable_button(ctx, "room", fmt.tprintf("  # %s", ch.name))
+			pressed := .SUBMIT in widgets.stable_button(ctx, "room", fmt.tprintf("  # %s", ch.name))
 			mu.pop_id(ctx)
 			if pressed {
 				command(ui, conn.Voice_Move_Command{account = account, room = proto.Room(ch.id)})
@@ -634,10 +635,10 @@ move_items :: proc(ui: ^UI, account: proto.Account_Id, room: proto.Room) {
 			}
 		}
 		if !listed {
-			dim_label(ctx, "  No other room you can talk in")
+			widgets.dim_label(ctx, "  No other room you can talk in")
 		}
 	}
-	if .SUBMIT in stable_button(ctx, "disconnect", "Disconnect from voice") {
+	if .SUBMIT in widgets.stable_button(ctx, "disconnect", "Disconnect from voice") {
 		command(ui, conn.Voice_Move_Command{account = account, room = 0})
 		close(ctx)
 	}

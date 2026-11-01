@@ -1,15 +1,15 @@
 #+build wasi
-package ui
+package widgets
 
-import "core"
-import txt "text"
+import "client:ui/core"
+import txt "client:ui/text"
 import "core:hash"
 import mu "vendor:microui"
 
 import "client:platform"
 import "client:render"
 
-// In a web build a text area (ui/text_area.odin) is the page's own <textarea>
+// In a web build a text area (ui/widgets/text_area.odin) is the page's own <textarea>
 // (web/field.js), laid over the box that the canvas draws. The browser draws
 // and edits the text, so spell checking, a phone's own caret handling (the
 // magnifier, the selection handles, the space bar as a trackpad), autocorrect,
@@ -192,9 +192,10 @@ field_place :: proc(
 }
 
 // fields_after_frame shows the fields where their text areas were laid out
-// in this frame, and hides the others. Call after mu.end.
-fields_after_frame :: proc(ui: ^UI) {
-	ctx := &ui.ctx
+// in this frame, and hides the others. Call after mu.end. `completing` is the
+// box that the completion list is open for, or 0.
+fields_after_frame :: proc(env: ^core.Env, completing: mu.Id) {
+	ctx := &env.ctx
 	if !g_font_given && len(g_placed) > 0 {
 		data := render.face_data(.Regular)
 		yap_field_font(raw_data(data), i32(len(data)))
@@ -204,7 +205,7 @@ fields_after_frame :: proc(ui: ^UI) {
 		return u32(c.r) << 24 | u32(c.g) << 16 | u32(c.b) << 8 | u32(c.a)
 	}
 	// Layout pixels to CSS pixels.
-	k := 1 / f64(ui.input_scale)
+	k := 1 / f64(env.input_scale)
 	yap_fields_begin()
 	roots := ctx.root_list.items[:ctx.root_list.idx]
 	for p in g_placed {
@@ -220,7 +221,7 @@ fields_after_frame :: proc(ui: ^UI) {
 		}
 		if covered != g_covered[p.id] {
 			g_covered[p.id] = covered
-			core.redraw_now(ui) // drawn on the canvas, or no longer
+			core.redraw_now(env) // drawn on the canvas, or no longer
 		}
 		flags: bit_set[Field_Flag;i32]
 		if p.focused {
@@ -229,10 +230,10 @@ fields_after_frame :: proc(ui: ^UI) {
 		if covered {
 			flags += {.Covered}
 		}
-		if !ui.touched {
+		if !env.touched {
 			flags += {.Enter_Sends}
 		}
-		if ui.completion.active && ui.completion.box == p.id {
+		if completing != 0 && completing == p.id {
 			flags += {.Completing}
 		}
 		yap_field_place(
@@ -289,7 +290,7 @@ field_placed :: proc(id: mu.Id) -> bool {
 @(export)
 web_field_input :: proc "c" (id: u32, text: [^]u8, n: i32, caret, anchor: i32) {
 	context = platform.callback_context()
-	if g_ui == nil {
+	if core.g_env == nil {
 		return
 	}
 	input := g_input[mu.Id(id)]
@@ -297,32 +298,32 @@ web_field_input :: proc "c" (id: u32, text: [^]u8, n: i32, caret, anchor: i32) {
 	append(&input.text, ..text[:n])
 	input.sel = {int(caret), int(anchor)}
 	g_input[mu.Id(id)] = input
-	core.redraw_now(g_ui)
-	ui_wake()
+	core.redraw_now(core.g_env)
+	core.wake()
 }
 
 // The page gave a field the focus.
 @(export)
 web_field_focus :: proc "c" (id: u32) {
 	context = platform.callback_context()
-	if g_ui == nil {
+	if core.g_env == nil {
 		return
 	}
 	g_focus = mu.Id(id)
-	core.redraw_now(g_ui)
-	ui_wake()
+	core.redraw_now(core.g_env)
+	core.wake()
 }
 
 // How many lines a field's text takes, at its width.
 @(export)
 web_field_lines :: proc "c" (id: u32, lines: i32) {
 	context = platform.callback_context()
-	if g_ui == nil {
+	if core.g_env == nil {
 		return
 	}
 	g_lines[mu.Id(id)] = int(lines)
-	core.redraw_now(g_ui)
-	ui_wake()
+	core.redraw_now(core.g_env)
+	core.wake()
 }
 
 // A finger touched a field: from now on the UI is for fingers (UI.touched), as
@@ -330,10 +331,10 @@ web_field_lines :: proc "c" (id: u32, lines: i32) {
 @(export)
 web_field_touched :: proc "c" () {
 	context = platform.callback_context()
-	if g_ui == nil || g_ui.touched {
+	if core.g_env == nil || core.g_env.touched {
 		return
 	}
-	g_ui.touched = true
-	core.redraw_now(g_ui)
-	ui_wake()
+	core.g_env.touched = true
+	core.redraw_now(core.g_env)
+	core.wake()
 }

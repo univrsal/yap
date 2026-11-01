@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -225,7 +226,7 @@ attach_button :: proc(ui: ^UI, c: Composer) {
 		return
 	}
 	ui.drag.takes += {c.thread}
-	if .SUBMIT in icon_button(ui, fmt.tprintf("attach %d", c.thread), .Attach, "Attach files") {
+	if .SUBMIT in widgets.icon_button(ui, fmt.tprintf("attach %d", c.thread), .Attach, "Attach files") {
 		ui.attach_pick = true
 		ui.attach_to = {ui.page, c.thread}
 	}
@@ -291,22 +292,22 @@ drop_hint :: proc(ui: ^UI) {
 	font := render.font_with_style(ctx.style.font, .Bold)
 	pad := ctx.style.padding
 	text_w, text_h := ctx.text_width(font, label), ctx.text_height(font)
-	h := max(text_h, ICON_BUTTON) + 2 * pad
-	w := ICON_BUTTON + text_w + 3 * pad
+	h := max(text_h, widgets.ICON_BUTTON) + 2 * pad
+	w := widgets.ICON_BUTTON + text_w + 3 * pad
 	box := mu.Rect{r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h}
 	render.draw_rounded(ctx, box, ctx.style.colors[.BASE], render.WINDOW_RADIUS)
 	render.draw_rounded_border(ctx, box, accent, render.WINDOW_RADIUS)
 	mu.draw_icon(
 		ctx,
 		render.icon_id(.Attach),
-		{box.x + pad, box.y + (h - ICON_BUTTON) / 2, ICON_BUTTON, ICON_BUTTON},
+		{box.x + pad, box.y + (h - widgets.ICON_BUTTON) / 2, widgets.ICON_BUTTON, widgets.ICON_BUTTON},
 		accent,
 	)
 	mu.draw_text(
 		ctx,
 		font,
 		label,
-		{box.x + 2 * pad + ICON_BUTTON, box.y + (h - text_h) / 2},
+		{box.x + 2 * pad + widgets.ICON_BUTTON, box.y + (h - text_h) / 2},
 		ctx.style.colors[.TEXT],
 	)
 }
@@ -370,7 +371,7 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 			label := chip_label(ctx, f^, width / 2)
 			id_name := fmt.tprintf("chip %d %d", c.thread, i)
 			if .SUBMIT in
-			   stable_button_hint(ui, id_name, label, fmt.tprintf("Remove %s", f.name)) {
+			   widgets.stable_button_hint(ui, id_name, label, fmt.tprintf("Remove %s", f.name)) {
 				remove = i
 			}
 			if ctx.hover_id == mu.get_id(ctx, id_name) {
@@ -713,7 +714,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 		}
 		// The button's cell is as wide as what is in it: Save is an icon, so
 		// that the name and the size keep the room.
-		button_w := icon_button_w(ctx)
+		button_w := widgets.icon_button_w(ctx)
 		#partial switch action {
 		case .Cancel:
 			button_w = word_button_w(ctx, "Cancel")
@@ -745,11 +746,11 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
 		name := cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding)
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			core.theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
 			name,
-			label_proc,
+			widgets.label_proc,
 		)
 
 		state, color := conn.format_bytes(f.size), core.theme.dim
@@ -763,7 +764,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 		case has_save && s.state == .Failed:
 			state, color = "not saved", core.theme.error
 		}
-		with_text_color(ctx, color, state, label_proc)
+		widgets.with_text_color(ctx, color, state, widgets.label_proc)
 
 		save := conn.Attach_Save_Command {
 			conv  = conv,
@@ -774,13 +775,13 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 		case .None:
 			mu.layout_next(ctx)
 		case .Cancel:
-			if .SUBMIT in stable_button(ctx, "cancel save", "Cancel", {.ALIGN_CENTER}) {
+			if .SUBMIT in widgets.stable_button(ctx, "cancel save", "Cancel", {.ALIGN_CENTER}) {
 				save.cancel = true
 				command(ui, save)
 			}
 		case .Browse:
 			if .SUBMIT in
-			   stable_button_hint(
+			   widgets.stable_button_hint(
 				   ui,
 				   "browse",
 				   "Browse",
@@ -794,7 +795,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 			open_w := word_button_w(ctx, "Open")
 			mu.layout_set_next(ctx, {cell.x, cell.y, open_w, cell.h}, false)
 			if .SUBMIT in
-			   stable_button_hint(
+			   widgets.stable_button_hint(
 				   ui,
 				   "open",
 				   "Open",
@@ -805,12 +806,12 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 			}
 			browse_x := cell.x + open_w + ctx.style.spacing
 			mu.layout_set_next(ctx, {browse_x, cell.y, cell.x + cell.w - browse_x, cell.h}, false)
-			if .SUBMIT in stable_button_hint(ui, "browse", "Browse", s.path, {.ALIGN_CENTER}) {
+			if .SUBMIT in widgets.stable_button_hint(ui, "browse", "Browse", s.path, {.ALIGN_CENTER}) {
 				platform.open_folder(os_dir(s.path))
 			}
 		case .Save:
 			hint := fmt.tprintf("Save %s to the downloads folder", f.name)
-			if .SUBMIT in icon_button(ui, "save", .Download, hint) {
+			if .SUBMIT in widgets.icon_button(ui, "save", .Download, hint) {
 				command(ui, save)
 			}
 		}
@@ -990,8 +991,8 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), core.theme.dim)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
-		dim_label(ctx, cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding))
-		dim_label(
+		widgets.dim_label(ctx, cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding))
+		widgets.dim_label(
 			ctx,
 			fmt.tprintf(
 				"%s, %d%%",
@@ -1013,7 +1014,7 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 	}
 	if p.uploading {
 		mu.layout_row(ctx, {FILES_BUTTON_W})
-		if .SUBMIT in stable_button(ctx, "cancel upload", "Cancel", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "cancel upload", "Cancel", {.ALIGN_CENTER}) {
 			command(ui, conn.Attach_Cancel_Command{nonce = p.nonce})
 		}
 	}

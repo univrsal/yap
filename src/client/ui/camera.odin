@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:slice"
@@ -145,7 +146,7 @@ camera_button :: proc(ui: ^UI) {
 		color, icon = core.theme.off, .Camera_Off
 	case .Off:
 	}
-	if .SUBMIT in icon_button(ui, "camera", icon, hint, color) {
+	if .SUBMIT in widgets.icon_button(ui, "camera", icon, hint, color) {
 		if state == .Live || state == .Starting {
 			video.camera_stop()
 		} else {
@@ -401,17 +402,17 @@ video_panel :: proc(ui: ^UI) {
 	mu.layout_row(
 		ctx,
 		{
-			-(2 * icon_button_w(ctx) + 2 * ctx.style.spacing + 1),
-			icon_button_w(ctx),
-			icon_button_w(ctx),
+			-(2 * widgets.icon_button_w(ctx) + 2 * ctx.style.spacing + 1),
+			widgets.icon_button_w(ctx),
+			widgets.icon_button_w(ctx),
 		},
 	)
 	mu.label(ctx, video_title(v))
-	if .SUBMIT in icon_button(ui, "video pop out", .Pop_Out, "Pop out into its own window") {
+	if .SUBMIT in widgets.icon_button(ui, "video pop out", .Pop_Out, "Pop out into its own window") {
 		cam.popped = true
 		ui.chat.tab = .Chat
 	}
-	if .SUBMIT in icon_button(ui, "video fullscreen", .Fullscreen, "Fullscreen") {
+	if .SUBMIT in widgets.icon_button(ui, "video fullscreen", .Fullscreen, "Fullscreen") {
 		cam.full = true
 		video.set_fullscreen(true)
 	}
@@ -431,9 +432,9 @@ video_title :: proc(v: ^conn.View) -> string {
 // or the grid, and a way back. Call with the View locked.
 camera_full_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
-	dim_label(ctx, fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)))
-	if .SUBMIT in icon_button(ui, "video exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
+	title_row(ui, {-(widgets.icon_button_w(ctx) + ctx.style.spacing + 1), widgets.icon_button_w(ctx)})
+	widgets.dim_label(ctx, fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)))
+	if .SUBMIT in widgets.icon_button(ui, "video exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
 	   .Escape in ui.keys {
 		ui.keys -= {.Escape}
 		ui.camera.full = false
@@ -495,19 +496,19 @@ camera_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		buttons = 2 if shown_here else 1
 	}
 	widths := [3]i32 {
-		-(buttons * (icon_button_w(ctx) + ctx.style.spacing) + 1),
-		icon_button_w(ctx),
-		icon_button_w(ctx),
+		-(buttons * (widgets.icon_button_w(ctx) + ctx.style.spacing) + 1),
+		widgets.icon_button_w(ctx),
+		widgets.icon_button_w(ctx),
 	}
 	mu.layout_row(ctx, widths[:buttons + 1])
 	mu.label(ctx, video_title(v))
 	if shown_here &&
-	   .SUBMIT in icon_button(ui, "popped video fullscreen", .Fullscreen, "Fullscreen") {
+	   .SUBMIT in widgets.icon_button(ui, "popped video fullscreen", .Fullscreen, "Fullscreen") {
 		cam.full = true
 		video.set_fullscreen(true)
 	}
 	if ns == ui.session &&
-	   .SUBMIT in icon_button(ui, "video pop in", .Pop_In, "Put back beside the chat") {
+	   .SUBMIT in widgets.icon_button(ui, "video pop in", .Pop_In, "Put back beside the chat") {
 		cam.popped = false
 		ui.chat.tab = .Video
 	}

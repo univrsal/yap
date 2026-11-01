@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:slice"
@@ -29,17 +30,17 @@ UI_Roles :: struct {
 	role:    proto.Role_Id,
 	loaded:  proto.Role_Id,
 	seen:    proto.Role, // the name is owned
-	name:    Text_Field(proto.MAX_ROLE_NAME),
+	name:    widgets.Text_Field(proto.MAX_ROLE_NAME),
 	perms:   proto.Permissions,
 	color:   u32,
 	flags:   proto.Role_Flags,
 	// Delete was pressed once.
 	confirm: bool,
 	// Who has the picked role, and finding someone to give it to.
-	holders: Pager,
-	giving:  Pager,
-	new:     Text_Field(proto.MAX_ROLE_NAME),
-	notice:  Notice_Mark,
+	holders: widgets.Pager,
+	giving:  widgets.Pager,
+	new:     widgets.Text_Field(proto.MAX_ROLE_NAME),
+	notice:  widgets.Notice_Mark,
 }
 
 @(private = "file")
@@ -192,7 +193,7 @@ roles_settings :: proc(ui: ^UI) {
 	if .Manage_Roles not_in v.permissions {
 		return
 	}
-	notice_mark_update(&r.notice, v)
+	widgets.notice_mark_update(&r.notice, v)
 
 	// A role that is gone takes the right-hand side with it.
 	if r.role != 0 && role_of(v, r.role) == nil {
@@ -226,8 +227,8 @@ role_detail :: proc(ui: ^UI) {
 		return
 	}
 	mu.layout_row(&ui.ctx, {-1})
-	with_text_color(&ui.ctx, core.theme.dim, "Pick a role to see and change it.", label_proc)
-	notice_row(ui, ui.roles.notice, ui.view)
+	widgets.with_text_color(&ui.ctx, core.theme.dim, "Pick a role to see and change it.", widgets.label_proc)
+	widgets.notice_row(ui, ui.roles.notice, ui.view)
 }
 
 @(private = "file")
@@ -277,12 +278,12 @@ role_list :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "")
-	dim_label(ctx, "New role")
+	widgets.dim_label(ctx, "New role")
 	mu.layout_row(ctx, {-1})
-	submit := .SUBMIT in text_box(ui, r.new.buf[:], &r.new.len)
-	submit |= .SUBMIT in stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
+	submit := .SUBMIT in widgets.text_box(ui, r.new.buf[:], &r.new.len)
+	submit |= .SUBMIT in widgets.stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
 	if submit && r.new.len > 0 {
-		command(ui, conn.Role_Set_Command{name = strings.clone(field_text(&r.new))})
+		command(ui, conn.Role_Set_Command{name = strings.clone(widgets.field_text(&r.new))})
 		r.new.len = 0
 	}
 }
@@ -300,7 +301,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	   r.seen.color != role.color ||
 	   r.seen.flags != role.flags {
 		r.loaded = role.id
-		field_set(&r.name, role.name)
+		widgets.field_set(&r.name, role.name)
 		r.perms = role.perms
 		r.color = role.color
 		r.flags = role.flags
@@ -324,7 +325,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	if everyone || above {
 		mu.label(ctx, role.name)
 	} else {
-		text_box(ui, r.name.buf[:], &r.name.len)
+		widgets.text_box(ui, r.name.buf[:], &r.name.len)
 	}
 	// Its colour and its position, which decide the colour of names.
 	if !everyone {
@@ -336,11 +337,11 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		mentionable := .Mentionable in r.flags
 		mu.layout_row(ctx, {-1})
 		if editable {
-			if .CHANGE in checkbox(ctx, "Can be mentioned with @name", &mentionable) {
+			if .CHANGE in widgets.checkbox(ctx, "Can be mentioned with @name", &mentionable) {
 				r.flags ~= {.Mentionable}
 			}
 		} else {
-			dim_label(
+			widgets.dim_label(
 				ctx,
 				fmt.tprintf("[%s] Can be mentioned with @name", "x" if mentionable else " "),
 			)
@@ -349,16 +350,16 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case above:
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			core.theme.warning,
 			"It allows more than you may, so you can't change, give or take it.",
-			label_proc,
+			widgets.label_proc,
 		)
 	case everyone:
-		dim_label(ctx, "What everyone may do. Everyone has it.")
+		widgets.dim_label(ctx, "What everyone may do. Everyone has it.")
 	case:
-		dim_label(ctx, "What it allows, besides what everyone may:")
+		widgets.dim_label(ctx, "What it allows, besides what everyone may:")
 	}
 
 	for p in proto.Permission {
@@ -368,11 +369,11 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		if !editable || p not_in mine {
 			mu.layout_row(ctx, {-1})
 			why := "" if !editable else "  (you don't have it yourself)"
-			dim_label(ctx, fmt.tprintf("[%s] %s%s", "x" if on else " ", PERMISSION_TEXT[p], why))
+			widgets.dim_label(ctx, fmt.tprintf("[%s] %s%s", "x" if on else " ", PERMISSION_TEXT[p], why))
 			continue
 		}
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in checkbox(ctx, PERMISSION_TEXT[p], &on) {
+		if .CHANGE in widgets.checkbox(ctx, PERMISSION_TEXT[p], &on) {
 			if on {
 				r.perms += {p}
 			} else {
@@ -386,17 +387,17 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			r.perms != role.perms ||
 			r.color != role.color ||
 			r.flags != role.flags ||
-			field_text(&r.name) != role.name
+			widgets.field_text(&r.name) != role.name
 		mu.layout_row(ctx, {100, 140, -1})
 		if .SUBMIT in
-			   stable_button(ctx, "save role", "Save" if changed else "Saved", {.ALIGN_CENTER}) &&
+			   widgets.stable_button(ctx, "save role", "Save" if changed else "Saved", {.ALIGN_CENTER}) &&
 		   changed &&
 		   r.name.len > 0 {
 			command(
 				ui,
 				conn.Role_Set_Command {
 					id = role.id,
-					name = strings.clone(field_text(&r.name)),
+					name = strings.clone(widgets.field_text(&r.name)),
 					perms = r.perms,
 					color = r.color,
 					flags = r.flags,
@@ -405,7 +406,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		}
 		if everyone {
 			mu.label(ctx, "")
-		} else if confirm_button(
+		} else if widgets.confirm_button(
 			ctx,
 			&r.confirm,
 			"delete role",
@@ -417,7 +418,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			return
 		}
 	}
-	notice_row(ui, ui.roles.notice, ui.view)
+	widgets.notice_row(ui, ui.roles.notice, ui.view)
 
 	if everyone {
 		return
@@ -436,7 +437,7 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 		w = SWATCH
 	}
 	widths[len(widths) - 1] = 50
-	field_row(ui, 60, "Colour", widths, SWATCH)
+	widgets.field_row(ui, 60, "Colour", widths, SWATCH)
 	for c in ROLE_PALETTE {
 		mu.push_id(ctx, uintptr(c))
 		defer mu.pop_id(ctx)
@@ -457,7 +458,7 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 		}
 	}
 	if editable {
-		if .SUBMIT in stable_button(ctx, "no color", "None", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "no color", "None", {.ALIGN_CENTER}) {
 			r.color = 0
 		}
 	} else {
@@ -482,20 +483,20 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 		cmd.roles[cmd.count] = role.id
 		cmd.count += 1
 	}
-	field_row(ui, 60, "Place", {100, 100, -1})
+	widgets.field_row(ui, 60, "Place", {100, 100, -1})
 	up := false
 	if at > 0 {
-		up = .SUBMIT in stable_button(ctx, "move up", "Move up", {.ALIGN_CENTER})
+		up = .SUBMIT in widgets.stable_button(ctx, "move up", "Move up", {.ALIGN_CENTER})
 	} else {
 		mu.label(ctx, "")
 	}
 	down := false
 	if at >= 0 && at < cmd.count - 1 {
-		down = .SUBMIT in stable_button(ctx, "move down", "Move down", {.ALIGN_CENTER})
+		down = .SUBMIT in widgets.stable_button(ctx, "move down", "Move down", {.ALIGN_CENTER})
 	} else {
 		mu.label(ctx, "")
 	}
-	dim_label(ctx, "The highest coloured role colours a name.")
+	widgets.dim_label(ctx, "The highest coloured role colours a name.")
 	switch {
 	case up:
 		cmd.roles[at], cmd.roles[at - 1] = cmd.roles[at - 1], cmd.roles[at]

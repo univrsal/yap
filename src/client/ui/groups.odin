@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:slice"
 import "core:strings"
@@ -29,8 +30,8 @@ UI_Group_Picker :: struct {
 	ns:      ^Net_Session, // the server the people picked are on
 	chosen:  [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id,
 	count:   int,
-	members: Pager,
-	adding:  Pager,
+	members: widgets.Pager,
+	adding:  widgets.Pager,
 }
 
 @(private = "file")
@@ -119,12 +120,12 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	chosen := p.chosen[:p.count]
 
 	mu.layout_row(ctx, {-1})
-	dim_label(ctx, "You and 2 to 7 others. Who is in a group can't be changed later.")
+	widgets.dim_label(ctx, "You and 2 to 7 others. Who is in a group can't be changed later.")
 	gap(ctx)
 	if len(servers) > 1 {
 		mu.layout_row(ctx, {80, -1})
 		mu.label(ctx, "Server")
-		if i, picked := dropdown(
+		if i, picked := widgets.dropdown(
 			ui,
 			"group server",
 			servers[current].label,
@@ -140,7 +141,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.label(ctx, "In it besides you")
 	if p.count == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "  Nobody yet.")
+		widgets.dim_label(ctx, "  Nobody yet.")
 	} else if out := people_list(ui, &p.members, chosen, "Take out", searched = true); out != 0 {
 		if i, found := slice.linear_search(chosen, out); found {
 			p.chosen[i] = p.chosen[p.count - 1]
@@ -164,7 +165,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			p.adding.find.len = 0
 		}
 	} else {
-		dim_label(ctx, "That's as many as a group can have.")
+		widgets.dim_label(ctx, "That's as many as a group can have.")
 	}
 
 	gap(ctx)
@@ -174,7 +175,7 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.label(ctx, "")
 		return
 	}
-	if .SUBMIT in stable_button(ctx, "group start", "Start", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "group start", "Start", {.ALIGN_CENTER}) {
 		cmd := conn.Group_Command {
 			count = p.count,
 		}

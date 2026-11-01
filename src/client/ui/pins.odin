@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:sync"
@@ -34,7 +35,7 @@ PINS_WINDOW :: "Pinned messages"
 // Call with the View locked.
 pins_button :: proc(ui: ^UI) {
 	if .SUBMIT in
-	   icon_button(
+	   widgets.icon_button(
 		   ui,
 		   "pins",
 		   .Pin,
@@ -84,12 +85,12 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	pins := &v.pins
 	if pins.conv != v.viewing || (pins.loading && len(pins.messages) == 0) {
-		spinner_row(ui)
+		widgets.spinner_row(ui)
 		return
 	}
 	if len(pins.messages) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Nothing is pinned here.")
+		widgets.dim_label(ctx, "Nothing is pinned here.")
 		return
 	}
 	for m, i in pins.messages {
@@ -100,13 +101,13 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			name = acc.display
 		}
 		mu.layout_row(ctx, {-70, -1})
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			author_color(v, m.sender),
 			fmt.tprintf("%s  %s", chat_time(ui, proto.Unix_Time(m.time / 1000)), name),
-			label_proc,
+			widgets.label_proc,
 		)
-		if .SUBMIT in stable_button(ctx, "go", "Go to") {
+		if .SUBMIT in widgets.stable_button(ctx, "go", "Go to") {
 			ui.timeline.jump_to = m.id
 			ui.timeline.jump_asked = false
 			ui.timeline.jump_conv = 0

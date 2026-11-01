@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "widgets"
 import "core"
 import txt "text"
 import "core:math"
@@ -182,13 +183,13 @@ test_style_for_phones :: proc(t: ^testing.T) {
 	style_apply(ui, 1000)
 	testing.expect(t, !ui.compact)
 	testing.expect_value(t, row(ctx), 26)
-	testing.expect_value(t, icon_button_w(ctx), ICON_BUTTON)
+	testing.expect_value(t, widgets.icon_button_w(ctx), widgets.ICON_BUTTON)
 	testing.expect_value(t, composer_button_size(ctx), COMPOSER_BUTTON)
 
 	style_apply(ui, 420)
 	testing.expect(t, ui.compact)
 	testing.expect_value(t, row(ctx), 40)
-	testing.expect_value(t, icon_button_w(ctx), 40)
+	testing.expect_value(t, widgets.icon_button_w(ctx), 40)
 	testing.expect_value(t, composer_button_size(ctx), 40)
 
 	ui.touched = true
@@ -206,12 +207,12 @@ test_spinner_redraws_while_shown :: proc(t: ^testing.T) {
 	ctx := &ui.ctx
 	mu.begin(ctx)
 	if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
-		spinner(ui, {1000, 1000, 20, 20}) // outside the window
+		widgets.spinner(ui, {1000, 1000, 20, 20}) // outside the window
 		testing.expect_value(t, ui.redraw.at, time.Tick{})
-		spinner(ui, {10, 10, 20, 20})
+		widgets.spinner(ui, {10, 10, 20, 20})
 		testing.expect(t, ui.redraw.at != {})
 		left := time.tick_diff(time.tick_now(), ui.redraw.at)
-		testing.expect(t, left > 0 && left <= SPINNER_STEP)
+		testing.expect(t, left > 0 && left <= widgets.SPINNER_STEP)
 		mu.end_window(ctx)
 	}
 	mu.end(ctx)
@@ -347,10 +348,10 @@ test_choice_dropdowns :: proc(t: ^testing.T) {
 		ctx := &ui.ctx
 		mu.begin(ctx)
 		if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
-			mu.layout_row(ctx, {CHOICE_WIDTH})
+			mu.layout_row(ctx, {widgets.CHOICE_WIDTH})
 			// As if `row` was picked from the open list in the last frame.
 			ui.dropdown.picked, ui.dropdown.picked_id = row, mu.get_id(ctx, "theme")
-			got, ok = enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, current)
+			got, ok = widgets.enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, current)
 			mu.end_window(ctx)
 		}
 		mu.end(ctx)

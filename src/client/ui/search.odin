@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -32,7 +33,7 @@ UI_Search :: struct {
 	open:     bool,
 	placed:   bool,
 	focus:    bool, // just opened: the query box takes the focus
-	query:    Text_Field(proto.MAX_SEARCH_QUERY),
+	query:    widgets.Text_Field(proto.MAX_SEARCH_QUERY),
 	all:      bool, // search in all of our conversations
 	// Where search_box put the box in this frame, or {} if it isn't there and
 	// the search is the floating window. Whether it was there last frame.
@@ -53,7 +54,7 @@ DROPDOWN_PAD :: 6
 search_button :: proc(ui: ^UI) {
 	s := &ui.search
 	if .SUBMIT in
-	   icon_button(
+	   widgets.icon_button(
 		   ui,
 		   "search",
 		   .Search,
@@ -68,7 +69,7 @@ search_button :: proc(ui: ^UI) {
 // files_button is the header's sheets of paper, which search the conversation
 // for every message with files.
 files_button :: proc(ui: ^UI) {
-	if .SUBMIT in icon_button(ui, "files", .File, "Messages with files") {
+	if .SUBMIT in widgets.icon_button(ui, "files", .File, "Messages with files") {
 		search_for(ui, "has:file")
 	}
 }
@@ -77,7 +78,7 @@ files_button :: proc(ui: ^UI) {
 // this conversation for `query`.
 search_for :: proc(ui: ^UI, query: string) {
 	s := &ui.search
-	field_set(&s.query, query)
+	widgets.field_set(&s.query, query)
 	s.all = false
 	s.open, s.placed, s.submit = true, false, true
 }
@@ -99,7 +100,7 @@ search_box :: proc(ui: ^UI) {
 		s.placed = true
 		core.focus_at(ctx, id, s.query.len)
 	}
-	if .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len) {
+	if .SUBMIT in widgets.text_box(ui, s.query.buf[:], &s.query.len) {
 		s.submit = true
 	}
 	r := ctx.last_rect
@@ -169,9 +170,9 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		core.focus_at(ctx, mu.get_id(ctx, uintptr(&s.query.buf[0])), s.query.len)
 	}
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
-	find := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
+	find := .SUBMIT in widgets.text_box(ui, s.query.buf[:], &s.query.len)
 	find |= submit
-	find |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
+	find |= .SUBMIT in widgets.stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
 	search_results(ui, find)
 }
 
@@ -240,10 +241,10 @@ search_results :: proc(ui: ^UI, submit: bool) {
 	submit := submit
 	cmds := &ui.session.client.commands
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
+	if .CHANGE in widgets.checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
 		submit = true
 	}
-	query := strings.trim_space(field_text(&s.query))
+	query := strings.trim_space(widgets.field_text(&s.query))
 	if submit && query != "" {
 		conn.push_command(cmds, conn.Search_Command{query = strings.clone(query), all = s.all})
 	}
@@ -252,21 +253,21 @@ search_results :: proc(ui: ^UI, submit: bool) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case found.error != "":
-		error_label(ctx, found.error)
+		widgets.error_label(ctx, found.error)
 		return
 	case found.query == "":
-		dim_label(ctx, `Whole words, "a phrase", from:username, has:file.`)
+		widgets.dim_label(ctx, `Whole words, "a phrase", from:username, has:file.`)
 		return
 	case found.loading && len(found.found) == 0:
-		dim_label(ctx, "Searching...")
+		widgets.dim_label(ctx, "Searching...")
 		return
 	case len(found.found) == 0 && !found.more:
-		dim_label(ctx, fmt.tprintf("Nothing has %q.", found.query))
+		widgets.dim_label(ctx, fmt.tprintf("Nothing has %q.", found.query))
 		return
 	case len(found.found) == 0:
 		// The search stopped because of its time limit before finding any
 		// result, so older messages are left.
-		dim_label(ctx, "Nothing yet in the newest messages.")
+		widgets.dim_label(ctx, "Nothing yet in the newest messages.")
 	}
 	for f, i in found.found {
 		m := f.msg
@@ -281,13 +282,13 @@ search_results :: proc(ui: ^UI, submit: bool) {
 			place = fmt.tprintf("  in %s", conversation_name(v, f.conv))
 		}
 		mu.layout_row(ctx, {-70, -1})
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			author_color(v, m.sender),
 			fmt.tprintf("%s  %s%s", chat_time(ui, proto.Unix_Time(m.time / 1000)), name, place),
-			label_proc,
+			widgets.label_proc,
 		)
-		if .SUBMIT in stable_button(ctx, "go", "Go to") {
+		if .SUBMIT in widgets.stable_button(ctx, "go", "Go to") {
 			go_to_message(ui, f.conv, m.id)
 		}
 		mu.layout_row(ctx, {-1})
@@ -302,7 +303,7 @@ search_results :: proc(ui: ^UI, submit: bool) {
 				names[j] = f.name
 			}
 			mu.layout_row(ctx, {-1})
-			with_text_color(
+			widgets.with_text_color(
 				ctx,
 				core.theme.dim,
 				fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
@@ -316,11 +317,11 @@ search_results :: proc(ui: ^UI, submit: bool) {
 	}
 	if found.loading {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Searching...")
+		widgets.dim_label(ctx, "Searching...")
 	} else if found.more {
 		mu.layout_row(ctx, {140})
 		if .SUBMIT in
-		   stable_button(
+		   widgets.stable_button(
 			   ctx,
 			   "more",
 			   "Search further" if len(found.found) == 0 else "More...",

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -217,8 +218,8 @@ sound_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 
 	volume := settings.notification_gain(&ui.settings) * 100
-	field_row(ui, 150, "Volume", {-1})
-	if .CHANGE in slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	widgets.field_row(ui, 150, "Volume", {-1})
+	if .CHANGE in widgets.slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.notification_volume = volume / 100
 		ui.settings_dirty = true
 		command_all(ui, conn.Notification_Volume_Command{ui.settings.notification_volume})
@@ -228,10 +229,10 @@ sound_settings :: proc(ui: ^UI) {
 	for &w in widths {
 		w = 80
 	}
-	field_row(ui, 150, "Presets", widths)
+	widgets.field_row(ui, 150, "Presets", widths)
 	for preset, i in audio.SOUND_PRESETS {
 		if .SUBMIT in
-		   stable_button(ctx, fmt.tprintf("sound preset %d", i), preset.label, {.ALIGN_CENTER}) {
+		   widgets.stable_button(ctx, fmt.tprintf("sound preset %d", i), preset.label, {.ALIGN_CENTER}) {
 			sound_preset_choose(ui, preset)
 		}
 	}
@@ -251,13 +252,13 @@ sound_settings :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-1})
 			mu.label(ctx, "")
 			mu.layout_row(ctx, {-1})
-			dim_label(ctx, heading)
+			widgets.dim_label(ctx, heading)
 		}
 		info := audio.SOUND_EVENTS[kind]
 		// The dropdown takes what the play button leaves.
-		field_row(ui, 150, info.label, {-(PLAY_WIDTH + ctx.style.spacing), -1})
+		widgets.field_row(ui, 150, info.label, {-(PLAY_WIDTH + ctx.style.spacing), -1})
 		items, names, current, label := sound_choices(ui, kind)
-		if i, picked := dropdown(ui, fmt.tprintf("sound %s", info.key), label, items, current);
+		if i, picked := widgets.dropdown(ui, fmt.tprintf("sound %s", info.key), label, items, current);
 		   picked {
 			if names[i] == PICK_FILE {
 				sound_pick_start(ui, kind)
@@ -266,12 +267,12 @@ sound_settings :: proc(ui: ^UI) {
 			}
 		}
 		if .SUBMIT in
-		   stable_button(ctx, fmt.tprintf("try sound %s", info.key), "⏵", {.ALIGN_CENTER}) {
+		   widgets.stable_button(ctx, fmt.tprintf("try sound %s", info.key), "⏵", {.ALIGN_CENTER}) {
 			app_sound_preview(ui, sound_effective(ui, kind))
 		}
 		if note := ui.sounds.notes[kind]; note != "" {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, core.theme.warning, note, wrap_text)
+			widgets.with_text_color(ctx, core.theme.warning, note, widgets.wrap_text)
 		}
 	}
 }

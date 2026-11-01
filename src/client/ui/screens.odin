@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import txt "text"
 import "base:intrinsics"
@@ -69,29 +70,29 @@ main_window :: proc(ui: ^UI) {
 connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
-	card_begin(ui, "connect card", ui.connect_card_h)
-	defer card_end(ui, &ui.connect_card_h)
+	widgets.card_begin(ui, "connect card", ui.connect_card_h)
+	defer widgets.card_end(ui, &ui.connect_card_h)
 
 	server := ui.session.server
-	card_heading(ui, v.server_name if v.server_name != "" else server)
+	widgets.card_heading(ui, v.server_name if v.server_name != "" else server)
 	mu.layout_row(ctx, {-1})
 	switch {
 	case v.status == .Failed && v.error != "":
-		error_note(ctx, v.error)
+		widgets.error_note(ctx, v.error)
 	case v.status == .Failed:
-		with_text_color(ctx, core.theme.error, "Could not connect.", mu.text)
+		widgets.with_text_color(ctx, core.theme.error, "Could not connect.", mu.text)
 	case:
-		with_text_color(ctx, core.theme.dim, "Not connected.", mu.text)
+		widgets.with_text_color(ctx, core.theme.dim, "Not connected.", mu.text)
 	}
 	if v.retrying {
 		mu.layout_row(ctx, {-1})
 		if v.retry_at == {} {
-			with_text_color(ctx, core.theme.dim, "Connecting...", mu.text)
+			widgets.with_text_color(ctx, core.theme.dim, "Connecting...", mu.text)
 		} else {
 			// Counted down one second at a time.
 			left := time.tick_diff(time.tick_now(), v.retry_at)
 			secs := max(int(math.ceil(time.duration_seconds(left))), 1)
-			with_text_color(ctx, core.theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
+			widgets.with_text_color(ctx, core.theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
 			core.redraw_in(ui, left - time.Duration(secs - 1) * time.Second)
 		}
 	}
@@ -103,10 +104,10 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1})
 	// With a changed key, trusting the new key is what connects again.
-	if !key_change && .SUBMIT in button(ctx, "Reconnect") {
+	if !key_change && .SUBMIT in widgets.button(ctx, "Reconnect") {
 		ui.action = .Reconnect
 	}
-	if .SUBMIT in button(ctx, "Leave this server") {
+	if .SUBMIT in widgets.button(ctx, "Leave this server") {
 		ui.action = .Disconnect
 	}
 }

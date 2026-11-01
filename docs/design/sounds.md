@@ -101,7 +101,7 @@ UI: a new client category **Sounds** (D1), one row per event:
 (one enum, loops marked in `SOUND_EVENTS`). `audio/sound_store.odin` is
 the shared, refcounted store; `notifications_set` swaps an event's sound
 and first stops it if it is playing. `settings.sounds` holds only what
-differs from the default. The dropdown is `ui/dropdown.odin` (a popup
+differs from the default. The dropdown is `ui/widgets/dropdown.odin` (a popup
 drawn at the end of the frame, scrolled to the current choice; closed
 when its page isn't drawn). The page is `ui/sounds.odin`: grouped under
 Messages, Voice, Calls and The client, a play button beside each row

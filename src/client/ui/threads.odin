@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import txt "text"
 import "core:fmt"
 import "core:sync"
@@ -220,14 +221,14 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	}
 	if back {
 		mu.layout_row(ctx, {70, -1})
-		if .SUBMIT in icon_button(ui, "thread back", .Back, "Back") {
+		if .SUBMIT in widgets.icon_button(ui, "thread back", .Back, "Back") {
 			close_thread(ui, slot)
 			return
 		}
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
-	dim_label(ctx, status)
+	widgets.dim_label(ctx, status)
 
 	input_h: i32 = 0
 	files_h: i32 = 0

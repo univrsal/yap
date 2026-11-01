@@ -1,6 +1,6 @@
 /*
 The client's text areas as the page's own text fields (see
-src/client/ui/field_web.odin), run before the client starts (emcc
+src/client/ui/widgets/field_web.odin), run before the client starts (emcc
 --pre-js, see web/build.sh), so that its key listeners come before GLFW's.
 
 A text box the client draws on the canvas is only pixels to the browser:

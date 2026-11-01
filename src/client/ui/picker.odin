@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -47,7 +48,7 @@ PICKER_COLUMNS :: 10
 // Call with the View locked.
 emoji_button :: proc(ui: ^UI, c: Composer) {
 	p := &ui.picker
-	if .SUBMIT in icon_button(ui, "emoji", .Smiley, "Emoji") {
+	if .SUBMIT in widgets.icon_button(ui, "emoji", .Smiley, "Emoji") {
 		was := p.open && p.react_to == 0 && p.thread == c.thread
 		open_picker(ui, 0)
 		p.open = !was
@@ -113,7 +114,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	// Search by shortcode or browse a category.
 	mu.layout_row(ctx, {-1})
-	text_box(ui, p.search[:], &p.search_n)
+	widgets.text_box(ui, p.search[:], &p.search_n)
 	search := strings.to_lower(string(p.search[:p.search_n]), context.temp_allocator)
 	if search == "" {
 		tabs := make([dynamic]i32, context.temp_allocator)
@@ -190,7 +191,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 		char := utf8.runes_to_string({e.r}, context.temp_allocator)
 		mu.push_id(ctx, uintptr(e.r))
-		if .SUBMIT in stable_button(ctx, "emoji", char, {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "emoji", char, {.ALIGN_CENTER}) {
 			picked(ui, char)
 		}
 		if ctx.hover_id == ctx.last_id {
@@ -204,7 +205,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if n == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "No emoji by that name.")
+		widgets.dim_label(ctx, "No emoji by that name.")
 	}
 	mu.end_panel(ctx)
 	mu.layout_row(ctx, {-1})
@@ -213,7 +214,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		hint =
 			"Pick one to react with." if p.react_to != 0 else "Pick one to put it in the message."
 	}
-	dim_label(ctx, hint)
+	widgets.dim_label(ctx, hint)
 	// And the emoji itself, shown large beside its cell.
 	if p.hovered != "" {
 		ui.hint, ui.hint_of, ui.hint_emoji = p.hovered, p.hovered_rect, p.hovered_emoji
@@ -229,7 +230,7 @@ picker_tab :: proc(ui: ^UI, id, label: string, active: bool) -> bool {
 		ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
 	}
 	defer ctx.style.colors[.BUTTON] = saved
-	return .SUBMIT in stable_button(ctx, id, label, {.ALIGN_CENTER})
+	return .SUBMIT in widgets.stable_button(ctx, id, label, {.ALIGN_CENTER})
 }
 
 // custom_emoji_cell is one of the server's emoji as a button: the picture once
@@ -240,7 +241,7 @@ custom_emoji_cell :: proc(ui: ^UI, index: int, code: string) -> bool {
 	mu.push_id(ctx, uintptr(index))
 	defer mu.pop_id(ctx)
 	icon, have := custom_emoji_icon(ui, index)
-	res := stable_button(ctx, "custom", "" if have else code)
+	res := widgets.stable_button(ctx, "custom", "" if have else code)
 	if have {
 		r := ctx.last_rect
 		size: i32 = 20

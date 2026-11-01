@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "base:runtime"
 import log "common:wlog"
@@ -620,7 +621,7 @@ image_fitted :: proc(
 			place.w, place.h = i32(fw), i32(fh)
 		}
 		mu.draw_rect(ctx, place, core.theme.image_bg)
-		spinner(ui, place)
+		widgets.spinner(ui, place)
 		return
 	}
 	w, h := conn.fit_box(t.width, t.height, int(area.w), int(area.h))
@@ -763,16 +764,16 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.pop_clip_rect(ctx)
 	} else {
 		mu.draw_rect(ctx, rect, core.theme.image_bg)
-		spinner(ui, rect)
+		widgets.spinner(ui, rect)
 	}
 
 	mu.layout_row(ctx, {90, -1})
-	if .SUBMIT in button(ctx, "Fit") {
+	if .SUBMIT in widgets.button(ctx, "Fit") {
 		im.zoom, im.pan = 1, {}
 	}
 	shown_percent := 100 * f32(rect.w) / f32(max(im.shown.width, 1))
 	status := fmt.tprintf("%dx%d   %.0f%%", im.shown.width, im.shown.height, shown_percent)
-	dim_label(ctx, status)
+	widgets.dim_label(ctx, status)
 }
 
 // viewer_input zooms with the mouse wheel over the picture area, keeping

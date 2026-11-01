@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "base:intrinsics"
 import "client:audio"
 import "client:conn"
@@ -47,14 +48,14 @@ connect_joined :: proc(ui: ^UI) {
 // server on the rail that isn't connected, possibly with a different
 // password now. The new connection takes the old one's place.
 connect :: proc(ui: ^UI) {
-	server := conn.with_default_port(field_text(&ui.server))
+	server := conn.with_default_port(widgets.field_text(&ui.server))
 	if server == "" {
 		return
 	}
 	// Show the port that was assumed, because that is also what gets saved.
-	field_set(&ui.server, server)
+	widgets.field_set(&ui.server, server)
 	// Taken as typed, because spaces may well be part of a password.
-	password := field_text(&ui.password)
+	password := widgets.field_text(&ui.password)
 	settings.join_server(&ui.settings, server, password)
 	save_settings(ui)
 	connect_to(ui, server, password)
@@ -132,7 +133,7 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	ns.slot = session_slot(ui)
 	// Its login form, if it needs one, starts with the account that was last
 	// logged in to on any server.
-	field_set(&ns.stash.account.username, ui.settings.username)
+	widgets.field_set(&ns.stash.account.username, ui.settings.username)
 	conn.view_init(&ns.view)
 	ns.view.wake = ui_wake
 	ns.view.status = .Connecting

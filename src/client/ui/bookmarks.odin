@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -84,12 +85,12 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	bm := &v.bookmarks
 	if !bm.listed {
-		spinner_row(ui)
+		widgets.spinner_row(ui)
 		return
 	}
 	if len(bm.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(
+		widgets.dim_label(
 			ctx,
 			"Nothing is bookmarked yet. Bookmark a message from its menu (right-click it).",
 		)
@@ -104,21 +105,21 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			name = acc.display
 		}
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			author_color(v, m.sender),
 			fmt.tprintf("%s  %s", chat_time(ui, proto.Unix_Time(m.time / 1000)), name),
-			label_proc,
+			widgets.label_proc,
 		)
 		mu.layout_row(ctx, {-1})
 		bookmark_text(ui, m)
 		mu.layout_row(ctx, {-150, 70, -1})
-		with_text_color(ctx, core.theme.dim, bookmark_place(v, e.conv, m), label_proc)
-		if .SUBMIT in stable_button(ctx, "go", "Go to") {
+		widgets.with_text_color(ctx, core.theme.dim, bookmark_place(v, e.conv, m), widgets.label_proc)
+		if .SUBMIT in widgets.stable_button(ctx, "go", "Go to") {
 			go_to_message(ui, e.conv, m.id)
 			ui.channels.show_list = false
 		}
-		if .SUBMIT in stable_button(ctx, "remove", "Remove") {
+		if .SUBMIT in widgets.stable_button(ctx, "remove", "Remove") {
 			conn.push_command(cmds, conn.Bookmark_Command{id = m.id})
 		}
 		if i < len(bm.list) - 1 {
@@ -127,10 +128,10 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 	if bm.loading {
-		spinner_row(ui)
+		widgets.spinner_row(ui)
 	} else if bm.more {
 		mu.layout_row(ctx, {140})
-		if .SUBMIT in stable_button(ctx, "more", "More...", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "more", "More...", {.ALIGN_CENTER}) {
 			conn.push_command(cmds, conn.Bookmarks_Command{more = true})
 		}
 	}
@@ -156,7 +157,7 @@ bookmark_text :: proc(ui: ^UI, m: conn.View_Message) {
 	ctx := &ui.ctx
 	v := ui.view
 	if .Deleted in m.flags {
-		dim_label(ctx, "This message was deleted.")
+		widgets.dim_label(ctx, "This message was deleted.")
 		return
 	}
 	text: string
@@ -170,7 +171,7 @@ bookmark_text :: proc(ui: ^UI, m: conn.View_Message) {
 		text = "a note about the conversation"
 	}
 	if text != "" {
-		wrap_text(ctx, text)
+		widgets.wrap_text(ctx, text)
 	}
 	if len(m.files) > 0 {
 		names := make([]string, len(m.files), context.temp_allocator)
@@ -178,11 +179,11 @@ bookmark_text :: proc(ui: ^UI, m: conn.View_Message) {
 			names[j] = f.name
 		}
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			core.theme.dim,
 			fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
-			wrap_text,
+			widgets.wrap_text,
 		)
 	}
 }

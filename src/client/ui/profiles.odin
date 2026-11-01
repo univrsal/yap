@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:fmt"
@@ -49,7 +50,7 @@ UI_Profiles :: struct {
 	buf:            [proto.MAX_STATUS_SIZE]u8,
 	len:            int,
 	clear_after:    Clear_After,
-	days:           Text_Field(3), // Clear_After.Days: the number of days
+	days:           widgets.Text_Field(3), // Clear_After.Days: the number of days
 	// The members window, and the conversation it last requested.
 	members_open:   bool,
 	members_placed: bool,
@@ -128,7 +129,7 @@ open_status_editor :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 	p.len = copy(p.buf[:], me.status)
 	p.clear_after = .Never
-	field_set(&p.days, "1")
+	widgets.field_set(&p.days, "1")
 	p.editing, p.edit_placed = true, false
 }
 
@@ -185,7 +186,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 			ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
 		}
 		if .SUBMIT in
-			   stable_button_hint(
+			   widgets.stable_button_hint(
 				   ui,
 				   fmt.tprint(a),
 				   ACTIVITY_LABELS[a],
@@ -202,7 +203,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	if idle.can_ask() {
 		mu.layout_row(ctx, {-1})
 		if .SUBMIT in
-		   stable_button_hint(
+		   widgets.stable_button_hint(
 			   ui,
 			   "idle-ask",
 			   "Away when not at this computer",
@@ -214,9 +215,9 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	res := text_box(ui, p.buf[:], &p.len)
+	res := widgets.text_box(ui, p.buf[:], &p.len)
 	mu.layout_row(ctx, {-1})
-	dim_label(ctx, "Clear it after:")
+	widgets.dim_label(ctx, "Clear it after:")
 	widths: [len(Clear_After)]i32
 	for &w in widths {
 		w =
@@ -232,7 +233,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		if p.clear_after == c {
 			ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
 		}
-		if .SUBMIT in stable_button(ctx, fmt.tprint(c), CLEAR_AFTER_LABELS[c], {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, fmt.tprint(c), CLEAR_AFTER_LABELS[c], {.ALIGN_CENTER}) {
 			p.clear_after = c
 		}
 		ctx.style.colors[.BUTTON] = saved
@@ -243,7 +244,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	if p.clear_after == .Days {
 		mu.layout_row(ctx, {60, 50, -1})
 		mu.label(ctx, "Days")
-		text_box(ui, p.days.buf[:], &p.days.len)
+		widgets.text_box(ui, p.days.buf[:], &p.days.len)
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
@@ -253,11 +254,11 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	} else if until != 0 {
 		when_text = fmt.tprintf("It clears %s.", until_text(ui, until))
 	}
-	dim_label(ctx, when_text)
+	widgets.dim_label(ctx, when_text)
 	mu.layout_row(ctx, {120, -1})
-	cleared := .SUBMIT in stable_button(ctx, "status clear", "Clear status", {.ALIGN_CENTER})
+	cleared := .SUBMIT in widgets.stable_button(ctx, "status clear", "Clear status", {.ALIGN_CENTER})
 	saved :=
-		.SUBMIT in stable_button(ctx, "status save", "Save", {.ALIGN_CENTER}) || .SUBMIT in res
+		.SUBMIT in widgets.stable_button(ctx, "status save", "Save", {.ALIGN_CENTER}) || .SUBMIT in res
 	if p.clear_after == .Days && status_days(p) == 0 {
 		saved = false
 	}
@@ -279,7 +280,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 // text is not a valid number.
 @(private = "file")
 status_days :: proc(p: ^UI_Profiles) -> int {
-	days, ok := strconv.parse_int(strings.trim_space(field_text(&p.days)), 10)
+	days, ok := strconv.parse_int(strings.trim_space(widgets.field_text(&p.days)), 10)
 	return days if ok && days >= 1 && days <= MAX_STATUS_DAYS else 0
 }
 
@@ -338,7 +339,7 @@ status_until :: proc(ui: ^UI, c: Clear_After, days: int) -> proto.Unix_Ms {
 members_button :: proc(ui: ^UI) {
 	p := &ui.profiles
 	if .SUBMIT in
-	   icon_button(
+	   widgets.icon_button(
 		   ui,
 		   "members",
 		   .Buddies,
@@ -428,7 +429,7 @@ members_list :: proc(ui: ^UI) {
 	v := ui.view
 	m := &v.members
 	if m.conv != v.viewing || (m.loading && len(m.accounts) == 0) {
-		spinner_row(ui)
+		widgets.spinner_row(ui)
 		return
 	}
 	Member :: struct {
@@ -456,7 +457,7 @@ members_list :: proc(ui: ^UI) {
 		}
 	}
 	mu.layout_row(ctx, {-1})
-	dim_label(ctx, fmt.tprintf("%d members, %d here", len(list), here))
+	widgets.dim_label(ctx, fmt.tprintf("%d members, %d here", len(list), here))
 	add_people(ui, m.accounts[:])
 	// When those who aren't here were last seen is only shown in the DM
 	// with them (ui/buddies.odin), because the server only says it to people
@@ -611,7 +612,7 @@ profile_settings :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 
 	size: i32 = 48
-	field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
+	widgets.field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
 	cell := mu.layout_next(ctx)
 	avatar(ui, v.me, {cell.x, cell.y, size, size})
 	// The buttons, with the usual height, in the middle of the row.
@@ -623,26 +624,26 @@ profile_settings :: proc(ui: ^UI) {
 		max((size - ctx.style.size.y - 2 * ctx.style.padding) / 2 - ctx.style.spacing, 1),
 	)
 	mu.layout_next(ctx)
-	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
+	mu.layout_row(ctx, widgets.fit_widths(ctx, {110, 110, 110}))
 	uploading := v.uploading.avatar
-	if .SUBMIT in stable_button(ctx, "avatar file", "Choose...", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "avatar file", "Choose...", {.ALIGN_CENTER}) {
 		avatar_pick_start(ui, false)
 	}
 	// A page can only read the clipboard inside a paste event.
 	when !platform.WEB {
-		if .SUBMIT in stable_button(ctx, "avatar paste", "Paste", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "avatar paste", "Paste", {.ALIGN_CENTER}) {
 			avatar_pick_start(ui, true)
 		}
 	}
 	switch {
 	case uploading:
-		dim_label(ctx, "uploading...")
+		widgets.dim_label(ctx, "uploading...")
 	case p.pick != nil:
-		dim_label(ctx, "reading the picture...")
+		widgets.dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "":
-		with_text_color(ctx, core.theme.off, p.pick_notice, label_proc)
+		widgets.with_text_color(ctx, core.theme.off, p.pick_notice, widgets.label_proc)
 	case me.avatar != 0:
-		if .SUBMIT in stable_button(ctx, "avatar remove", "Remove", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "avatar remove", "Remove", {.ALIGN_CENTER}) {
 			command(ui, conn.Avatar_Command{remove = true})
 		}
 	case:
@@ -656,8 +657,8 @@ status_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	me := v.accounts[v.me] or_else {}
-	field_row(ui, FORM_LABEL, "Status", {140, -1})
-	if .SUBMIT in stable_button(ctx, "status edit", "Set status...", {.ALIGN_CENTER}) {
+	widgets.field_row(ui, FORM_LABEL, "Status", {140, -1})
+	if .SUBMIT in widgets.stable_button(ctx, "status edit", "Set status...", {.ALIGN_CENTER}) {
 		open_status_editor(ui)
 	}
 	text := me.status if me.status != "" else "none"
@@ -668,7 +669,7 @@ status_settings :: proc(ui: ^UI) {
 			chat_time(ui, proto.Unix_Time(me.status_until / 1000)),
 		)
 	}
-	dim_label(ctx, text)
+	widgets.dim_label(ctx, text)
 }
 
 // Settings on the server. Each is kept as text:

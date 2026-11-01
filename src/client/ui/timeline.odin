@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:fmt"
@@ -491,7 +492,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 
 	if n == 0 && len(pending) == 0 && tl != nil && !tl.loading {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "No replies yet." if key.root != 0 else "No messages here yet.")
+		widgets.dim_label(ctx, "No replies yet." if key.root != 0 else "No messages here yet.")
 	}
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
@@ -589,7 +590,7 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 	switch {
 	case tl == nil || tl.loading:
 		// Messages, or older ones above these, on their way.
-		spinner_row(ui)
+		widgets.spinner_row(ui)
 		return
 	case thread && tl.have_oldest && n > 0:
 		rule(ui, "Replies", core.theme.day_line)
@@ -598,7 +599,7 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 		text = "The start of the conversation."
 	}
 	mu.layout_row(ctx, {-1})
-	dim_label(ctx, text)
+	widgets.dim_label(ctx, text)
 }
 
 // timeline_select_panel is the panel that a timeline's text is selected in.

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:time"
@@ -45,7 +46,7 @@ camera_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	if !platform.WEB && !video.can_watch() {
 		mu.layout_row(ctx, {-1})
-		dim_note(
+		widgets.dim_note(
 			ctx,
 			fmt.tprintf(
 				"The camera needs yap's video add-on: the yap-video download that goes with this " +
@@ -58,7 +59,7 @@ camera_settings :: proc(ui: ^UI) {
 	video.cameras_refresh()
 	if !video.can_camera() {
 		mu.layout_row(ctx, {-1})
-		dim_note(
+		widgets.dim_note(
 			ctx,
 			"This browser can't use a camera." when platform.WEB else "No cameras found.",
 		)
@@ -69,17 +70,17 @@ camera_settings :: proc(ui: ^UI) {
 	camera_choice(ui)
 
 	quality := conn.camera_quality(ui.settings.camera_quality)
-	field_row(ui, 120, "Quality", {CHOICE_WIDTH})
-	if q, ok := enum_dropdown(ui, "camera quality", CAMERA_QUALITY_LABELS, quality); ok {
+	widgets.field_row(ui, 120, "Quality", {widgets.CHOICE_WIDTH})
+	if q, ok := widgets.enum_dropdown(ui, "camera quality", CAMERA_QUALITY_LABELS, quality); ok {
 		settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
 		save_settings(ui)
 	}
 	mu.layout_row(ctx, {-1})
-	dim_note(ctx, CAMERA_QUALITY_NOTES[quality])
+	widgets.dim_note(ctx, CAMERA_QUALITY_NOTES[quality])
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
-	   checkbox(
+	   widgets.checkbox(
 		   ctx,
 		   "Mirror my own view (others see it the right way round)",
 		   &ui.settings.camera_mirror,
@@ -127,8 +128,8 @@ camera_choice :: proc(ui: ^UI) {
 		append(&ids, ui.settings.camera_device)
 		current = len(items) - 1
 	}
-	field_row(ui, 120, "Camera", {-1})
-	if i, picked := dropdown(ui, "camera device", items[current].label, items[:], current);
+	widgets.field_row(ui, 120, "Camera", {-1})
+	if i, picked := widgets.dropdown(ui, "camera device", items[current].label, items[:], current);
 	   picked && ids[i] != ui.settings.camera_device {
 		settings.set_setting(&ui.settings.camera_device, ids[i])
 		save_settings(ui)
@@ -136,7 +137,7 @@ camera_choice :: proc(ui: ^UI) {
 	}
 	if unnamed {
 		mu.layout_row(ctx, {-1})
-		dim_note(ctx, "The browser names its cameras once yap may use one.")
+		widgets.dim_note(ctx, "The browser names its cameras once yap may use one.")
 	}
 }
 
@@ -167,13 +168,13 @@ camera_preview :: proc(ui: ^UI, quality: conn.Camera_Quality) {
 
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "Preview")
-	w := min(row_room(ctx), PREVIEW_WIDTH)
+	w := min(widgets.row_room(ctx), PREVIEW_WIDTH)
 	mu.layout_row(ctx, {w}, w * 9 / 16)
 	r := mu.layout_next(ctx)
 	mu.draw_rect(ctx, r, {24, 24, 24, 255})
 	if why != "" {
 		mu.layout_row(ctx, {-1})
-		error_note(ctx, fmt.tprintf("The camera didn't start: %s.", why))
+		widgets.error_note(ctx, fmt.tprintf("The camera didn't start: %s.", why))
 	} else {
 		self_view(ui, r, waiting)
 	}

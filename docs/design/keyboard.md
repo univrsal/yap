@@ -27,18 +27,18 @@ the two halves can be built side by side.
 - The UI is microui (`vendor:microui`). `mu.update_control` sets
   `ctx.focus_id` on a press over a control, and drops it again in the next
   frame without the mouse button down unless the control passes
-  `HOLD_FOCUS`. Only text boxes ([ui/text_area.odin](../../src/client/ui/text_area.odin),
+  `HOLD_FOCUS`. Only text boxes ([ui/widgets/text_area.odin](../../src/client/ui/widgets/text_area.odin),
   `mu.textbox_raw` behind `text_box`) hold it. So `focus_id` is "the control
   being clicked" for buttons and "the text box being typed in" for boxes; it
   can't carry a keyboard focus for a button.
 - Buttons submit on `ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id`
   (`icon_button`, `stable_button`, `checkbox`, the dropdown) or on
   `hover_id == id` (`list_row`), right after `update_control`.
-- Shared widgets in [ui/widgets.odin](../../src/client/ui/widgets.odin):
+- Shared widgets in [ui/widgets/widgets.odin](../../src/client/ui/widgets/widgets.odin):
   `icon_button`, `stable_button`(`_hint`), `list_row`, `checkbox`,
   `tab_button`, `choice_button`, `confirm_button`; `dropdown` in
-  [ui/dropdown.odin](../../src/client/ui/dropdown.odin); `text_box` and
-  `password_box` in [ui/text_box.odin](../../src/client/ui/text_box.odin);
+  [ui/widgets/dropdown.odin](../../src/client/ui/widgets/dropdown.odin); `text_box` and
+  `password_box` in [ui/widgets/text_box.odin](../../src/client/ui/widgets/text_box.odin);
   `text_area` for composers. Besides these there are 29 plain `mu.button`
   calls (9 in ui/account.odin, 4 in ui/manage.odin, …) and about 15 custom
   `mu.update_control` sites (chat rows, the voice panel, the roles grid,

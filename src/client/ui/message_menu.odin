@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import txt "text"
 import log "common:wlog"
@@ -122,14 +123,14 @@ message_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if mm.confirm {
-		dim_label(ctx, "Delete it for everyone?")
+		widgets.dim_label(ctx, "Delete it for everyone?")
 		half := (MENU_WIDTH - ctx.style.spacing) / 2
 		mu.layout_row(ctx, {half, half})
-		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
+		if .SUBMIT in widgets.stable_button(ctx, "cancel", "Cancel") {
 			mm.confirm = false
 			close(ctx)
 		}
-		if .SUBMIT in stable_button(ctx, "delete", "Delete") {
+		if .SUBMIT in widgets.stable_button(ctx, "delete", "Delete") {
 			conn.push_command(cmds, conn.Delete_Command{id = mm.id})
 			log.debug("ui: delete a message")
 			mm.confirm = false
@@ -139,28 +140,28 @@ message_menu :: proc(ui: ^UI) {
 	}
 	bookmarked := v.bookmarks.ids[mm.id]
 	if deleted {
-		dim_label(ctx, "This message was deleted.")
-		if bookmarked && .SUBMIT in stable_button(ctx, "bookmark", "Remove bookmark") {
+		widgets.dim_label(ctx, "This message was deleted.")
+		if bookmarked && .SUBMIT in widgets.stable_button(ctx, "bookmark", "Remove bookmark") {
 			conn.push_command(cmds, conn.Bookmark_Command{id = mm.id})
 			close(ctx)
 		}
 		return
 	}
-	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "copy", "Copy text") {
+	if mm.kind == .Text && .SUBMIT in widgets.stable_button(ctx, "copy", "Copy text") {
 		shown, _ := richtext.mentions_display(mm.text, v.accounts, v.roles[:], v.me)
 		set_clipboard(nil, shown)
 		close(ctx)
 	}
 	// A copy elsewhere, or a link to the message (ui/forward.odin).
-	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "forward", "Forward...") {
+	if mm.kind == .Text && .SUBMIT in widgets.stable_button(ctx, "forward", "Forward...") {
 		open_forward(ui, mm.id)
 		close(ctx)
 	}
-	if .SUBMIT in stable_button(ctx, "link", "Copy link") {
+	if .SUBMIT in widgets.stable_button(ctx, "link", "Copy link") {
 		set_clipboard(nil, proto.link_token(mm.conv, mm.id))
 		close(ctx)
 	}
-	if .SUBMIT in stable_button(ctx, "bookmark", "Remove bookmark" if bookmarked else "Bookmark") {
+	if .SUBMIT in widgets.stable_button(ctx, "bookmark", "Remove bookmark" if bookmarked else "Bookmark") {
 		conn.push_command(cmds, conn.Bookmark_Command{id = mm.id, on = !bookmarked})
 		close(ctx)
 	}
@@ -270,11 +271,11 @@ composer_buffer :: proc(buf: ^^[proto.MAX_CHAT_SIZE]u8) -> []u8 {
 }
 
 // composer_input takes a composer's keys before its box is laid out: in a web
-// build what was typed in the page's field for it first (ui/field_web.odin),
+// build what was typed in the page's field for it first (ui/widgets/field_web.odin),
 // then the completion list's keys and the composer's own.
 composer_input :: proc(ui: ^UI, c: Composer) {
 	when platform.WEB {
-		field_take(ui, mu.get_id(&ui.ctx, uintptr(&c.buf[0])), c.buf, c.len, c.area)
+		widgets.field_take(ui, mu.get_id(&ui.ctx, uintptr(&c.buf[0])), c.buf, c.len, c.area)
 	}
 	completion_keys(ui, c)
 	composer_keys(ui, c)

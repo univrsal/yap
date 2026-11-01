@@ -1,6 +1,6 @@
-package ui
+package widgets
 
-import "core"
+import "client:ui/core"
 import "client:platform"
 import "client:render"
 import mu "vendor:microui"

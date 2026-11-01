@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "base:intrinsics"
 import mu "vendor:microui"
@@ -53,7 +54,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	palette_window(ui, w, h)
 	// After every timeline, the thread windows' timelines too.
 	message_bar(ui)
-	dropdown_popup(ui, w, h)
+	widgets.dropdown_popup(ui, w, h)
 	// Last, and in windows of their own, so they are over the popups too.
 	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)

@@ -1,7 +1,7 @@
 #+build !wasi
-package ui
+package widgets
 
-import txt "text"
+import txt "client:ui/text"
 import "core:testing"
 import mu "vendor:microui"
 

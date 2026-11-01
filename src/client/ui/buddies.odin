@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import txt "text"
 import log "common:wlog"
@@ -306,7 +307,7 @@ conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow:
 // the list, in which no conversation is picked then.
 @(private = "file")
 back_to_list :: proc(ui: ^UI) {
-	if .SUBMIT in icon_button(ui, "to inbox list", .Back, "Conversations") {
+	if .SUBMIT in widgets.icon_button(ui, "to inbox list", .Back, "Conversations") {
 		ui.buddies.selected, ui.buddies.selected_group = 0, 0
 	}
 }
@@ -320,17 +321,17 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 
 	if ui.session != nil {
 		mu.layout_row(ctx, {-1})
-		if .SUBMIT in stable_button(ctx, "new group", "New group...") {
+		if .SUBMIT in widgets.stable_button(ctx, "new group", "New group...") {
 			open_group_picker(ui)
 		}
 	}
 	if len(list) == 0 {
 		mu.layout_row(ctx, {-1}, -1)
-		with_text_color(
+		widgets.with_text_color(
 			ctx,
 			core.theme.dim,
 			"You have no buddies yet. Click someone in the channel list and add them from the menu.",
-			text_proc,
+			widgets.text_proc,
 		)
 		return
 	}
@@ -342,16 +343,16 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 			break
 		}
 	}
-	section_label(ui, "Buddies")
+	widgets.section_label(ui, "Buddies")
 	if others == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "None yet. Add someone from their menu.")
+		widgets.dim_label(ctx, "None yet. Add someone from their menu.")
 	}
 	for b in list[:others] {
 		buddy_row(ui, b)
 	}
 	if others < len(list) {
-		section_label(ui, "Other conversations")
+		widgets.section_label(ui, "Other conversations")
 		for b in list[others:] {
 			buddy_row(ui, b)
 		}
@@ -465,7 +466,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	if !found {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Pick a buddy to start talking.")
+		widgets.dim_label(ctx, "Pick a buddy to start talking.")
 		return
 	}
 	if entry.group {
@@ -491,9 +492,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	buf: [7]i32
 	widths := buf[:icons + 1]
-	widths[0] = -(icon_button_w(ctx) * i32(icons) + ctx.style.spacing * i32(icons + 1))
+	widths[0] = -(widgets.icon_button_w(ctx) * i32(icons) + ctx.style.spacing * i32(icons + 1))
 	for &w in widths[1:] {
-		w = icon_button_w(ctx)
+		w = widgets.icon_button_w(ctx)
 	}
 	header_pad(ui)
 	layout := mu.get_layout(ctx)
@@ -537,13 +538,13 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		status, status_color = ui.buddies.notice, core.theme.off
 		core.redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
 	}
-	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
+	widgets.header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
 	// Calling them, while they are online and we are in no call.
 	if !deleted && may_call(v, account) {
-		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
+		if .SUBMIT in widgets.icon_button(ui, "dm call", .Phone, "Call") {
 			call_account(ui, account)
 		}
-		if video && .SUBMIT in icon_button(ui, "dm video call", .Camera, "Video call") {
+		if video && .SUBMIT in widgets.icon_button(ui, "dm video call", .Camera, "Video call") {
 			call_account(ui, account, video = true)
 		}
 	} else {
@@ -553,7 +554,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		}
 	}
 	if group_ok &&
-	   .SUBMIT in icon_button(ui, "dm add people", .Plus, "Start a group with them and others") {
+	   .SUBMIT in widgets.icon_button(ui, "dm add people", .Plus, "Start a group with them and others") {
 		open_group_picker(ui, account)
 	}
 	if entry.conv != 0 {
@@ -562,7 +563,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	if can_hide &&
 	   .SUBMIT in
-		   icon_button(
+		   widgets.icon_button(
 			   ui,
 			   "dm hide",
 			   .Trash,
@@ -588,7 +589,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server
 		// refuses it too).
-		dim_label(
+		widgets.dim_label(
 			ctx,
 			"Their account was deleted. You can still read this conversation, but not write to it.",
 		)
@@ -641,7 +642,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 	}
 	if dm == nil {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Pick a buddy to start talking.")
+		widgets.dim_label(ctx, "Pick a buddy to start talking.")
 		return
 	}
 	closed := dm_closed(v, dm)
@@ -649,9 +650,9 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 	// The names, then the members, pins, search and hide buttons.
 	icons :: 4
 	widths: [icons + 1]i32
-	widths[0] = -(icon_button_w(ctx) * icons + ctx.style.spacing * (icons + 1))
+	widths[0] = -(widgets.icon_button_w(ctx) * icons + ctx.style.spacing * (icons + 1))
 	for &w in widths[1:] {
-		w = icon_button_w(ctx)
+		w = widgets.icon_button_w(ctx)
 	}
 	header_pad(ui)
 	layout := mu.get_layout(ctx)
@@ -687,14 +688,14 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
 		status, status_color = notice, core.theme.off
 	}
-	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
-	if .SUBMIT in icon_button(ui, "group members", .Buddies, "Who is in it") {
+	widgets.header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
+	if .SUBMIT in widgets.icon_button(ui, "group members", .Buddies, "Who is in it") {
 		ui.buddies.members_shown = !ui.buddies.members_shown
 	}
 	pins_button(ui)
 	search_button(ui)
 	if .SUBMIT in
-	   icon_button(
+	   widgets.icon_button(
 		   ui,
 		   "group hide",
 		   .Trash,
@@ -718,7 +719,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 			mu.layout_row(ctx, {pic + 4, -1})
 			cell := mu.layout_next(ctx)
 			avatar(ui, id, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
-			if .SUBMIT in stable_button(ctx, "member", person_label(v, id)) {
+			if .SUBMIT in widgets.stable_button(ctx, "member", person_label(v, id)) {
 				open_user_menu(ui, 0, id)
 			}
 			mu.pop_id(ctx)
@@ -726,7 +727,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 	}
 	if closed {
 		mu.layout_row(ctx, {-1})
-		dim_label(
+		widgets.dim_label(
 			ctx,
 			"Everyone else in this group has deleted their account. You can still read it, but not write to it.",
 		)
@@ -744,7 +745,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 		timeline(ui, &ui.timeline, {entry.conv, 0})
 	} else {
 		mu.begin_panel(ctx, "no conversation", {.NO_FRAME})
-		spinner_row(ui) // its messages, on their way
+		widgets.spinner_row(ui) // its messages, on their way
 		mu.end_panel(ctx)
 	}
 	composer := composer_of_page(ui)
@@ -770,7 +771,7 @@ Dm_File_Button :: struct {
 @(private = "file")
 dm_file_button :: proc(ui: ^UI, data: rawptr) {
 	to := (^Dm_File_Button)(data)
-	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
+	if .SUBMIT in widgets.icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
 		if !to.online {
 			ui.buddies.notice = "files only go to someone who's here"
 			ui.buddies.notice_at = time.tick_now()
@@ -798,11 +799,11 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	if entry.conv != 0 {
-		spinner_row(ui) // its messages, on their way
+		widgets.spinner_row(ui) // its messages, on their way
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	dim_label(ctx, fmt.tprintf("Nothing said with %s yet.", entry.name))
+	widgets.dim_label(ctx, fmt.tprintf("Nothing said with %s yet.", entry.name))
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import mu "vendor:microui"
@@ -28,21 +29,21 @@ bot_token_shown :: proc(ui: ^UI, v: ^conn.View) {
 		whose = fmt.tprintf("@%s", acc.username)
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	widgets.with_text_color(
 		ctx,
 		core.theme.warning,
 		fmt.tprintf(
 			"This is the token for %s. It is only shown once, so copy it now. Anyone who has it can do everything the bot may do.",
 			whose,
 		),
-		wrap_text,
+		widgets.wrap_text,
 	)
 	mu.layout_row(ctx, {-(2 * 90 + 2 * ctx.style.spacing), 87, 87})
 	mu.label(ctx, v.bot_token)
-	if .SUBMIT in stable_button(ctx, "copy token", "Copy", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "copy token", "Copy", {.ALIGN_CENTER}) {
 		set_clipboard(nil, v.bot_token)
 	}
-	if .SUBMIT in stable_button(ctx, "token done", "Done", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "token done", "Done", {.ALIGN_CENTER}) {
 		command(ui, conn.Bot_Token_Forget_Command{})
 	}
 }
@@ -54,12 +55,12 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 	ctx := &ui.ctx
 	if v.other_devices_of != id {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "    Asking the server...")
+		widgets.dim_label(ctx, "    Asking the server...")
 		return
 	}
 	if len(v.other_devices) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "    This bot has no tokens, so it can't log in.")
+		widgets.dim_label(ctx, "    This bot has no tokens, so it can't log in.")
 	}
 	for d, i in v.other_devices {
 		mu.push_id(ctx, uintptr(i))
@@ -75,14 +76,14 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 			}
 		}
 		mu.label(ctx, fmt.tprintf("    %s  %s  -  %s", conn.fingerprint(d.key), d.name, seen))
-		if .SUBMIT in stable_button(ctx, "revoke token", "Revoke", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "revoke token", "Revoke", {.ALIGN_CENTER}) {
 			ui.account.mistake = ""
 			command(ui, conn.Revoke_Command{d.key})
 		}
 	}
 	mu.layout_row(ctx, {-(90 + ctx.style.spacing), 87})
-	dim_note(ctx, "    A token is all a program needs to be the bot; revoking one logs it out.")
-	if .SUBMIT in stable_button(ctx, "new token", "New token", {.ALIGN_CENTER}) {
+	widgets.dim_note(ctx, "    A token is all a program needs to be the bot; revoking one logs it out.")
+	if .SUBMIT in widgets.stable_button(ctx, "new token", "New token", {.ALIGN_CENTER}) {
 		ui.account.mistake = ""
 		command(ui, conn.Bot_Token_Command{account = id})
 	}

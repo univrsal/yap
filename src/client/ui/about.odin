@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -175,7 +176,7 @@ about_settings :: proc(ui: ^UI) {
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-1})
 		// Collapsed until clicked, because the licenses are long.
-		if .ACTIVE not_in header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
+		if .ACTIVE not_in widgets.header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
 			continue
 		}
 		about_text(
@@ -183,7 +184,7 @@ about_settings :: proc(ui: ^UI) {
 			fmt.tprintf("%s.\n%s", p.use, p.url) if p.url != "" else fmt.tprintf("%s.", p.use),
 		)
 		mu.label(ctx, "")
-		with_text_color(ctx, core.theme.dim, p.text, about_text)
+		widgets.with_text_color(ctx, core.theme.dim, p.text, about_text)
 	}
 }
 

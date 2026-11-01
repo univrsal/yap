@@ -675,14 +675,14 @@ EM_JS(void, yap_keyboard_hide, (), {
 });
 
 /* Labels a phone keyboard's Enter key for the text box that has the focus:
-   a new line in a text area (src/client/ui/text_area.odin), else send. */
+   a new line in a text area (src/client/ui/widgets/text_area.odin), else send. */
 EM_JS(void, yap_keyboard_multiline, (int on), {
 	const field = document.getElementById("yap-keyboard");
 	if (field) field.enterKeyHint = on ? "enter" : "send";
 });
 
 /* The page's text fields that stand in for the client's text areas
-   (web/field.js, src/client/ui/field_web.odin). */
+   (web/field.js, src/client/ui/widgets/field_web.odin). */
 EM_JS(void, yap_field_font, (const unsigned char *data, int n), {
 	Module.yapField.font(HEAPU8.slice(data, data + n));
 });

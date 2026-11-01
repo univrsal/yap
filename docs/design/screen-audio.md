@@ -160,7 +160,7 @@ can stop it, and the volume slider applies to both.
 ## 3. The share menu
 
 The audio choice goes at the top of `share_menu`, as a dropdown
-(`ui/dropdown.odin`). Picking a monitor or a window below then starts
+(`ui/widgets/dropdown.odin`). Picking a monitor or a window below then starts
 both.
 
 	Audio: [ Speakers (default)  v ]

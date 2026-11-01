@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:time"
@@ -23,7 +24,7 @@ thread_head :: proc(
 	ctx := &ui.ctx
 	if !have {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Loading the message replied to...")
+		widgets.dim_label(ctx, "Loading the message replied to...")
 		return
 	}
 	layout := mu.get_layout(ctx)

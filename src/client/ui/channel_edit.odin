@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
@@ -24,8 +25,8 @@ import "common:proto"
 UI_Channel_Edit :: struct {
 	conv:   proto.Conv_Id, // the channel being edited, 0 when the window is closed
 	placed: bool,
-	name:   Text_Field(proto.MAX_CHANNEL_NAME_SIZE),
-	topic:  Text_Field(proto.MAX_TOPIC_SIZE),
+	name:   widgets.Text_Field(proto.MAX_CHANNEL_NAME_SIZE),
+	topic:  widgets.Text_Field(proto.MAX_TOPIC_SIZE),
 }
 
 @(private = "file")
@@ -38,8 +39,8 @@ EDIT_LABEL :: 60
 open_channel_edit :: proc(ui: ^UI, ch: conn.View_Channel) {
 	e := &ui.channel_edit
 	e.conv, e.placed = ch.id, false
-	field_set(&e.name, ch.name)
-	field_set(&e.topic, ch.topic)
+	widgets.field_set(&e.name, ch.name)
+	widgets.field_set(&e.topic, ch.topic)
 }
 
 // may_admin_channel is whether we may manage a channel as its admin: we are
@@ -84,15 +85,15 @@ channel_edit_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	keep_in_window(ui)
 	defer mu.end_window(ctx)
 
-	field_row(ui, EDIT_LABEL, "Name", {-1})
-	submit := .SUBMIT in text_box(ui, e.name.buf[:], &e.name.len)
-	field_row(ui, EDIT_LABEL, "Topic", {-1})
-	submit |= .SUBMIT in text_box(ui, e.topic.buf[:], &e.topic.len)
-	name := strings.trim_space(field_text(&e.name))
-	changed := name != ch.name || field_text(&e.topic) != ch.topic
-	field_row(ui, EDIT_LABEL, "", {100})
+	widgets.field_row(ui, EDIT_LABEL, "Name", {-1})
+	submit := .SUBMIT in widgets.text_box(ui, e.name.buf[:], &e.name.len)
+	widgets.field_row(ui, EDIT_LABEL, "Topic", {-1})
+	submit |= .SUBMIT in widgets.text_box(ui, e.topic.buf[:], &e.topic.len)
+	name := strings.trim_space(widgets.field_text(&e.name))
+	changed := name != ch.name || widgets.field_text(&e.topic) != ch.topic
+	widgets.field_row(ui, EDIT_LABEL, "", {100})
 	submit |=
-		.SUBMIT in stable_button(ctx, "save", "Save" if changed else "Saved", {.ALIGN_CENTER})
+		.SUBMIT in widgets.stable_button(ctx, "save", "Save" if changed else "Saved", {.ALIGN_CENTER})
 	if submit && changed && name != "" {
 		command(
 			ui,
@@ -100,7 +101,7 @@ channel_edit_window :: proc(ui: ^UI, window_w, window_h: i32) {
 				conv = ch.id,
 				mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC,
 				name = strings.clone(name),
-				topic = strings.clone(field_text(&e.topic)),
+				topic = strings.clone(widgets.field_text(&e.topic)),
 			},
 		)
 	}
@@ -138,10 +139,10 @@ channel_member_items :: proc(ui: ^UI, account: proto.Account_Id, menu_width: i32
 		return
 	}
 	mu.layout_row(ctx, {menu_width})
-	dim_label(ctx, ch.name)
+	widgets.dim_label(ctx, ch.name)
 	if toggle &&
 	   .SUBMIT in
-		   stable_button(
+		   widgets.stable_button(
 			   ctx,
 			   "channel admin",
 			   "No longer its admin" if admin else "Make channel admin",
@@ -149,7 +150,7 @@ channel_member_items :: proc(ui: ^UI, account: proto.Account_Id, menu_width: i32
 		command(ui, conn.Conv_Admin_Command{conv = ch.id, account = account, on = !admin})
 		mu.get_current_container(ctx).open = false
 	}
-	if remove && .SUBMIT in stable_button(ctx, "remove member", "Remove from the channel") {
+	if remove && .SUBMIT in widgets.stable_button(ctx, "remove member", "Remove from the channel") {
 		command(ui, conn.Conv_Member_Command{conv = ch.id, account = account, on = false})
 		mu.get_current_container(ctx).open = false
 	}

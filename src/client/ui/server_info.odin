@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import txt "text"
 import "core:hash"
@@ -27,8 +28,8 @@ UI_Server_Info :: struct {
 	// description as they are being edited, and whether Apply was pressed
 	// (the server's answer is shown then).
 	loaded_for: rawptr,
-	name:       Text_Field(proto.MAX_SERVER_NAME),
-	about:      Text_Field(proto.MAX_SERVER_DESCRIPTION),
+	name:       widgets.Text_Field(proto.MAX_SERVER_NAME),
+	about:      widgets.Text_Field(proto.MAX_SERVER_DESCRIPTION),
 	about_area: txt.Area,
 	asked:      bool,
 }
@@ -99,13 +100,13 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	p := &ui.profiles
 	if s.loaded_for != rawptr(ui.session) {
 		s.loaded_for = rawptr(ui.session)
-		field_set(&s.name, v.server_name)
-		field_set(&s.about, v.server_about)
+		widgets.field_set(&s.name, v.server_name)
+		widgets.field_set(&s.about, v.server_about)
 		s.asked = false
 	}
 
 	size: i32 = 48
-	field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
+	widgets.field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
 	cell := mu.layout_next(ctx)
 	server_picture(
 		ui,
@@ -121,26 +122,26 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		max((size - ctx.style.size.y - 2 * ctx.style.padding) / 2 - ctx.style.spacing, 1),
 	)
 	mu.layout_next(ctx)
-	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
+	mu.layout_row(ctx, widgets.fit_widths(ctx, {110, 110, 110}))
 	uploading := v.uploading.server
-	if .SUBMIT in stable_button(ctx, "icon file", "Choose...", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "icon file", "Choose...", {.ALIGN_CENTER}) {
 		avatar_pick_start(ui, false, .Server_Icon)
 	}
 	// A page can only read the clipboard inside a paste event.
 	when !platform.WEB {
-		if .SUBMIT in stable_button(ctx, "icon paste", "Paste", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "icon paste", "Paste", {.ALIGN_CENTER}) {
 			avatar_pick_start(ui, true, .Server_Icon)
 		}
 	}
 	switch {
 	case uploading:
-		dim_label(ctx, "uploading...")
+		widgets.dim_label(ctx, "uploading...")
 	case p.pick != nil && p.pick_for == .Server_Icon:
-		dim_label(ctx, "reading the picture...")
+		widgets.dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "" && p.pick_for == .Server_Icon:
-		with_text_color(ctx, core.theme.off, p.pick_notice, label_proc)
+		widgets.with_text_color(ctx, core.theme.off, p.pick_notice, widgets.label_proc)
 	case v.server_icon != 0:
-		if .SUBMIT in stable_button(ctx, "icon remove", "Remove", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "icon remove", "Remove", {.ALIGN_CENTER}) {
 			s.asked = true
 			conn.push_command(
 				&ui.session.client.commands,
@@ -156,13 +157,13 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_end_column(ctx)
 
-	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
-	submitted := .SUBMIT in text_box(ui, s.name.buf[:], &s.name.len)
+	widgets.field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
+	submitted := .SUBMIT in widgets.text_box(ui, s.name.buf[:], &s.name.len)
 
 	// What it is for, over several lines (Shift+Enter starts a new line).
-	about := field_text(&s.about)
+	about := widgets.field_text(&s.about)
 	font := ctx.style.font
-	field_row(
+	widgets.field_row(
 		ui,
 		FORM_LABEL,
 		"Description",
@@ -170,28 +171,28 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		txt.area_height(ctx, font, about, &s.about_area),
 		fill_min = FORM_FIELD,
 	)
-	submitted |= .SUBMIT in text_area(ui, s.about.buf[:], &s.about.len, &s.about_area)
+	submitted |= .SUBMIT in widgets.text_area(ui, s.about.buf[:], &s.about.len, &s.about_area)
 
-	field_row(ui, FORM_LABEL, "", {110, 110, -1})
-	if .SUBMIT in stable_button(ctx, "apply", "Apply", {.ALIGN_CENTER}) || submitted {
+	widgets.field_row(ui, FORM_LABEL, "", {110, 110, -1})
+	if .SUBMIT in widgets.stable_button(ctx, "apply", "Apply", {.ALIGN_CENTER}) || submitted {
 		ui.account.mistake = ""
 		s.asked = true
 		conn.push_command(
 			&ui.session.client.commands,
 			conn.Server_Info_Command {
-				name = strings.clone(field_text(&s.name)),
-				description = strings.clone(field_text(&s.about)),
+				name = strings.clone(widgets.field_text(&s.name)),
+				description = strings.clone(widgets.field_text(&s.about)),
 			},
 		)
 	}
-	if .SUBMIT in stable_button(ctx, "revert", "Revert", {.ALIGN_CENTER}) {
-		field_set(&s.name, v.server_name)
-		field_set(&s.about, v.server_about)
+	if .SUBMIT in widgets.stable_button(ctx, "revert", "Revert", {.ALIGN_CENTER}) {
+		widgets.field_set(&s.name, v.server_name)
+		widgets.field_set(&s.about, v.server_about)
 	}
 	if s.asked {
 		notice_label(ui, v)
 	} else {
-		dim_label(ctx, "Shown on everyone's rail, and before logging in.")
+		widgets.dim_label(ctx, "Shown on everyone's rail, and before logging in.")
 	}
 }
 

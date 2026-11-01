@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:fmt"
@@ -140,18 +141,18 @@ hotkey_settings :: proc(ui: ^UI) {
 		mu.push_id(ctx, uintptr(action))
 		defer mu.pop_id(ctx)
 
-		field_row(ui, 60, HOTKEY_LABELS[action], {200, 80, 60})
+		widgets.field_row(ui, 60, HOTKEY_LABELS[action], {200, 80, 60})
 		capturing := hk.capturing == action
 		text := hotkey_setting(ui, action)^
 		switch {
 		case capturing:
-			with_text_color(ctx, core.theme.warning, "Press the keys...", label_proc)
+			widgets.with_text_color(ctx, core.theme.warning, "Press the keys...", widgets.label_proc)
 		case text == "":
-			dim_label(ctx, "None")
+			widgets.dim_label(ctx, "None")
 		case:
 			mu.label(ctx, text)
 		}
-		if .SUBMIT in stable_button(ctx, "change", "Cancel" if capturing else "Change") {
+		if .SUBMIT in widgets.stable_button(ctx, "change", "Cancel" if capturing else "Change") {
 			if capturing {
 				hk.capturing = nil
 				hotkeys.capture(&hk.watcher, false)
@@ -162,14 +163,14 @@ hotkey_settings :: proc(ui: ^UI) {
 				hotkeys.capture(&hk.watcher, true)
 			}
 		}
-		if .SUBMIT in stable_button(ctx, "clear", "Clear") && text != "" {
+		if .SUBMIT in widgets.stable_button(ctx, "clear", "Clear") && text != "" {
 			set_hotkey(ui, action, {})
 		}
 	}
 
 	mu.layout_row(ctx, {-1})
 	if !hk.running {
-		dim_note(
+		widgets.dim_note(
 			ctx,
 			"  These work in any window, and with yap minimized. Change one and press the keys for it.",
 		)
@@ -179,10 +180,10 @@ hotkey_settings :: proc(ui: ^UI) {
 	note := fmt.tprintf("  %s", message)
 	switch st {
 	case .Starting, .Ok:
-		dim_note(ctx, note)
+		widgets.dim_note(ctx, note)
 	case .Limited:
-		with_text_color(ctx, core.theme.warning, note, wrap_text)
+		widgets.with_text_color(ctx, core.theme.warning, note, widgets.wrap_text)
 	case .Unavailable:
-		error_label(ctx, note)
+		widgets.error_label(ctx, note)
 	}
 }

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "titlebar"
 import "base:intrinsics"
@@ -45,6 +46,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	g_ui = ui
 	core.g_env = &ui.env
+	core.wake = ui_wake
 	g_logger = context.logger
 	ui.opts = opts
 	ui.log_drawn = -1
@@ -92,7 +94,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
 	ui.ctx.text_width = render.ui_text_width
 	ui.ctx.text_height = render.ui_text_height
-	ui.ctx.draw_frame = draw_frame_themed
+	ui.ctx.draw_frame = widgets.draw_frame_themed
 	ui.input_scale = 1
 
 	ui.action = .Start
@@ -288,7 +290,7 @@ draw_frame :: proc(ui: ^UI) {
 	settle(ui)
 	when platform.WEB {
 		touch_after_frame(ui)
-		fields_after_frame(ui)
+		widgets.fields_after_frame(ui, ui.completion.box if ui.completion.active else 0)
 	}
 	edge := titlebar.Edge.None
 	if ui.ctx.mouse_down_bits == {} {

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -29,7 +30,7 @@ UI_Bans :: struct {
 	// The menu's ban form: open, the reason being typed, and which of their
 	// messages go too.
 	banning:  bool,
-	reason:   Text_Field(proto.MAX_BAN_REASON),
+	reason:   widgets.Text_Field(proto.MAX_BAN_REASON),
 	purge:    proto.Ban_Purge,
 	// The menu's Remove messages... is open, and which of theirs go.
 	removing: bool,
@@ -72,33 +73,33 @@ ban_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: boo
 	v := ui.view
 	b := &ui.bans
 	if _, banned := ban_of(v, account); banned {
-		if .SUBMIT in stable_button(ctx, "unban", "Unban") {
+		if .SUBMIT in widgets.stable_button(ctx, "unban", "Unban") {
 			command(ui, conn.Ban_Command{account = account, on = false})
 			return true
 		}
 		return false
 	}
-	if .SUBMIT in stable_button(ctx, "ban?", "Ban..." if !b.banning else "Ban:") {
+	if .SUBMIT in widgets.stable_button(ctx, "ban?", "Ban..." if !b.banning else "Ban:") {
 		b.banning = !b.banning
 	}
 	if !b.banning {
 		return false
 	}
-	dim_label(ctx, "Reason (they will see it)")
-	submit := .SUBMIT in text_box(ui, b.reason.buf[:], &b.reason.len)
+	widgets.dim_label(ctx, "Reason (they will see it)")
+	submit := .SUBMIT in widgets.text_box(ui, b.reason.buf[:], &b.reason.len)
 	// Which of their messages in channels go too: a click picks the next.
 	label := fmt.tprintf("Remove their messages: %s", PURGE_CHOICES[b.purge])
-	if .SUBMIT in stable_button(ctx, "ban purge", label) {
+	if .SUBMIT in widgets.stable_button(ctx, "ban purge", label) {
 		b.purge = proto.Ban_Purge((int(b.purge) + 1) % len(proto.Ban_Purge))
 	}
 	half := (width - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, half})
-	if .SUBMIT in stable_button(ctx, "cancel ban", "Cancel") {
+	if .SUBMIT in widgets.stable_button(ctx, "cancel ban", "Cancel") {
 		b.banning = false
 	}
 	saved := ctx.style.colors[.TEXT]
 	ctx.style.colors[.TEXT] = core.theme.error
-	submit |= .SUBMIT in stable_button(ctx, "ban", "Ban")
+	submit |= .SUBMIT in widgets.stable_button(ctx, "ban", "Ban")
 	ctx.style.colors[.TEXT] = saved
 	mu.layout_row(ctx, {width})
 	if submit {
@@ -107,7 +108,7 @@ ban_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: boo
 			conn.Ban_Command {
 				account = account,
 				on = true,
-				reason = strings.clone(field_text(&b.reason)),
+				reason = strings.clone(widgets.field_text(&b.reason)),
 				purge = b.purge,
 			},
 		)
@@ -135,7 +136,7 @@ remove_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: 
 	ctx := &ui.ctx
 	b := &ui.bans
 	if .SUBMIT in
-	   stable_button(ctx, "remove?", "Remove messages..." if !b.removing else "Remove messages:") {
+	   widgets.stable_button(ctx, "remove?", "Remove messages..." if !b.removing else "Remove messages:") {
 		b.removing = !b.removing
 	}
 	if !b.removing {
@@ -146,22 +147,22 @@ remove_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: 
 	}
 	// From the last hour to all of them: a click picks the next.
 	if .SUBMIT in
-	   stable_button(
+	   widgets.stable_button(
 		   ctx,
 		   "remove which",
 		   fmt.tprintf("  Theirs of: %s", PURGE_CHOICES[b.remove]),
 	   ) {
 		b.remove = .Hour if b.remove == .All else proto.Ban_Purge(int(b.remove) + 1)
 	}
-	dim_label(ctx, "  In every conversation, for good")
+	widgets.dim_label(ctx, "  In every conversation, for good")
 	half := (width - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, half})
-	if .SUBMIT in stable_button(ctx, "cancel remove", "Cancel") {
+	if .SUBMIT in widgets.stable_button(ctx, "cancel remove", "Cancel") {
 		b.removing = false
 	}
 	saved := ctx.style.colors[.TEXT]
 	ctx.style.colors[.TEXT] = core.theme.error
-	remove := .SUBMIT in stable_button(ctx, "remove", "Remove")
+	remove := .SUBMIT in widgets.stable_button(ctx, "remove", "Remove")
 	ctx.style.colors[.TEXT] = saved
 	mu.layout_row(ctx, {width})
 	if !remove {
@@ -192,13 +193,13 @@ bans_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	bans_ask(ui, v)
 	mu.layout_row(ctx, {-1})
-	dim_note(
+	widgets.dim_note(
 		ctx,
 		"A banned account can't log in, and its email address can't be used to register again. It is told why when it tries.",
 	)
 	if len(v.bans.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_label(ctx, "Nobody is banned.")
+		widgets.dim_label(ctx, "Nobody is banned.")
 		return
 	}
 	for b in v.bans.list {
@@ -207,15 +208,15 @@ bans_settings :: proc(ui: ^UI, v: ^conn.View) {
 		// In a narrow window, the name and the date on one line, the rest
 		// under them.
 		row := []i32{160, 220, -90, 80}
-		mu.layout_row(ctx, row if row_fits(ctx, row) else {160, -1})
+		mu.layout_row(ctx, row if widgets.row_fits(ctx, row) else {160, -1})
 		mu.label(ctx, ban_name(v, b.account))
-		dim_label(ctx, fmt.tprintf("by %s, %s", ban_name(v, b.by), invite_date(ui, b.time)))
+		widgets.dim_label(ctx, fmt.tprintf("by %s, %s", ban_name(v, b.by), invite_date(ui, b.time)))
 		if b.reason != "" {
 			mu.label(ctx, b.reason)
 		} else {
-			dim_label(ctx, "no reason given")
+			widgets.dim_label(ctx, "no reason given")
 		}
-		if .SUBMIT in stable_button(ctx, "unban", "Unban", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "unban", "Unban", {.ALIGN_CENTER}) {
 			command(ui, conn.Ban_Command{account = b.account, on = false})
 		}
 	}
@@ -245,22 +246,22 @@ banned_notice :: proc(ui: ^UI, server: string) -> bool {
 		return false
 	}
 	mu.layout_row(ctx, {-1})
-	error_note(ctx, fmt.tprintf("You were banned from %s.", server))
+	widgets.error_note(ctx, fmt.tprintf("You were banned from %s.", server))
 	if v.login.ban_reason != "" {
 		mu.layout_row(ctx, {-1})
-		wrap_text(ctx, fmt.tprintf("Reason: %s", v.login.ban_reason))
+		widgets.wrap_text(ctx, fmt.tprintf("Reason: %s", v.login.ban_reason))
 	} else {
 		mu.layout_row(ctx, {-1})
-		dim_note(ctx, "No reason was given.")
+		widgets.dim_note(ctx, "No reason was given.")
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
 	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1})
-	if .SUBMIT in stable_button(ctx, "remove server", "Remove server", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "remove server", "Remove server", {.ALIGN_CENTER}) {
 		ui.rail.leave, ui.rail.forget_key = ui.session, false
 	}
-	if .SUBMIT in stable_button(ctx, "close ban", "Close", {.ALIGN_CENTER}) {
+	if .SUBMIT in widgets.stable_button(ctx, "close ban", "Close", {.ALIGN_CENTER}) {
 		ui.bans.closed = v.login.ban_count
 	}
 	return true

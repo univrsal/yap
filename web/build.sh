@@ -48,7 +48,7 @@ sh scripts/build/fetch.sh lua "$deps"
 
 # What web/touch.js calls (src/client/ui/touch_web.odin).
 touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_touch_scroll_end,_web_text_rune,_web_text_backspace,_web_text_enter
-# What web/field.js calls (src/client/ui/field_web.odin).
+# What web/field.js calls (src/client/ui/widgets/field_web.odin).
 field_exports=_web_field_input,_web_field_focus,_web_field_lines,_web_field_touched
 # What web/background.js calls (src/client/main_web.odin).
 background_exports=_web_tick,_web_visibility

@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "client:conn"
 import "client:render"
@@ -36,7 +37,7 @@ UI_Channels :: struct {
 	// which is asked for again whenever it changes.
 	open:       bool,
 	placed:     bool,
-	find:       Pager,
+	find:       widgets.Pager,
 	// In a narrow window: the list is showing instead of the chat.
 	show_list:  bool,
 	// The channel whose menu is open (see channel_menu), and whether it was
@@ -132,24 +133,24 @@ channel_list :: proc(ui: ^UI) {
 	mu.layout_set_next(ctx, {area.x, area.y, area.w, area.h - button_h - pad}, false)
 	mu.begin_panel(ctx, "channels", {.NO_FRAME})
 	if len(v.channels) == 0 {
-		spinner_row(ui) // the channel list, on its way
+		widgets.spinner_row(ui) // the channel list, on its way
 	}
 	channel_rows(ui)
 	mu.end_panel(ctx)
 	// Our notes and bookmarks are buttons with an icon, left of the one for
 	// the other channels.
 	foot := mu.Rect{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h}
-	icon_w := max(button_h, icon_button_w(ctx))
+	icon_w := max(button_h, widgets.icon_button_w(ctx))
 	if len(v.channels) > 0 {
 		viewing := viewing_notes(v) && !ui.narrow
 		mu.layout_set_next(ctx, {foot.x, foot.y, icon_w, foot.h}, false)
 		if .SUBMIT in
-		   icon_button(ui, "notes", .Text_File, NOTES_NAME, core.theme.accent if viewing else {}) {
+		   widgets.icon_button(ui, "notes", .Text_File, NOTES_NAME, core.theme.accent if viewing else {}) {
 			view_notes(ui, v)
 		}
 		mu.layout_set_next(ctx, {foot.x + icon_w + pad, foot.y, icon_w, foot.h}, false)
 		if .SUBMIT in
-		   icon_button(
+		   widgets.icon_button(
 			   ui,
 			   "bookmarks",
 			   .Bookmark,
@@ -162,7 +163,7 @@ channel_list :: proc(ui: ^UI) {
 		foot.w -= 2 * (icon_w + pad)
 	}
 	mu.layout_set_next(ctx, foot, false)
-	if .SUBMIT in button(ctx, "Join a channel...") {
+	if .SUBMIT in widgets.button(ctx, "Join a channel...") {
 		open_channels(ui)
 	}
 
@@ -206,7 +207,7 @@ channel_rows :: proc(ui: ^UI) {
 		saved_font := ctx.style.font
 		ctx.style.font = render.LIST_FONT
 		// When narrow, the list is all there is on screen, so no channel is open.
-		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow, accent = true)
+		clicked := .SUBMIT in widgets.list_row(ctx, "view", label, viewing && !ui.narrow, accent = true)
 		ctx.style.font = saved_font
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
@@ -260,7 +261,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	if notes {
 		buttons = 2 + (0 if pinned else 1)
 	}
-	right := buttons * icon_button_w(ctx) + buttons * ctx.style.spacing + 1
+	right := buttons * widgets.icon_button_w(ctx) + buttons * ctx.style.spacing + 1
 	widths := make([dynamic]i32, context.temp_allocator)
 	if narrow {
 		append(&widths, 40)
@@ -271,10 +272,10 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	layout.indent += CONV_HEADER_PAD
 	defer layout.indent -= CONV_HEADER_PAD
 	for _ in 0 ..< buttons {
-		append(&widths, icon_button_w(ctx))
+		append(&widths, widgets.icon_button_w(ctx))
 	}
 	mu.layout_row(ctx, widths[:])
-	if narrow && .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
+	if narrow && .SUBMIT in widgets.icon_button(ui, "to list", .Back, "Channels") {
 		ui.channels.show_list = true
 	}
 	if ch == nil && !notes {
@@ -290,9 +291,9 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	status, status_color := chat_status(ui)
 	switch {
 	case narrow:
-		header_line(ctx, mu.layout_next(ctx), "", {}, "", status, status_color)
+		widgets.header_line(ctx, mu.layout_next(ctx), "", {}, "", status, status_color)
 	case notes:
-		header_line(
+		widgets.header_line(
 			ctx,
 			mu.layout_next(ctx),
 			NOTES_NAME,
@@ -303,7 +304,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		)
 	case:
 		name := fmt.tprintf("# %s", ch.name)
-		header_line(ctx, mu.layout_next(ctx), name, core.theme.viewing, ch.topic, status, status_color)
+		widgets.header_line(ctx, mu.layout_next(ctx), name, core.theme.viewing, ch.topic, status, status_color)
 	}
 	if notes {
 		pins_button(ui)
@@ -345,7 +346,7 @@ voice_button :: proc(ui: ^UI, ch: conn.View_Channel, in_it: bool) {
 			hint = "Talk in this channel instead of the one you're in"
 		}
 	}
-	if .SUBMIT in icon_button(ui, "voice", .Phone, hint, color) && !v.voice_pending {
+	if .SUBMIT in widgets.icon_button(ui, "voice", .Phone, hint, color) && !v.voice_pending {
 		if in_it {
 			log.debugf("ui: leave voice of %q", ch.name)
 			command(ui, conn.Voice_Command{})
@@ -494,9 +495,9 @@ channel_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {CHANNEL_MENU_WIDTH})
-	dim_label(ctx, ch.name)
+	widgets.dim_label(ctx, ch.name)
 	if .SUBMIT in
-	   stable_button_hint(
+	   widgets.stable_button_hint(
 		   ui,
 		   "notify",
 		   NOTIFY_LABELS[ch.notify],
@@ -506,21 +507,21 @@ channel_menu :: proc(ui: ^UI) {
 		command(ui, conn.Notify_Command{conv = ch.id, notify = next})
 	}
 	if .Manage_Channels in v.permissions &&
-	   .SUBMIT in stable_button(ctx, "settings", "Settings...") {
+	   .SUBMIT in widgets.stable_button(ctx, "settings", "Settings...") {
 		open_channel_settings(ui, ch.id) // ui/channel_settings.odin
 		close(ctx)
 	}
 	if ch.admin &&
 	   .Manage_Channels not_in v.permissions &&
-	   .SUBMIT in stable_button(ctx, "name and topic", "Name and topic...") {
+	   .SUBMIT in widgets.stable_button(ctx, "name and topic", "Name and topic...") {
 		open_channel_edit(ui, ch^)
 		close(ctx)
 	}
-	if ch.admin && .SUBMIT in stable_button(ctx, "stop admin", "Stop being its admin") {
+	if ch.admin && .SUBMIT in widgets.stable_button(ctx, "stop admin", "Stop being its admin") {
 		command(ui, conn.Conv_Admin_Command{conv = ch.id, account = v.me, on = false})
 		close(ctx)
 	}
-	if !ch.home && .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe") {
+	if !ch.home && .SUBMIT in widgets.stable_button(ctx, "unsubscribe", "Unsubscribe") {
 		command(ui, conn.Subscribe_Command{conv = ch.id, on = false})
 		close(ctx)
 	}
@@ -561,9 +562,9 @@ browse :: proc(ui: ^UI, offset: int) {
 	command(
 		ui,
 		conn.Browse_Command {
-			query = strings.clone(pager_query(&ui.channels.find)),
+			query = strings.clone(widgets.pager_query(&ui.channels.find)),
 			offset = offset,
-			limit = PAGE_ROWS,
+			limit = widgets.PAGE_ROWS,
 		},
 	)
 }
@@ -605,28 +606,28 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
-	if pager_search(ui, &c.find, "Search by name or topic") {
+	if widgets.pager_search(ui, &c.find, "Search by name or topic") {
 		browse(ui, 0)
 	}
 	if len(v.browse) == 0 {
 		text := "Asking the server..."
 		if v.browse_count > 0 {
 			text =
-				"You're in every channel you can join." if pager_query(&c.find) == "" else "No channel you aren't in has that in its name or topic."
+				"You're in every channel you can join." if widgets.pager_query(&c.find) == "" else "No channel you aren't in has that in its name or topic."
 		}
 		mu.layout_row(ctx, {-1})
-		dim_note(ctx, text)
+		widgets.dim_note(ctx, text)
 	}
 	for e in v.browse {
 		mu.push_id(ctx, uintptr(e.id))
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-(JOIN_BUTTON + ctx.style.spacing + 1), JOIN_BUTTON})
 		channel_label(ctx, e.name, e.topic)
-		if .SUBMIT in stable_button(ctx, "join", "Join", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "join", "Join", {.ALIGN_CENTER}) {
 			command(ui, conn.Subscribe_Command{conv = e.id, on = true})
 		}
 	}
-	if offset, turned := pager_footer_open(ui, v.browse_offset, len(v.browse), v.browse_more);
+	if offset, turned := widgets.pager_footer_open(ui, v.browse_offset, len(v.browse), v.browse_more);
 	   turned {
 		browse(ui, offset)
 	}
@@ -637,7 +638,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.label(ctx, "")
 		mu.layout_row(ctx, {-1})
 		if .SUBMIT in
-		   stable_button(ctx, "channel settings", "Make or change channels...", {.ALIGN_CENTER}) {
+		   widgets.stable_button(ctx, "channel settings", "Make or change channels...", {.ALIGN_CENTER}) {
 			c.open = false
 			open_channel_settings(ui, 0)
 		}

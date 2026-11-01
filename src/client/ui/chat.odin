@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import txt "text"
 import "core:fmt"
@@ -168,7 +169,7 @@ read_only_height :: proc(ctx: ^mu.Context) -> i32 {
 read_only_line :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, read_only_height(ctx))
-	dim_label(ctx, "You can't write in this channel.")
+	widgets.dim_label(ctx, "You can't write in this channel.")
 }
 
 // side_tabs_shown says whether the chat has tabs beside it: while there is a
@@ -203,15 +204,15 @@ side_tab_widths :: proc(ui: ^UI, lead: i32 = 0) -> []i32 {
 side_tab_buttons :: proc(ui: ^UI, chat_label: string) {
 	ctx := &ui.ctx
 	chat_shown := ui.chat.tab != .Screen && ui.chat.tab != .Video
-	if .SUBMIT in tab_button(ctx, "chat tab", chat_label, chat_shown) {
+	if .SUBMIT in widgets.tab_button(ctx, "chat tab", chat_label, chat_shown) {
 		ui.chat.tab = .Chat
 	}
 	if screen_docked(ui) &&
-	   .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+	   .SUBMIT in widgets.tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
 		ui.chat.tab = .Screen
 	}
 	if video_docked(ui) &&
-	   .SUBMIT in tab_button(ctx, "video tab", video_tab_label(ui), ui.chat.tab == .Video) {
+	   .SUBMIT in widgets.tab_button(ctx, "video tab", video_tab_label(ui), ui.chat.tab == .Video) {
 		ui.chat.tab = .Video
 	}
 }
@@ -236,7 +237,7 @@ composer_button_size :: proc(ctx: ^mu.Context) -> i32 {
 }
 
 // composer_height is how tall the box that a composer's message is written in
-// is: two lines or more of the chat's text (see ui/text_area.odin), and the
+// is: two lines or more of the chat's text (see ui/widgets/text_area.odin), and the
 // strip for its buttons.
 composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
 	// On a phone, one line to start with, to leave room for the messages.
@@ -338,7 +339,7 @@ composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id, r
 // message as it will look in the box's place, and switches back (D8).
 preview_button :: proc(ui: ^UI, c: Composer) {
 	if .SUBMIT in
-	   icon_button(ui, "preview", .Eye, "Back to writing" if c.area.preview else "Preview") {
+	   widgets.icon_button(ui, "preview", .Eye, "Back to writing" if c.area.preview else "Preview") {
 		c.area.preview = !c.area.preview
 		if !c.area.preview {
 			focus_composer(ui, c, -1)
@@ -401,7 +402,7 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	saved := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved
-	return text_area(ui, c.buf, c.len, c.area)
+	return widgets.text_area(ui, c.buf, c.len, c.area)
 }
 
 @(private = "file")
@@ -768,15 +769,15 @@ file_message :: proc(
 	switch f.state {
 	case .Incoming:
 		mu.layout_row(ctx, {90, 90})
-		if .SUBMIT in stable_button(ctx, "accept", "Accept") {
+		if .SUBMIT in widgets.stable_button(ctx, "accept", "Accept") {
 			send(ui, id, .Accept)
 		}
-		if .SUBMIT in stable_button(ctx, "decline", "Decline") {
+		if .SUBMIT in widgets.stable_button(ctx, "decline", "Decline") {
 			send(ui, id, .Decline)
 		}
 	case .Offered, .Starting, .Transferring:
 		mu.layout_row(ctx, {90})
-		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
+		if .SUBMIT in widgets.stable_button(ctx, "cancel", "Cancel") {
 			send(ui, id, .Cancel)
 		}
 	case .Unknown,

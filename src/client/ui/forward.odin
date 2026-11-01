@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "core:fmt"
 import "core:strings"
@@ -29,7 +30,7 @@ UI_Forward :: struct {
 	open:        bool,
 	placed:      bool,
 	msg:         proto.Msg_Id,
-	filter:      Text_Field(proto.MAX_CHANNEL_NAME_SIZE),
+	filter:      widgets.Text_Field(proto.MAX_CHANNEL_NAME_SIZE),
 	// Linked messages that were asked for, and when. They are asked for again a
 	// while later if they haven't arrived (the network side drops them together with
 	// their conversation's window, and asking twice counts as one request there).
@@ -88,8 +89,8 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 
 	mu.layout_row(ctx, {-1})
-	text_box(ui, f.filter.buf[:], &f.filter.len)
-	filter := strings.to_lower(strings.trim_space(field_text(&f.filter)), context.temp_allocator)
+	widgets.text_box(ui, f.filter.buf[:], &f.filter.len)
+	filter := strings.to_lower(strings.trim_space(widgets.field_text(&f.filter)), context.temp_allocator)
 	row :: proc(ui: ^UI, conv: proto.Conv_Id, name, filter: string) -> bool {
 		if filter != "" &&
 		   !strings.contains(strings.to_lower(name, context.temp_allocator), filter) {
@@ -100,7 +101,7 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-(90 + ctx.style.spacing + 1), 90})
 		mu.label(ctx, name)
-		if .SUBMIT in stable_button(ctx, "forward", "Send here", {.ALIGN_CENTER}) {
+		if .SUBMIT in widgets.stable_button(ctx, "forward", "Send here", {.ALIGN_CENTER}) {
 			conn.push_command(
 				&ui.session.client.commands,
 				conn.Forward_Command{msg = ui.forward.msg, conv = conv},

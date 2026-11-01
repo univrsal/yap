@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "client:audio"
 import "client:conn"
@@ -115,7 +116,7 @@ monitor_stop :: proc(ui: ^UI) {
 gate_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	s := &ui.settings
-	if .ACTIVE not_in begin_treenode(ctx, "Voice gate") {
+	if .ACTIVE not_in widgets.begin_treenode(ctx, "Voice gate") {
 		return
 	}
 	defer mu.end_treenode(ctx)
@@ -141,12 +142,12 @@ gate_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {90, -1})
 	}
 	mu.label(ctx, "Open at")
-	if .CHANGE in slider(ctx, &s.gate_open_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
+	if .CHANGE in widgets.slider(ctx, &s.gate_open_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_close_db = min(s.gate_close_db, s.gate_open_db)
 		gate_changed(ui)
 	}
 	mu.label(ctx, "Close below")
-	if .CHANGE in slider(ctx, &s.gate_close_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
+	if .CHANGE in widgets.slider(ctx, &s.gate_close_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_open_db = max(s.gate_open_db, s.gate_close_db)
 		gate_changed(ui)
 	}

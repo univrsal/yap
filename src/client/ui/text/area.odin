@@ -3,7 +3,7 @@ package text
 import mu "vendor:microui"
 
 // The state and the layout of a text area, the box that messages are written
-// in (ui/text_area.odin draws it and handles its keys): how its text wraps into
+// in (ui/widgets/text_area.odin draws it and handles its keys): how its text wraps into
 // lines, how tall it is, and what it keeps between frames. None of it needs the
 // UI, only a microui context for measuring text.
 
@@ -46,7 +46,7 @@ Area :: struct {
 }
 
 // What a text area keeps about the page's text field that stands in for it in
-// a web build (ui/field_web.odin): whether it does in this frame, how many
+// a web build (ui/widgets/field_web.odin): whether it does in this frame, how many
 // lines the page wraps the text into (0 while it hasn't said), whether the
 // field changed the text since the text area last said so, and the text (as a
 // hash and its length) and selection that the two last agreed on.

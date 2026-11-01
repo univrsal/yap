@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "base:intrinsics"
 import "client:audio"
@@ -131,8 +132,8 @@ UI :: struct {
 	renderer:            render.Renderer,
 	opts:                UI_Options,
 	my_key:              [proto.KEY_SIZE]u8,
-	server:              Text_Field(256),
-	password:            Text_Field(proto.MAX_PASSWORD_SIZE),
+	server:              widgets.Text_Field(256),
+	password:            widgets.Text_Field(proto.MAX_PASSWORD_SIZE),
 	// The height of the connect screen's card in the last frame (see card_end).
 	connect_card_h:      i32,
 	// What the shown server's connection reports (its session's View), or
@@ -221,7 +222,7 @@ UI :: struct {
 	listen_back:         bool,
 	// The welcome and goodbye sounds (ui/app_sounds.odin).
 	app_sound:           App_Sound,
-	// The Sounds page (ui/sounds.odin), and the open dropdown (ui/dropdown.odin).
+	// The Sounds page (ui/sounds.odin), and the open dropdown (ui/widgets/dropdown.odin).
 	sounds:              Sounds_UI,
 	palette:             UI_Palette,
 	// Whether the voice gate section, with the meter, was on screen in the last
@@ -236,7 +237,7 @@ UI :: struct {
 	// sessions (see ui/image_cache.odin), and the settings page's box for
 	// the folder.
 	image_cache:         conn.Image_Cache,
-	image_cache_dir:     Text_Field(512),
+	image_cache_dir:     widgets.Text_Field(512),
 	// The scripts that are running, nil if there is nowhere to keep them
 	// (see client/script).
 	scripts:             ^script.Runtime,
@@ -264,7 +265,6 @@ UI :: struct {
 	// Whether controls are sized for a finger (see style_apply): in a narrow
 	// window, or once a touch screen has been used (web, ui/touch_web.odin).
 	compact:             bool,
-	touched:             bool,
 	// The bar over the message under the pointer (see ui/message_bar.odin),
 	// and whether this frame is a tap on a touch screen (see ui/touch_web.odin),
 	// which shows the message's bar.

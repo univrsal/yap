@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "client:conn"
 import "client:platform"
@@ -33,8 +34,8 @@ import mu "vendor:microui"
 UI_Join :: struct {
 	open:     bool, // the + button is selected
 	card_h:   i32, // the card's height in the last frame (card_end)
-	server:   Text_Field(256),
-	password: Text_Field(proto.MAX_PASSWORD_SIZE),
+	server:   widgets.Text_Field(256),
+	password: widgets.Text_Field(proto.MAX_PASSWORD_SIZE),
 	// The session being joined, which is shown until it is logged in, and
 	// the session shown before, to go back to.
 	ns:       ^Net_Session,
@@ -74,7 +75,7 @@ join_frame :: proc(ui: ^UI) {
 	}
 	if j.connect {
 		j.connect = false
-		typed := field_text(&j.server)
+		typed := widgets.field_text(&j.server)
 		// A browser reaches a server through the relay beside its web page, so
 		// that page's address is what the web client joins (see relay_blocked),
 		// with this page's scheme and port where none was typed.
@@ -87,7 +88,7 @@ join_frame :: proc(ui: ^UI) {
 			}
 		}
 		if typed != "" {
-			join_connect(ui, typed, field_text(&j.password))
+			join_connect(ui, typed, widgets.field_text(&j.password))
 		}
 	}
 	ns := j.ns
@@ -193,19 +194,19 @@ join_page :: proc(ui: ^UI) {
 	case v.status == .Failed || v.status == .Disconnected:
 		join_card(ui, v)
 	case v.status == .Connecting:
-		card_begin(ui, "join card", j.card_h)
-		defer card_end(ui, &j.card_h)
-		card_heading(ui, fmt.tprintf("Connecting to %s...", v.server))
+		widgets.card_begin(ui, "join card", j.card_h)
+		defer widgets.card_end(ui, &j.card_h)
+		widgets.card_heading(ui, fmt.tprintf("Connecting to %s...", v.server))
 		mu.layout_row(ctx, {-1})
-		if .SUBMIT in button(ctx, "Cancel") {
+		if .SUBMIT in widgets.button(ctx, "Cancel") {
 			j.close = true
 		}
 	case v.login.state != .Done:
 		login_screen(ui)
 	case:
-		card_begin(ui, "join card", j.card_h)
-		defer card_end(ui, &j.card_h)
-		card_heading(ui, "Logged in.")
+		widgets.card_begin(ui, "join card", j.card_h)
+		defer widgets.card_end(ui, &j.card_h)
+		widgets.card_heading(ui, "Logged in.")
 	}
 }
 
@@ -217,28 +218,28 @@ join_page :: proc(ui: ^UI) {
 join_card :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	j := &ui.join
-	card_begin(ui, "join card", j.card_h)
-	defer card_end(ui, &j.card_h)
-	card_heading(ui, "Join a server")
+	widgets.card_begin(ui, "join card", j.card_h)
+	defer widgets.card_end(ui, &j.card_h)
+	widgets.card_heading(ui, "Join a server")
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
 
 	mu.layout_row(ctx, {LOGIN_LABEL, -1})
 	mu.label(ctx, "Server")
-	submit := .SUBMIT in text_box(ui, j.server.buf[:], &j.server.len)
+	submit := .SUBMIT in widgets.text_box(ui, j.server.buf[:], &j.server.len)
 	mu.label(ctx, "Password")
-	submit |= .SUBMIT in password_box(ui, j.password.buf[:], &j.password.len)
+	submit |= .SUBMIT in widgets.password_box(ui, j.password.buf[:], &j.password.len)
 	mu.label(ctx, "")
-	submit |= .SUBMIT in button(ctx, "Connect")
-	if submit && strings.trim_space(field_text(&j.server)) != "" {
+	submit |= .SUBMIT in widgets.button(ctx, "Connect")
+	if submit && strings.trim_space(widgets.field_text(&j.server)) != "" {
 		j.connect = true
 	}
 
 	mu.layout_row(ctx, {-1})
 	if j.mistake != "" {
-		error_note(ctx, j.mistake)
+		widgets.error_note(ctx, j.mistake)
 	} else if v != nil && v.error != "" {
-		error_note(ctx, v.error)
+		widgets.error_note(ctx, v.error)
 	}
 	if v != nil && v.key_change.changed {
 		key_change_panel(ui)

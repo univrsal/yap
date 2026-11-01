@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import log "common:wlog"
 import "core:fmt"
@@ -75,8 +76,8 @@ key_change_panel :: proc(ui: ^UI) {
 	// The two keys side by side, each as a heading over its four lines.
 	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1})
-	dim_label(ctx, "Saved key")
-	dim_label(ctx, "New key")
+	widgets.dim_label(ctx, "Saved key")
+	widgets.dim_label(ctx, "New key")
 	saved, received := key_lines(kc.saved), key_lines(kc.received)
 	for i in 0 ..< len(saved) {
 		mu.label(ctx, saved[i])
@@ -84,11 +85,11 @@ key_change_panel :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	widgets.with_text_color(
 		ctx,
 		core.theme.warning,
 		"A server's key normally stays the same. It changes when the server is set up again or its key file is replaced, but a changed key is also exactly what you would see if someone were intercepting the connection and pretending to be the server.",
-		text_proc,
+		widgets.text_proc,
 	)
 	mu.text(
 		ctx,
@@ -96,7 +97,7 @@ key_change_panel :: proc(ui: ^UI) {
 	)
 
 	mu.layout_row(ctx, {-1})
-	if .SUBMIT in button(ctx, "Trust the new key and connect") {
+	if .SUBMIT in widgets.button(ctx, "Trust the new key and connect") {
 		ui.action = .Trust_Key
 	}
 }
@@ -130,7 +131,7 @@ trust_new_key :: proc(ui: ^UI) {
 		join_connect(ui, server, strings.clone(ns.password, context.temp_allocator))
 		return
 	}
-	field_set(&ui.server, server)
+	widgets.field_set(&ui.server, server)
 	connect(ui)
 }
 
@@ -165,7 +166,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 
 		mu.layout_row(ctx, {-(80 + ctx.style.spacing), -1})
 		mu.label(ctx, fmt.tprintf("%s   %s", s.addr, conn.fingerprint(s.key)))
-		if .SUBMIT in stable_button(ctx, "forget", "Forget") {
+		if .SUBMIT in widgets.stable_button(ctx, "forget", "Forget") {
 			forget = i
 		}
 	}

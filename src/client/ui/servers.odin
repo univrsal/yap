@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "client:conn"
 import "client:platform"
@@ -35,7 +36,7 @@ import mu "vendor:microui"
 Server_UI :: struct {
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
 	// What our account is called, as it is being edited in the settings.
-	name:           Text_Field(2 * proto.MAX_NAME_SIZE),
+	name:           widgets.Text_Field(2 * proto.MAX_NAME_SIZE),
 	account:        UI_Account, // the login and the account's settings (ui/account.odin)
 	invites:        UI_Invites, // invite codes in the settings (ui/invites.odin)
 	bans:           UI_Bans, // banning, the Bans page, being banned (ui/bans.odin)
@@ -279,8 +280,8 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 		ui.view = &ns.view
 		// What the connect screen says, should it be shown for this session
 		// (because it failed): connecting again takes one click.
-		field_set(&ui.server, ns.server)
-		field_set(&ui.password, ns.password)
+		widgets.field_set(&ui.server, ns.server)
+		widgets.field_set(&ui.password, ns.password)
 	} else {
 		ui.view = &ui.no_view
 	}
@@ -600,21 +601,21 @@ inbox_icon :: proc(ui: ^UI) {
 @(private = "file")
 rail_bottom :: proc(ui: ^UI, h: i32) {
 	ctx := &ui.ctx
-	x := i32((RAIL_WIDTH - ICON_BUTTON) / 2)
-	settings_y := h - ICON_BUTTON - x
+	x := i32((RAIL_WIDTH - widgets.ICON_BUTTON) / 2)
+	settings_y := h - widgets.ICON_BUTTON - x
 	if ui.session != nil && !ui.session.joining {
 		v := ui.view
 		sync.guard(&v.mutex)
-		step := ICON_BUTTON + ctx.style.spacing
+		step := widgets.ICON_BUTTON + ctx.style.spacing
 		y := settings_y - step
-		mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+		mu.layout_set_next(ctx, {x, y, widgets.ICON_BUTTON, widgets.ICON_BUTTON}, false)
 		connection_indicator(ui)
 		if ui.narrow {
 			y -= step
-			mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+			mu.layout_set_next(ctx, {x, y, widgets.ICON_BUTTON, widgets.ICON_BUTTON}, false)
 			deafen_button(ui)
 			y -= step
-			mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+			mu.layout_set_next(ctx, {x, y, widgets.ICON_BUTTON, widgets.ICON_BUTTON}, false)
 			mute_button(ui)
 			if v.me != 0 {
 				y -= RAIL_ICON + ctx.style.spacing
@@ -622,8 +623,8 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 			}
 		}
 	}
-	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
-	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
+	mu.layout_set_next(ctx, {x, settings_y, widgets.ICON_BUTTON, widgets.ICON_BUTTON}, false)
+	if .SUBMIT in widgets.icon_button(ui, "settings", .Settings, "Settings") {
 		switch {
 		case ui.join.open || ui.join.ns != nil:
 			// Joining a server is abandoned for them (ui/join.odin).
@@ -829,7 +830,7 @@ rail_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {RAIL_MENU_WIDTH})
-	dim_label(ctx, name)
+	widgets.dim_label(ctx, name)
 	if rl.confirm != .None {
 		mu.text(
 			ctx,
@@ -837,31 +838,31 @@ rail_menu :: proc(ui: ^UI) {
 		)
 		half := (RAIL_MENU_WIDTH - ctx.style.spacing) / 2
 		mu.layout_row(ctx, {half, half})
-		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
+		if .SUBMIT in widgets.stable_button(ctx, "cancel", "Cancel") {
 			rl.confirm = .None
 			close(ctx)
 		}
-		if .SUBMIT in stable_button(ctx, "leave", "Leave") {
+		if .SUBMIT in widgets.stable_button(ctx, "leave", "Leave") {
 			rl.leave, rl.forget_key = ns, rl.confirm == .Forget
 			rl.confirm = .None
 			close(ctx)
 		}
 		return
 	}
-	if .SUBMIT in stable_button(ctx, "settings", "Settings") {
+	if .SUBMIT in widgets.stable_button(ctx, "settings", "Settings") {
 		ui.switch_to, ui.switching = ns, true
 		rl.settings = true
 		close(ctx)
 	}
-	if logged_in && .SUBMIT in stable_button(ctx, "log out", "Log out") {
+	if logged_in && .SUBMIT in widgets.stable_button(ctx, "log out", "Log out") {
 		log.infof("ui: logging out of %s", ns.server)
 		conn.push_command(&ns.client.commands, conn.Logout_Command{})
 		close(ctx)
 	}
-	if .SUBMIT in stable_button(ctx, "leave", "Leave the server") {
+	if .SUBMIT in widgets.stable_button(ctx, "leave", "Leave the server") {
 		rl.confirm = .Leave
 	}
-	if .SUBMIT in stable_button(ctx, "forget", "Leave and forget its key") {
+	if .SUBMIT in widgets.stable_button(ctx, "forget", "Leave and forget its key") {
 		rl.confirm = .Forget
 	}
 }

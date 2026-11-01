@@ -1,12 +1,11 @@
-package ui
+package widgets
 
-import "core"
-import txt "text"
+import "client:ui/core"
+import txt "client:ui/text"
 import "base:intrinsics"
 import "client:conn"
 import "client:render"
 import "core:fmt"
-import "core:strings"
 import "core:time"
 import mu "vendor:microui"
 
@@ -35,7 +34,7 @@ draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Typ
 		render.draw_shadow(ctx, rect, core.theme.shadow)
 	}
 	if colorid == .SCROLL_BASE || colorid == .SCROLL_THUMB {
-		core.scrollbar_frame(g_ui, rect, colorid)
+		core.scrollbar_frame(core.g_env, rect, colorid)
 		return
 	}
 	if colorid != .BASE_FOCUS {
@@ -142,109 +141,7 @@ menu_list_begin :: proc(env: ^core.Env, name: string, width: i32, rows: int) {
 // z-order, so the hint gets a frameless window of its own, raised above
 // the rest. If it were drawn inside the main window, a popup (the user menu)
 // would cover it.
-@(private = "file")
 HINT_WINDOW :: "hint"
-
-// hint_emoji_of makes the hint show `emoji` large: a reaction's or
-// message's emoji, ":name:" for the server's, else the characters. Call with
-// the View locked.
-hint_emoji_of :: proc(ui: ^UI, emoji: string) {
-	if strings.has_prefix(emoji, ":") && strings.has_suffix(emoji, ":") && len(emoji) > 2 {
-		name := emoji[1:len(emoji) - 1]
-		for n, i in ui.view.emoji.names {
-			if n == name {
-				ui.hint_emoji = {
-					custom = i,
-				}
-				return
-			}
-		}
-		return
-	}
-	ui.hint_emoji = {
-		unicode = emoji,
-	}
-}
-
-icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
-	ctx := &ui.ctx
-	emoji := ui.hint_emoji
-	defer ui.hint, ui.hint_emoji = "", {}
-	// The pointer under a scrolling finger describes nothing.
-	if ui.hint == "" || ui.touch_scrolling {
-		return
-	}
-
-	pad := ctx.style.padding
-	line_h := ctx.text_height(ctx.style.font)
-	w, lines: i32
-	rest := ui.hint
-	for line in strings.split_lines_iterator(&rest) {
-		w = max(w, ctx.text_width(ctx.style.font, line))
-		lines += 1
-	}
-	// The emoji, large, above the text.
-	big_w, big_h: i32
-	if _, custom := emoji.custom.?; custom || emoji.unicode != "" {
-		big_h = ctx.text_height(render.PREVIEW_FONT)
-		big_w = big_h
-		if !custom {
-			big_w = ctx.text_width(render.PREVIEW_FONT, emoji.unicode)
-		}
-		w = max(w, big_w)
-	}
-	w += 2 * pad
-	h := lines * line_h + 2 * pad
-	if big_h > 0 {
-		h += big_h + pad
-	}
-	// Under the button, moved left if it would go off the side, and
-	// above it if there is no room below (the chat box's Send button).
-	x := min(ui.hint_of.x, max(window_w - w, 0))
-	y := ui.hint_of.y + ui.hint_of.h + 2
-	if y + h > window_h {
-		y = max(ui.hint_of.y - h - 2, 0)
-	}
-	r := mu.Rect{x, y, w, h}
-	// The pointer is on the button, never on the hint, so the window
-	// doesn't take the hover away from the thing it describes.
-	cnt := mu.get_container(ctx, HINT_WINDOW)
-	if cnt == nil {
-		return
-	}
-	cnt.rect = r
-	if cnt.zindex != ctx.last_zindex {
-		mu.bring_to_front(ctx, cnt)
-	}
-	if !mu.begin_window(
-		ctx,
-		HINT_WINDOW,
-		r,
-		{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE, .NO_INTERACT},
-	) {
-		return
-	}
-	defer mu.end_window(ctx)
-	render.draw_rounded(ctx, r, ctx.style.colors[.BASE], render.CONTROL_RADIUS)
-	render.draw_rounded_border(ctx, r, ctx.style.colors[.BORDER], render.CONTROL_RADIUS)
-	line_y := y + pad
-	if big_h > 0 {
-		at := mu.Vec2{x + (w - big_w) / 2, line_y}
-		if index, custom := emoji.custom.?; custom {
-			if icon, ok := custom_emoji_icon(ui, index); ok {
-				mu.draw_icon(ctx, icon, {at.x, at.y, big_w, big_h}, {255, 255, 255, 255})
-			}
-		} else {
-			mu.draw_text(ctx, render.PREVIEW_FONT, emoji.unicode, at, ctx.style.colors[.TEXT])
-		}
-		line_y += big_h + pad
-	}
-	rest = ui.hint
-	for line in strings.split_lines_iterator(&rest) {
-		mu.draw_text(ctx, ctx.style.font, line, {x + pad, line_y}, ctx.style.colors[.TEXT])
-		line_y += line_h
-	}
-}
 
 // stable_button_hint is stable_button with a hint below it while the pointer is
 // on it, like icon_button's.
@@ -628,54 +525,6 @@ header_line :: proc(
 	}
 }
 
-// List_Detail is a settings category with a list on the left and what is
-// picked in it on the right (list_detail).
-List_Detail :: struct {
-	name:       string, // the picked thing's panel; the list's is "<name> list"
-	list_width: i32,
-	detail_min: i32, // the least room beside the list before the two take turns
-	picked:     bool, // something is picked (or being made)
-	title:      string, // what is picked, over it when the two take turns
-	back_hint:  string, // the hint of the way back: what the list is
-	list:       proc(ui: ^UI),
-	detail:     proc(ui: ^UI), // what is picked, or what to show without
-	back:       proc(ui: ^UI), // going back to the list
-}
-
-// list_detail lays out a List_Detail. In a narrow window the list and what
-// is picked take turns, as the settings' categories do: the list, or what is
-// picked under its title with a way back to the list.
-list_detail :: proc(ui: ^UI, ld: List_Detail) {
-	ctx := &ui.ctx
-	list_name := strings.concatenate({ld.name, " list"}, context.temp_allocator)
-	if row_room(ctx) < ld.list_width + ld.detail_min {
-		if !ld.picked {
-			mu.layout_row(ctx, {-1}, -1)
-			mu.begin_panel(ctx, list_name)
-			ld.list(ui)
-			mu.end_panel(ctx)
-			return
-		}
-		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in icon_button(ui, fmt.tprintf("to %s", list_name), .Back, ld.back_hint) {
-			ld.back(ui)
-		}
-		mu.label(ctx, ld.title)
-		mu.layout_row(ctx, {-1}, -1)
-		mu.begin_panel(ctx, ld.name)
-		ld.detail(ui)
-		mu.end_panel(ctx)
-		return
-	}
-	mu.layout_row(ctx, {ld.list_width, -1}, -1)
-	mu.begin_panel(ctx, list_name)
-	ld.list(ui)
-	mu.end_panel(ctx)
-	mu.begin_panel(ctx, ld.name)
-	ld.detail(ui)
-	mu.end_panel(ctx)
-}
-
 // Notice_Mark keeps a screen from showing a notice that the server sent before
 // the screen was opened (conn.View_Notice.count), which isn't about anything
 // requested there. notice_mark_reset marks the opening, and
@@ -807,3 +656,7 @@ field_text :: proc(f: ^Text_Field($N)) -> string {
 field_set :: proc(f: ^Text_Field($N), text: string) {
 	f.len = copy(f.buf[:], text)
 }
+
+// The login screen's card: its width, its labels and the server's
+// picture at the top.
+LOGIN_CARD_WIDTH :: 400

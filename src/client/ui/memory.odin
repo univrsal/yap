@@ -1,5 +1,6 @@
 package ui
 
+import "widgets"
 import "core"
 import "client:conn"
 import "client:render"
@@ -86,7 +87,7 @@ memory_settings :: proc(ui: ^UI) {
 	core.redraw_at(ui, time.tick_add(m.taken, MEMORY_REFRESH))
 
 	mu.layout_row(ctx, {120, 120, -1})
-	if .SUBMIT in button(ctx, "Give back") {
+	if .SUBMIT in widgets.button(ctx, "Give back") {
 		before := memtrack.process()
 		if memtrack.release_free() {
 			after := memtrack.process()
@@ -102,7 +103,7 @@ memory_settings :: proc(ui: ^UI) {
 		}
 		m.taken = {}
 	}
-	if .SUBMIT in button(ctx, "Write to log") {
+	if .SUBMIT in widgets.button(ctx, "Write to log") {
 		mem_track := memtrack.log_text(m.report, context.temp_allocator)
 
 		for line in strings.split_lines_iterator(&mem_track) {
@@ -112,9 +113,9 @@ memory_settings :: proc(ui: ^UI) {
 			log.infof("%s", line)
 		}
 	}
-	dim_label(ctx, m.released)
+	widgets.dim_label(ctx, m.released)
 	mu.layout_row(ctx, {-1})
-	dim_note(
+	widgets.dim_note(
 		ctx,
 		"Give back returns heap free's pages to the system: resident drops, malloc still lists them.",
 	)
@@ -132,17 +133,17 @@ server_memory_settings :: proc(ui: ^UI, v: ^conn.View) {
 		command(ui, conn.Server_Memory_Command{})
 	}
 	mu.layout_row(ctx, {120, -1})
-	if .SUBMIT in button(ctx, "Refresh") {
+	if .SUBMIT in widgets.button(ctx, "Refresh") {
 		command(ui, conn.Server_Memory_Command{})
 	}
 	sm := &v.server_memory
 	switch {
 	case sm.count == 0:
-		dim_label(ctx, "Asking...")
+		widgets.dim_label(ctx, "Asking...")
 	case sm.status == .Unknown_Op:
-		dim_label(ctx, "This server is too old to say.")
+		widgets.dim_label(ctx, "This server is too old to say.")
 	case sm.status != .Ok:
-		error_label(ctx, conn.status_text(sm.status))
+		widgets.error_label(ctx, conn.status_text(sm.status))
 	case:
 		mu.label(ctx, "")
 	}
@@ -168,7 +169,7 @@ memory_report :: proc(ui: ^UI, report: string) {
 		detail, _, about := strings.partition(after, "\t")
 		mu.layout_row(ctx, {80, 240, -1})
 		mu.draw_control_text(ctx, amount, mu.layout_next(ctx), .TEXT, {.ALIGN_RIGHT})
-		dim_label(ctx, detail)
+		widgets.dim_label(ctx, detail)
 		mu.label(ctx, about)
 	}
 }

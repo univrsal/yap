@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "widgets"
 import "core"
 import "core:strings"
 import "core:sync"
@@ -183,11 +184,11 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 		return
 	}
 	ctx := &ui.ctx
-	field_row(ui, FORM_LABEL, "Push notifications", {CHOICE_WIDTH})
+	widgets.field_row(ui, FORM_LABEL, "Push notifications", {widgets.CHOICE_WIDTH})
 	on := state == .On
 	at := -1 if state == .Working else int(on)
 	can := state == .Off || state == .Failed
-	if i, ok := choice_dropdown(ui, "push", {"Off", "On this device"}, at, none = "Updating...");
+	if i, ok := widgets.choice_dropdown(ui, "push", {"Off", "On this device"}, at, none = "Updating...");
 	   ok {
 		if i == 0 && on {
 			yap_push_disable(server_cstring(ns))
@@ -213,11 +214,11 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	dim_note(ctx, hint)
+	widgets.dim_note(ctx, hint)
 
 	hidden := (v.shared[proto.SETTING_PUSH_TEXT] or_else "") == proto.PUSH_TEXT_HIDDEN
-	field_row(ui, FORM_LABEL, "Pushes contain", {CHOICE_WIDTH})
-	if i, ok := choice_dropdown(ui, "push text", {"Message text", "Only the sender"}, int(hidden));
+	widgets.field_row(ui, FORM_LABEL, "Pushes contain", {widgets.CHOICE_WIDTH})
+	if i, ok := widgets.choice_dropdown(ui, "push text", {"Message text", "Only the sender"}, int(hidden));
 	   ok {
 		conn.push_command(
 			&ns.client.commands,
