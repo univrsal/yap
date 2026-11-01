@@ -8,6 +8,10 @@
  *     collected whole (tr__append_bytes).
  *   - libcurl backend: only http and https, also after a redirect, and at most 5
  *     redirects (CURLOPT_PROTOCOLS, CURLOPT_REDIR_PROTOCOLS, CURLOPT_MAXREDIRS).
+ *   - WinHTTP backend, tr__url_parse: a URL with a port ("http://host:8080/") was
+ *     read with the port starting at the colon, so the port was 0 and the host
+ *     lost its last character ("host" -> "hos", "127.0.0.1" -> "127.0.0.", which
+ *     WinHTTP reports as 12007, name not resolved).
  *
  * Features:
  *   - Synchronous HTTP(S) requests
@@ -1103,7 +1107,10 @@ static int tr__url_parse(tr_client *client, const char *url, tr__url_parts *part
         if (!path_begin) {
             path_begin = host_end;
         }
-        port_begin = memchr(host_begin, ':', (size_t) (host_end - host_begin));
+        port_begin = (const char *) memchr(host_begin, ':', (size_t) (host_end - host_begin));
+        if (port_begin) {
+            port_begin += 1; /* yap: after the colon, as in the IPv6 case above */
+        }
     }
 
     if (port_begin) {

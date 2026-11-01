@@ -231,7 +231,10 @@ step, never inside a host call.
   library is **altered** (marked in its header): `tr_config.max_response_size`,
   enforced in `tr__append_bytes`, the one function all backends collect an answer
   with, and, for libcurl, only http/https also after a redirect and at most 5
-  redirects. Without a libcurl `tr_client_create` fails; the client logs it once, the
+  redirects. It also fixes a bug in its WinHTTP URL parser, which read a URL with a
+  port (`http://host:8080/`) as port 0 and a host one character short, so on Windows
+  every such request failed with "name not resolved" (found by the tests on a Windows
+  runner, since they all use a port). Without a libcurl `tr_client_create` fails; the client logs it once, the
   Scripts page and `/script` say so, `yap.http_available()` is false, and a request is
   still answered, at once, with `ok = false`.
 - **Web**: the page's `fetch` (`web/http.js`): no cookies, no referrer, redirects
@@ -299,6 +302,11 @@ Lessons that cost something, for the next change here:
 
 - **A type-check isn't a link.** `odin check -target:wasi_wasm32` passed while the web
   build didn't link (a `time.sleep`); build `web/build.sh` after touching shared code.
+- **A test server must not trust its client.** One that handles a connection at a time
+  and waits for it to speak hangs when a client opens a connection it never uses (as
+  CFNetwork can); each connection gets a thread and a receive timeout, and stopping
+  closes the listening socket as well as waking it. Time-based test loops count
+  elapsed time, not sleeps: a sleep is 15 ms on Windows.
 - **A test that only logs can't fail.** Handlers the runtime runs log their errors; a
   test of a handler's result runs it with `step` and asserts on the results.
 - **microui knows a checkbox by the address of its `bool`.** Locals share one, so each
@@ -311,9 +319,11 @@ Lessons that cost something, for the next change here:
 - **The Scripts page has only been compiled**, not seen: layout, the approval step, the
   add form and the text boxes need a look on a display. (Two bugs were found by using
   it: shared checkbox ids, and "all servers" unticking back.)
-- **WinHTTP and CFNetwork** have not been run; only libcurl has. The size cap relies on
-  the function they share, and the redirect restriction exists only for libcurl (the
-  other two speak only http and https).
+- **WinHTTP and CFNetwork** are only exercised by the CI runners for Windows and macOS
+  (the tests make real requests); nobody has run them by hand. The size cap relies on the
+  function they share, and the redirect restriction exists only for libcurl (the other
+  two speak only http and https). The first Windows run found a parser bug in the
+  library (above), so more may be there.
 - **A browser** has not been used; node's `fetch` stood in, without CORS.
 - **`on_incoming` was not seen rewriting or hiding a live message.** Its hook was seen
   called in the real message path, and the rest is tested; but in the dev VM a client

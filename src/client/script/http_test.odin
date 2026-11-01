@@ -1,6 +1,7 @@
 #+build !wasi
 package script
 
+import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:net"
@@ -13,21 +14,36 @@ import "core:time"
 
 import "client:conn"
 
-// A small HTTP server for the tests: the same few pages as docs/examples, one
-// connection at a time, each answered and closed.
+// A small HTTP server for the tests: a few pages, each connection answered and
+// closed. A connection is served on a thread of its own and gives up when nothing
+// comes for a while: a client may open a connection it never uses (CFNetwork does),
+// and that must not hold up the next one or the end of the test.
 @(private = "file")
 Server :: struct {
-	socket:  net.TCP_Socket,
-	port:    int,
-	stop:    bool,
-	thread:  ^thread.Thread,
-	posted:  string, // what the last POST had, with its content type (owned)
-	mutex:   sync.Mutex,
+	socket:    net.TCP_Socket,
+	port:      int,
+	stop:      bool,
+	acceptor:  ^thread.Thread,
+	posted:    string, // the body of the last POST (owned, by `allocator`)
+	allocator: runtime.Allocator,
+	mutex:     sync.Mutex, // for `posted` and `handlers`
+	handlers:  [dynamic]^thread.Thread,
 }
+
+@(private = "file")
+Handler :: struct {
+	server: ^Server,
+	client: net.TCP_Socket,
+}
+
+// How long a connection may be silent.
+@(private = "file")
+IDLE :: 2 * time.Second
 
 @(private = "file")
 server_start :: proc() -> (s: ^Server, ok: bool) {
 	s = new(Server)
+	s.allocator = context.allocator
 	socket, err := net.listen_tcp(net.Endpoint{address = net.IP4_Loopback, port = 0})
 	if err != nil {
 		free(s)
@@ -36,38 +52,59 @@ server_start :: proc() -> (s: ^Server, ok: bool) {
 	s.socket = socket
 	ep, _ := net.bound_endpoint(socket)
 	s.port = ep.port
-	s.thread = thread.create_and_start_with_poly_data(s, server_loop, context)
+	s.acceptor = thread.create_and_start_with_poly_data(s, server_loop, context)
 	return s, true
 }
 
 @(private = "file")
 server_stop :: proc(s: ^Server) {
 	s.stop = true
-	// Wake the accept with a connection of our own.
+	// Wake the accept with a connection of our own, and close the socket, so that
+	// it can't stay blocked whichever of the two a system takes notice of.
 	if c, err := net.dial_tcp(net.Endpoint{address = net.IP4_Loopback, port = s.port}); err == nil {
 		net.close(c)
 	}
-	thread.join(s.thread)
-	thread.destroy(s.thread)
 	net.close(s.socket)
-	delete(s.posted)
+	thread.join(s.acceptor)
+	thread.destroy(s.acceptor)
+	for h in s.handlers {
+		thread.join(h) // they give up when nothing comes
+		thread.destroy(h)
+	}
+	delete(s.handlers)
+	delete(s.posted, s.allocator)
 	free(s)
 }
 
 @(private = "file")
 server_loop :: proc(s: ^Server) {
+	// The thread's own temp allocator, not the one of the thread that made it.
+	context.temp_allocator = runtime.default_context().temp_allocator
 	for !s.stop {
 		client, _, err := net.accept_tcp(s.socket)
 		if err != nil {
+			time.sleep(10 * time.Millisecond)
 			continue
 		}
 		if s.stop {
 			net.close(client)
 			break
 		}
-		serve(s, client)
-		net.close(client)
+		net.set_option(client, .Receive_Timeout, IDLE)
+		h := new(Handler)
+		h^ = {s, client}
+		t := thread.create_and_start_with_poly_data(h, handle, context)
+		sync.guard(&s.mutex)
+		append(&s.handlers, t)
 	}
+}
+
+@(private = "file")
+handle :: proc(h: ^Handler) {
+	context.temp_allocator = runtime.default_context().temp_allocator
+	serve(h.server, h.client)
+	net.close(h.client)
+	free(h)
 }
 
 @(private = "file")
@@ -139,8 +176,8 @@ serve :: proc(s: ^Server, client: net.TCP_Socket) {
 		reply(client, "200 OK", "", "late")
 	case method == "POST" && path == "/echo":
 		sync.guard(&s.mutex)
-		delete(s.posted)
-		s.posted = strings.clone(body)
+		delete(s.posted, s.allocator)
+		s.posted = strings.clone(body, s.allocator)
 		type := "?"
 		for h in strings.split_lines(headers, context.temp_allocator) {
 			if strings.has_prefix(strings.to_lower(h, context.temp_allocator), "content-type:") {
@@ -433,12 +470,19 @@ test_the_webhook_example :: proc(t: ^testing.T) {
 	hear(&r, e)
 	body := wait_for_post(&r, server)
 	testing.expect(t, body != "", "no request arrived")
+	if body == "" {
+		return
+	}
 	parsed, err := json.parse(transmute([]u8)body, allocator = context.temp_allocator)
 	testing.expectf(t, err == nil, "not JSON: %s", body)
 	obj, is_object := parsed.(json.Object)
 	testing.expect(t, is_object)
-	testing.expect_value(t, string(obj["author"].(json.String)), "Ann")
-	testing.expect_value(t, string(obj["channel"].(json.String)), "general")
-	testing.expect_value(t, string(obj["server"].(json.String)), "a.example:7777")
-	testing.expect_value(t, string(obj["text"].(json.String)), "he said \"hi\"\nand left\\")
+	field :: proc(obj: json.Object, key: string) -> string {
+		text, _ := obj[key].(json.String)
+		return string(text)
+	}
+	testing.expect_value(t, field(obj, "author"), "Ann")
+	testing.expect_value(t, field(obj, "channel"), "general")
+	testing.expect_value(t, field(obj, "server"), "a.example:7777")
+	testing.expect_value(t, field(obj, "text"), "he said \"hi\"\nand left\\")
 }

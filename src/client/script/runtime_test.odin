@@ -181,11 +181,23 @@ test_a_failing_handler_does_not_stop_the_others :: proc(t: ^testing.T) {
 	testing.expect(t, runtime_add(r.rt, "loop.lua", `function on_message(ev) while true do end end`, Script_Config{}))
 	testing.expect(t, runtime_add(r.rt, "good.lua", `function on_message(ev) yap.send("c", "fine") end`, Script_Config{permissions = {"send"}}))
 	emit(r.a, message("x"))
-	began := time.tick_now()
-	for _ in 0 ..< 400 {
-		runtime_step(r.rt, 2 * time.Millisecond)
-		time.sleep(time.Millisecond)
+	// Until every script is done, however long a sleep takes on this system.
+	busy :: proc(r: ^Rig) -> bool {
+		for e in r.rt.entries {
+			if pending(e.script) > 0 {
+				return true
+			}
+		}
+		return false
 	}
+	began := time.tick_now()
+	for time.tick_since(began) < 5 * time.Second {
+		runtime_step(r.rt, 2 * time.Millisecond)
+		if !busy(&r) {
+			break
+		}
+	}
+	testing.expect(t, !busy(&r), "the scripts did not finish")
 	testing.expectf(t, time.tick_since(began) < 3 * time.Second, "took %v", time.tick_since(began))
 	texts := posted(r.a)
 	defer delete(texts)

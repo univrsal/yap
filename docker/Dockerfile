@@ -76,7 +76,7 @@ COPY src/common ./src/common
 COPY src/lib ./src/lib
 COPY src/client ./src/client
 COPY web ./web
-COPY scripts/build/collections.sh scripts/build/fetch.sh scripts/build/opus.version scripts/build/version-defines.sh ./scripts/build/
+COPY scripts/build/collections.sh scripts/build/fetch.sh scripts/build/opus.version scripts/build/lua.version scripts/build/version-defines.sh ./scripts/build/
 
 # The web client's version and commit, as for the server above.
 ARG YAP_VERSION=dev
