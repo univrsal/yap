@@ -41,12 +41,15 @@ Pending :: struct {
 // posted to the DM with that account, and with `thread` it is posted as a reply
 // in that thread.
 Chat_Command :: struct {
-	text:   string, // owned by the command
-	dm_to:  proto.Account_Id,
-	thread: Timeline_Key,
+	text:    string, // owned by the command
+	dm_to:   proto.Account_Id,
+	thread:  Timeline_Key,
+	// Post to this channel of ours (by name, owned by the command) instead of
+	// the one being looked at, which stays as it is (scripts do this).
+	channel: string,
 	// The text is as typed, with `@username` for a mention, instead of as
 	// stored (headless; the UI turns it into tokens itself).
-	typed:  bool,
+	typed:   bool,
 }
 
 pending_destroy :: proc(p: ^Pending) {
@@ -62,10 +65,11 @@ chat_send :: proc(
 	raw: string,
 	dm_to: proto.Account_Id = 0,
 	thread := Timeline_Key{},
+	channel := proto.Conv_Id(0),
 ) {
 	buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	text := proto.sanitize_message(raw, buf[:])
-	conv, state, ok := post_target(c, dm_to)
+	conv, state, ok := post_target(c, dm_to, channel = channel)
 	thread := thread
 	if thread.root != 0 {
 		conv, state, ok = thread.conv, .Post, thread.conv in c.convs.convs
@@ -104,11 +108,15 @@ post_target :: proc(
 	c: ^Server_Conn,
 	dm_to: proto.Account_Id,
 	first := Post_State.Post,
+	channel := proto.Conv_Id(0),
 ) -> (
 	conv: proto.Conv_Id,
 	state: Post_State,
 	ok: bool,
 ) {
+	if dm_to == 0 && channel != 0 {
+		return channel, first, channel in c.convs.convs
+	}
 	if dm_to == 0 {
 		conv = c.convs.viewing
 		return conv, first, conv != 0

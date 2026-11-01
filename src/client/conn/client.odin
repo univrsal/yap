@@ -87,6 +87,10 @@ Server_Conn :: struct {
 	status:          Status,
 	// Shared with the UI, if there is one. nil in headless mode.
 	view:            ^View,
+	// Where scripts are told what happens, if scripts are running (events.odin).
+	events:          ^Event_Sink,
+	// And what they say about what is shown of a message (filter.odin).
+	filter:          ^Message_Filter,
 
 	// Per-second stats, keyed by speaker id.
 	last_stats:      time.Tick,

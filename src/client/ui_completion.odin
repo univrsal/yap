@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:richtext"
+import "client:script"
 import "common:proto"
 
 // Completing a mention or an emoji in a composer.
@@ -140,6 +141,9 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		cursor = clamp(ctx.textbox_state.selection[0], 0, c.len^)
 	}
 	text := string(c.buf[:c.len^])
+	if command_items(ui, text, cursor) {
+		return
+	}
 	start := cursor
 	for start > 0 && word_char(text[start - 1]) {
 		start -= 1
@@ -232,6 +236,49 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 	}
 	cm.active = len(cm.items) > 0
 	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
+}
+
+// command_items lists the scripts' /commands that the first word of the text
+// could be, when the cursor is at the end of it. It is true if the text is such a
+// word, whether or not any command matches. Call with the View locked.
+@(private = "file")
+command_items :: proc(ui: ^UI, text: string, cursor: int) -> bool {
+	cm := &ui.completion
+	if ui.scripts == nil || ui.session == nil || cursor < 1 || text[0] != '/' {
+		return false
+	}
+	if strings.contains_any(text[:cursor], " \t\n") {
+		return false
+	}
+	word := text[:cursor]
+	if word == cm.dismissed {
+		cm.active = false
+		return true
+	}
+	if cm.active && (cm.start != 0 || cm.end != cursor) {
+		cm.selected = 0
+	}
+	cm.start, cm.end = 0, cursor
+	items_clear(cm)
+	prefix := strings.to_lower(word[1:], context.temp_allocator)
+	for info in script.runtime_commands(ui.scripts, ui.session.client) {
+		if len(cm.items) >= COMPLETION_MAX {
+			break
+		}
+		if !strings.has_prefix(info.name, prefix) {
+			continue
+		}
+		label := strings.concatenate({"/", info.name, "   ", info.help}) if info.help != "" else strings.concatenate({"/", info.name})
+		append(&cm.items, Completion_Item{insert = strings.concatenate({"/", info.name, " "}), label = label})
+	}
+	// Once the whole name is typed there is nothing left to complete, and Enter
+	// runs the command.
+	if len(cm.items) == 1 && cm.items[0].insert[1:len(cm.items[0].insert) - 1] == prefix {
+		items_clear(cm)
+	}
+	cm.active = len(cm.items) > 0
+	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
+	return true
 }
 
 // role_word_start returns the position after the `@` where a role's name

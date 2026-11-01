@@ -4,6 +4,7 @@ package headless
 import "client:conn"
 import "client:imaging"
 import "client:platform"
+import "client:script"
 import "common:."
 import "common:memtrack"
 import "common:proto"
@@ -139,17 +140,30 @@ import "core:time"
 //	/accept, /decline       answer every file offer that is waiting for an answer
 //	/cancel                 stop every file transfer
 //	/seen <name>            ask when someone was last on the server
-start_command_reader :: proc(q: ^conn.Command_Queue) {
+start_command_reader :: proc(c: ^conn.Server_Conn, scripts: ^script.Runtime) {
+	reader := new(Reader)
+	reader^ = {c, scripts}
 	thread.create_and_start_with_poly_data(
-		q,
+		reader,
 		read_commands,
 		init_context = context,
 		self_cleanup = true,
 	)
 }
 
+// What the thread that reads commands works on: the connection (which it
+// queues commands for), and the scripts, if there are any, whose /commands
+// are the ones no other line matches.
 @(private = "file")
-read_commands :: proc(q: ^conn.Command_Queue) {
+Reader :: struct {
+	c:       ^conn.Server_Conn,
+	scripts: ^script.Runtime,
+}
+
+@(private = "file")
+read_commands :: proc(reader: ^Reader) {
+	defer free(reader)
+	q := &reader.c.commands
 	sc: bufio.Scanner
 	bufio.scanner_init(&sc, os.to_reader(os.stdin))
 	defer bufio.scanner_destroy(&sc)
@@ -750,6 +764,11 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/say "):
 			text := line[len("/say "):]
 			if len(attached) == 0 {
+				if reader.scripts != nil {
+					// The scripts may change it or stop it, on the other thread.
+					script.runtime_queue_say(reader.scripts, reader.c, typed_lines(text))
+					break
+				}
 				conn.push_command(q, conn.Chat_Command{text = typed_lines(text), typed = true})
 				break
 			}
@@ -902,6 +921,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					topic = strings.clone(topic),
 				},
 			)
+		case reader.scripts != nil && (line == "/script" || strings.has_prefix(line, "/script ")):
+			script_command(reader.scripts, line)
+		case reader.scripts != nil && strings.has_prefix(line, "/"):
+			script.runtime_queue_command(reader.scripts, reader.c, line)
 		case:
 			log.warn(
 				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /admin <name>, /unadmin <name>, /pin <id>, /unpin <id>, /pins, /bookmark <id>, /unbookmark <id>, /bookmarks [more], /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",

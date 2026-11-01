@@ -4,6 +4,7 @@ import "base:intrinsics"
 import "client:audio"
 import "client:conn"
 import "client:render"
+import "client:script"
 import "client:settings"
 import "client:video"
 import glfw "client:wglfw"
@@ -266,6 +267,10 @@ UI :: struct {
 	// the folder.
 	image_cache:         conn.Image_Cache,
 	image_cache_dir:     Text_Field(512),
+	// The scripts that are running, nil if there is nowhere to keep them
+	// (see client/script).
+	scripts:             ^script.Runtime,
+	script_ui:           UI_Scripts, // the Scripts page (ui_script_settings.odin)
 	// Memory usage: the settings page and the line in the log
 	// (see ui_memory.odin).
 	memory:              UI_Memory,

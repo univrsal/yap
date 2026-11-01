@@ -540,7 +540,8 @@ history_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64
 	}
 	page := make([]Msg, len(got), context.temp_allocator)
 	for m, i in got {
-		page[i] = msg_of(m)
+		shown, _ := filter_message(c, m)
+		page[i] = msg_of(shown)
 	}
 	switch {
 	case tag & (1 << 32) != 0:
@@ -631,7 +632,8 @@ root_want :: proc(c: ^Server_Conn, conv: proto.Conv_Id, root: proto.Msg_Id) {
 				publish_root_missing(c, root)
 				return
 			}
-			r.have, r.msg = true, msg_of(got[0])
+			shown, _ := filter_message(c, got[0])
+			r.have, r.msg = true, msg_of(shown)
 			publish_root(c, r^)
 		},
 		u64(root),
@@ -683,7 +685,9 @@ messages_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool 
 // told about (Msg_New), or one of ours that the server has accepted. For our own
 // messages both happen, and whichever comes second is a message we already
 // have.
-message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
+message_arrived :: proc(c: ^Server_Conn, arrived: proto.Message) {
+	// What is shown is what scripts make of it; they are told what arrived.
+	m, hidden := filter_message(c, arrived)
 	if m.kind == .File && m.sender != c.auth.me {
 		file_offer_received(c, m)
 	}
@@ -708,6 +712,9 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 		return
 	}
 	interrupts, mention := conv_new_message(c, m)
+	if hidden {
+		interrupts, mention = false, false
+	}
 	if m.kind == .System &&
 	   proto.Call_System(m.system) == .Missed &&
 	   m.sender != c.auth.me &&
@@ -722,6 +729,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 	// So does a message in a group.
 	info := c.convs.convs[m.conv] or_else Conv_Info{}
 	dm :=
+		!hidden &&
 		info.kind != .Channel &&
 		info.notify != .None &&
 		m.sender != c.auth.me &&
@@ -767,6 +775,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 		}
 	}
 	report_message(c, m)
+	event_message(c, arrived, mention)
 }
 
 // cache_has_newer reports whether a window ends at or past `id`, which means
@@ -794,7 +803,8 @@ dm_notice_text :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 // new version; a deleted file offer can no longer be accepted; and the pins
 // shown are fetched again (the message may have been or become one of them).
 @(private = "file")
-message_changed :: proc(c: ^Server_Conn, m: proto.Message) {
+message_changed :: proc(c: ^Server_Conn, changed: proto.Message) {
+	m, _ := filter_message(c, changed)
 	// An event doesn't say which reactions are ours, so keep ours as they were.
 	replace :: proc(old: ^Msg, m: proto.Message) {
 		fresh := msg_of(m)

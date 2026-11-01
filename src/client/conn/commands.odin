@@ -1,6 +1,7 @@
 package conn
 
 import log "common:wlog"
+import "core:fmt"
 import "core:sync"
 import "core:time"
 
@@ -237,6 +238,7 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 	case Chat_Command:
 		delete(v.text)
+		delete(v.channel)
 	case Status_Command:
 		delete(v.text)
 	case Avatar_Command:
@@ -547,7 +549,14 @@ process_commands :: proc(c: ^Server_Conn) {
 			if v.thread.root != 0 && v.thread.conv == 0 {
 				v.thread.conv = c.convs.viewing
 			}
-			chat_send(c, typed_text(c, v.text) if v.typed else v.text, v.dm_to, v.thread)
+			channel: proto.Conv_Id
+			if v.channel != "" {
+				if channel = conv_by_name(c, v.channel); channel == 0 {
+					notify(c, false, fmt.tprintf("There is no channel %q to post to.", v.channel))
+					break
+				}
+			}
+			chat_send(c, typed_text(c, v.text) if v.typed else v.text, v.dm_to, v.thread, channel)
 		case Typing_Command:
 			if v.thread.root != 0 && v.thread.conv == 0 {
 				v.thread.conv = c.convs.viewing

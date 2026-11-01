@@ -112,6 +112,12 @@ notice_open :: proc(ui: ^UI, target: Notice_Target) {
 	}
 }
 
+// script_notice shows what a script asked to be notified of (yap.notify), the way
+// a mention is shown, except that clicking it leads nowhere.
+script_notice :: proc(ui: ^UI, title, body: string) {
+	notice(ui, title, body)
+}
+
 // notice shows something on the desktop. If there is no way to do that, or
 // with `attention`, the window asks for attention too.
 @(private = "file")

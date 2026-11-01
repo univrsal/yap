@@ -7,6 +7,7 @@ import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:script"
 import "client:settings"
 import "common:proto"
 
@@ -166,6 +167,7 @@ Palette_Entry :: struct {
 	command: int, // .Command: which, in COMMANDS
 	conv:    proto.Conv_Id, // .Channel, .Voice: the channel; .Message: a group; on the shown server
 	account: proto.Account_Id, // .Message: whom, on the shown server (0 for a group)
+	script:  string, // .Script: the command's name, in the temp allocator
 	ns:      ^Net_Session, // .Server
 }
 
@@ -175,6 +177,7 @@ Palette_Kind :: enum {
 	Voice, // join its voice room
 	Server, // show the server
 	Message, // open the DM or the group
+	Script, // run a script's /command
 }
 
 // palette_window opens and closes the palette with its key, and draws it
@@ -305,6 +308,19 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 		detail := c.detail(ui) if c.detail != nil else ""
 		append(&list, Palette_Entry{kind = .Command, name = c.name, detail = detail, command = i})
 	}
+	if ui.scripts != nil && ui.session != nil {
+		for info in script.runtime_commands(ui.scripts, ui.session.client) {
+			append(
+				&list,
+				Palette_Entry {
+					kind = .Script,
+					name = fmt.tprintf("Run /%s", info.name),
+					detail = info.help,
+					script = info.name,
+				},
+			)
+		}
+	}
 	if palette_connected(ui, v) {
 		for ch in v.channels {
 			if ch.id == v.viewing && ui.page == .Main {
@@ -405,6 +421,8 @@ palette_run :: proc(ui: ^UI, v: ^conn.View, e: Palette_Entry) {
 		if on_rail(ui, e.ns) {
 			ui.switch_to, ui.switching = e.ns, true
 		}
+	case .Script:
+		scripts_command(ui, fmt.tprintf("/%s", e.script))
 	}
 }
 

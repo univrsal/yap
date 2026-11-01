@@ -259,10 +259,14 @@ auth_credentials :: proc(c: ^Server_Conn, username, password, device: string) {
 @(private = "file")
 set_state :: proc(c: ^Server_Conn, state: Login_State, error := "") {
 	a := &c.auth
+	was := a.state
 	a.state = state
 	delete(a.error)
 	a.error = strings.clone(error)
 	publish_login(c)
+	if state == .Done && was != .Done {
+		event_connected(c)
+	}
 }
 
 // auth_restart is called at the start of a new connection (see handle_welcome),
@@ -500,6 +504,7 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		_, acc, _, _ := map_entry(&a.accounts, record.id)
 		was_status := strings.clone(acc.status, context.temp_allocator)
 		was_muted := .Server_Muted in acc.flags
+		was_activity := acc.activity
 		delete(acc.username)
 		delete(acc.display)
 		delete(acc.status)
@@ -519,6 +524,9 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		}
 		if a.state == .Done && record.id == a.me {
 			server_mute_changed(c, was_muted, .Server_Muted in record.flags)
+		}
+		if a.state == .Done && record.id != a.me && was_activity != record.activity {
+			event_presence(c, record.id, was_activity)
 		}
 		publish_directory(c)
 	case .Self:
@@ -656,6 +664,11 @@ notify :: proc(c: ^Server_Conn, ok: bool, text: string) {
 // notices (for example a file it refuses to attach) also come this way.
 view_notice :: proc(v: ^View, ok: bool, text: string) {
 	view_write(v)
+	notice_set(v, ok, text)
+}
+
+// notice_set is view_notice for code that has the View locked already.
+notice_set :: proc(v: ^View, ok: bool, text: string) {
 	delete(v.notice.text)
 	v.notice.text = strings.clone(text)
 	v.notice.ok = ok

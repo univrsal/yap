@@ -1,12 +1,14 @@
 package client
 
 import log "common:wlog"
+import "core:fmt"
 import "core:strings"
 import mu "vendor:microui"
 
 import "client:conn"
 import "client:platform"
 import "client:richtext"
+import "client:script"
 import "common:proto"
 
 // A message's own menu, opened by right-clicking the message in a timeline (or
@@ -365,6 +367,30 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	has_files := c.files != nil && len(c.files) > 0 && c.editing^ == 0
 	if (text == "" && !has_files) || ui.session == nil {
 		return false
+	}
+	if !has_files && c.editing^ == 0 {
+		// A /command of a script is not a message.
+		if scripts_command(ui, text) {
+			ui_redraw(ui)
+			history_clear(&c.area.history)
+			c.len^ = 0
+			return true
+		}
+		// A script may change a message or stop it.
+		if ui.scripts != nil && ui.session != nil {
+			filtered, cancel, by := script.runtime_filter_send(
+				ui.scripts,
+				ui.session.client,
+				scripts_channel(ui),
+				text,
+			)
+			if cancel {
+				conn.notice_set(ui.view, false, fmt.tprintf("%s stopped this message.", by))
+				ui_redraw(ui)
+				return false // what was typed stays
+			}
+			text = filtered
+		}
 	}
 	ui_redraw(ui) // so the box shrinks back to a single line
 	c.area.preview = false

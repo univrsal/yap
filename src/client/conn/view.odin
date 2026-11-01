@@ -566,7 +566,11 @@ view_changed :: proc "contextless" (v: ^View) {
 }
 
 publish_status :: proc(c: ^Server_Conn, status: Status, error := "") {
+	was := c.status
 	c.status = status
+	if was == .Connected && status != .Connected && c.auth.state == .Done {
+		event_disconnected(c, error)
+	}
 	v := c.view
 	if v == nil {
 		return

@@ -39,6 +39,13 @@ if [ ! -f "$opus_lib" ]; then
 	cmake --build "$opus_build" --parallel
 fi
 
+# Lua, for the client's scripts (src/client/script). The source is fetched
+# into web/deps too (scripts/build/lua.version) and compiled below with the
+# page, as is everything in C.
+. scripts/build/lua.version
+lua_src=$deps/lua-$lua_version/src
+sh scripts/build/fetch.sh lua "$deps"
+
 # What web/touch.js calls (src/client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_touch_scroll_end,_web_text_rune,_web_text_backspace,_web_text_enter
 # What web/field.js calls (src/client/ui_field_web.odin).
@@ -47,6 +54,8 @@ field_exports=_web_field_input,_web_field_focus,_web_field_lines,_web_field_touc
 background_exports=_web_tick,_web_visibility
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_file_pasted,_web_paste_failed,_web_paste_text,_web_max_attachment,_malloc,_free
+# What web/http.js calls (src/client/script/http_web.odin).
+http_exports=_web_http_done
 # What web/files.js calls (src/client/ui_files_web.odin).
 files_exports=_web_file_picked,_web_file_dropped,_web_drag
 # What web/avatar.js calls (src/client/ui_avatar_pick_web.odin).
@@ -74,6 +83,8 @@ emcc "$out/yap.obj" \
 	web/shell.c \
 	src/client/audio/miniaudio/yap_audio.c \
 	src/client/audio/rnn/yap_rnn.c \
+	src/client/script/yap_lua.c \
+	-I"$lua_src" \
 	"$opus_lib" \
 	"$stb/stb_truetype.c" \
 	"$stb/stb_image.c" \
@@ -82,7 +93,7 @@ emcc "$out/yap.obj" \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
 	-sSTACK_SIZE=4MB \
-	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$field_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports,$decode_exports,$sounds_exports \
+	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$field_exports,$background_exports,$paste_exports,$files_exports,$http_exports,$avatar_exports,$decode_exports,$sounds_exports \
 	--js-library web/wasi.js \
 	--pre-js web/util.js \
 	--pre-js web/touch.js \
@@ -90,6 +101,7 @@ emcc "$out/yap.obj" \
 	--pre-js web/background.js \
 	--pre-js web/paste.js \
 	--pre-js web/files.js \
+	--pre-js web/http.js \
 	--pre-js web/avatar.js \
 	--pre-js web/keys.js \
 	--pre-js web/images.js \

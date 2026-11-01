@@ -79,6 +79,30 @@ if c_lib_stale $dialogs dialogs deps/thirdparty/tinydialogs/tinydialogs.h; then
 	c_lib_build $dialogs dialogs -std=c11 -Os $dialogs_flags
 fi
 
+# Lua, for the client's scripts (src/client/script): the language and the
+# libraries scripts may use, compiled as one file against the source
+# scripts/build/fetch.sh unpacks (scripts/build/lua.version). Again when
+# the version changes.
+script=src/client/script
+if c_lib_stale $script lua scripts/build/lua.version; then
+	. scripts/build/lua.version
+	sh scripts/build/fetch.sh lua .cache
+	c_lib_build $script lua -std=c99 -Os -I".cache/lua-$lua_version/src"
+fi
+
+# tinyrequests, for the HTTP requests of scripts (src/client/script): WinHTTP
+# on Windows, CFNetwork on macOS (linked by src/client/script/http_native.odin),
+# and on the rest a libcurl that is loaded at run time (dlopen), so there is
+# nothing to compile against. The web build uses the browser's fetch instead.
+if c_lib_stale $script requests deps/thirdparty/tinyrequests/tinyrequests.h; then
+	# dlopen is POSIX/BSD rather than C99. macOS has CFNetwork instead, and needs no help.
+	case "$(uname -s)" in
+	Darwin) requests_flags= ;;
+	*) requests_flags="-D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE" ;;
+	esac
+	c_lib_build $script requests -std=c99 -Os $requests_flags -Ideps/thirdparty/tinyrequests
+fi
+
 # tinyaac, for sharing an application's audio. On Linux it needs the
 # libpipewire-0.3 dev headers to compile against (dlopen'd at runtime,
 # not linked -- see yap_aac.c); on macOS it's Core Audio and AppKit, so

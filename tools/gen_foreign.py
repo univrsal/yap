@@ -2,7 +2,8 @@
 """
 Regenerates the web build's copies of the C bindings' declarations:
 src/client/audio/<pkg>/<pkg>_foreign_web.odin from
-src/client/audio/<pkg>/<pkg>_foreign.odin.
+src/client/audio/<pkg>/<pkg>_foreign.odin (and the same for the scripts'
+Lua, src/client/script/lua_foreign*.odin).
 
 On wasm, Odin names the procs of a named foreign import after the import
 ("system:c..yap_audio_create"), which no C object defines. The unnamed
@@ -26,8 +27,11 @@ NOTE = """// The C declarations for a web build. They are the same as in
 IMPORT_CHAIN = re.compile(r"when ODIN_OS == [^\n]*\{\n\tforeign import.*?\n\}\n\n?", re.S)
 
 root = pathlib.Path(__file__).resolve().parent.parent
-for pkg in ("opus", "rnn", "miniaudio"):
-    native = root / "src" / "client" / "audio" / pkg / f"{pkg}_foreign.odin"
+BINDINGS = [
+    (root / "src" / "client" / "audio" / pkg, pkg) for pkg in ("opus", "rnn", "miniaudio")
+] + [(root / "src" / "client" / "script", "lua")]
+for folder, pkg in BINDINGS:
+    native = folder / f"{pkg}_foreign.odin"
     text = native.read_text()
     tag = "#+build !wasi\n"
     assert text.startswith(tag), native
