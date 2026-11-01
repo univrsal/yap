@@ -24,6 +24,8 @@ bot_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: [
 		bot_token_add(s, u, id, body)
 	case .Bot_Commands_Set:
 		bot_commands_set(s, u, id, body)
+	case .Command_Run:
+		command_run(s, u, id, body)
 	case:
 		return false
 	}

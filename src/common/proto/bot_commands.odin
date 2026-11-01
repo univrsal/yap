@@ -21,11 +21,13 @@ import "core:strings"
 // in the login sync for each connected bot that has commands.
 //
 // Command_Run is sent by anyone: `account` is the bot whose command it is, so
-// that two bots can both have a /roll, and `args` is the text after the name,
-// trimmed. The server answers Not_Found (the bot has no such command), Denied
-// (the account may not post in the conversation, or the bot can't see it) or
-// Closed (the bot is gone). Otherwise it sends Command_Invoked to that bot's
-// connections, with `invoker` set by the server and a number `id` that is
+// that two bots can both have a /roll, and `args` is the text after the name.
+// The server answers Not_Found (the conversation is not one the account can
+// see, or the bot has no such command, which is also the case once the bot
+// has left), Denied (the account may not post in the conversation, or the bot
+// can't see it or write there), Invalid (the thread is not one of the
+// conversation) or Rate_Limited. Otherwise it sends Command_Invoked to the
+// bot's connection whose commands count, with `invoker` set by the server and a number `id` that is
 // unique on the server. Nothing is posted: the bot answers with Msg_Post in
 // the same conversation and thread.
 //

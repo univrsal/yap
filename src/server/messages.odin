@@ -245,7 +245,6 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // `reply_to` (0 for none) belongs to. It has to be a message of `conv` that
 // isn't deleted, and a reply to a reply is added to the same thread, using
 // the root of that reply. With no thread, `root` is zero and `ok` true.
-@(private = "file")
 thread_root_of :: proc(
 	s: ^Server,
 	conv: ^Conv,

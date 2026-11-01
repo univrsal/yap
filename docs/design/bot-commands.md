@@ -95,22 +95,26 @@ and there is no "get" op. A client of a server that doesn't know the ops
 simply has no bot commands.
 
 `Command_Run` carries the **account** so that two bots with a `/roll`
-don't collide (see "Names"). The server checks, in this order:
+don't collide (see "Names"). The server checks, in this order (as built):
 
-1. The bot exists, is a bot, and has that command: `Not_Found`.
-2. The invoker may post in the conversation (`can`, as for `Msg_Post`):
-   `Denied`. A person who can't speak in a read-only channel can't make
-   a bot speak there either.
-3. The bot can see the conversation (member of the DM or group, or the
-   channel's rights let its roles see it): otherwise `Denied`, and the
-   client says the bot isn't in this channel. Without this a command
-   could be run into a place the bot can't answer.
-4. The bot is still connected (it can have left since the client last
-   heard): otherwise `Closed`, and the client says "weatherbot isn't
-   online".
-5. A rate limit per invoker (a token bucket; the server has none for
-   posting yet, see "Limits" in `bot-api.md`), so one person can't flood
-   a bot.
+1. A rate limit per connection (10 at once, then 2 a second):
+   `Rate_Limited`, so one person can't flood a bot.
+2. The invoker may post in the conversation, as for `Msg_Post`: it can see
+   it (`Not_Found` if not), is a member and may write there (`Denied`). A
+   person who can't speak in a read-only channel can't make a bot speak
+   there either. The check comes first so that no answer says anything
+   about a conversation the invoker can't see.
+3. The thread, if any, is a thread of that conversation: `Invalid`.
+4. The bot has that command: `Not_Found`. With the registry in memory
+   this also covers a bot that has left since the client last heard, so
+   there is no separate "closed" answer; the client says the command is
+   no longer available.
+5. The bot is a member of the conversation, may see it and write there:
+   `Denied`, and the client says the bot isn't in this channel. Without
+   this a command could be run into a place the bot can't answer.
+
+The event goes to the one connection of the bot whose commands count, so
+two processes of a bot don't both answer.
 
 The `invoker` in the event is filled in by the server, never taken from
 the request. `args` is the text after the name, trimmed, up to 2000
@@ -186,10 +190,10 @@ rights), and the server's check in step 3 is the authority.
   and returns early without it; it must work with scripts switched off.
 - `composer_send`: order of checks is built-ins, script
   (`scripts_command`), bot command; only if none matches is it text. The
-  run is queued like any command, and the result (`Denied`, `Closed`)
+  run is queued like any command, and the result (`Denied`, `Not_Found`)
   comes back as a line in the status area.
 - Headless: the same fallback for a `/word` none of its own commands
-  know (`headless/commands.odin`), with log lines for offline/denied.
+  know (`headless/commands.odin`), with log lines for denied/unavailable.
 - The web build uses the same code; nothing separate.
 
 ### Scripts
@@ -221,7 +225,7 @@ register a command for others; that is what a bot is for.
 | --- | --- | --- | --- | --- | --- |
 | 1 | Protocol: the four ops, the codec and its tests; limits and sanitizing | S | `common/proto` | - | done (2026-11-01) |
 | 2 | Server: the in-memory registry, `Bot_Commands_Set`, `Commands_Changed` (also in the sync, and when a bot's last connection closes) | M | `server` | 1 | done (2026-11-01) |
-| 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | planned |
+| 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | done (2026-11-01) |
 | 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | planned |
 | 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | planned |
 | 6 | Docs and an example: `API.md` (commands, the event), `Scripting.md` (script and bot commands are listed together), `scripting.md` D7 updated, `docs/examples/slash.py` | S | docs | 4, 5 | planned |

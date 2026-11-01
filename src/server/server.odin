@@ -93,6 +93,8 @@ Conn :: struct {
 	// 0 means it never registered any.
 	commands:        []proto.Bot_Command,
 	commands_seq:    u64,
+	// How many commands it may still run (command_run in bot_commands.odin).
+	command_runs:    proto.Bucket,
 }
 
 Server :: struct {
@@ -137,6 +139,8 @@ Server :: struct {
 	last_num:           proto.User_Num,
 	// Counts the sets of slash commands bots registered (bot_commands.odin).
 	commands_seq:       u64,
+	// The last number given to a command that was run.
+	invocations:        proto.Invocation_Id,
 	// Files offered in DMs, keyed by the message that offers them, and the
 	// transfers being relayed, keyed the same way (files.odin).
 	file_offers:        map[proto.Msg_Id]File_Offer,
