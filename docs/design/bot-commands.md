@@ -248,7 +248,7 @@ register a command for others; that is what a bot is for.
 | 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | done (2026-11-01) |
 | 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | done (2026-11-01) |
 | 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | done (2026-11-01) |
-| 6 | Docs and an example: `API.md` (commands, the event), `Scripting.md` (script and bot commands are listed together), `scripting.md` D7 updated, `docs/examples/slash.py` | S | docs | 4, 5 | planned |
+| 6 | Docs and an example: `API.md` (commands, the event), `Scripting.md` (script and bot commands are listed together), `scripting.md` D7 updated, `docs/examples/slash.py` | S | docs | 4, 5 | done (2026-11-01) |
 
 Why this order:
 

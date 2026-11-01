@@ -266,7 +266,7 @@ the user.
 | D4 | One state per script or shared | One per script: isolation, per-script limits, reloading one |
 | D5 | Web requests in a browser | Allowed, always asynchronous, size and time capped; CORS applies |
 | D6 | Scripts in the headless client | Yes, same package, driven by its loop; `/script` instead of the page |
-| D7 | Share names with bot slash commands | Intended, not done: bot slash commands are planned in bot-commands.md |
+| D7 | Share names with bot slash commands | Done (bot-commands.md): bots' commands are listed with a script's; the script's runs when the names match |
 | D8 | Trust for scripts from elsewhere | Permissions shown when switched on; approval tied to the text's hash; no signing |
 | D9 | A thread for scripts | None: time slicing in the loop on every target, so one code path |
 | D10 | Local/private addresses for web requests | Allowed, with the `net` permission; no allow-list |
