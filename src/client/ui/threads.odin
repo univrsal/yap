@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import "core:fmt"
 import "core:sync"
 import mu "vendor:microui"
@@ -31,7 +32,7 @@ UI_Thread :: struct {
 	timeline:     UI_Timeline,
 	buf:          ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
 	len:          int,
-	area:         Text_Area, // the box it is written in
+	area:         txt.Area, // the box it is written in
 	// The reply of ours being edited in it, and its conversation (Composer).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,

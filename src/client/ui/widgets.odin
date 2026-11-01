@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import "base:intrinsics"
 import "client:conn"
 import "client:render"
@@ -517,7 +518,7 @@ field_row :: proc(
 // wrap_text is mu.text as the settings' notes need it: the last word of the
 // text wraps too (mu.text only measures a word that is followed by a space),
 // and so does a word that is longer than a line, such as a path, like the
-// chat's text does (wrap_line). It uses the text colour, for with_text_color.
+// chat's text does (txt.wrap_line). It uses the text colour, for with_text_color.
 wrap_text :: proc(ctx: ^mu.Context, text: string) {
 	font := ctx.style.font
 	mu.layout_begin_column(ctx)
@@ -526,7 +527,7 @@ wrap_text :: proc(ctx: ^mu.Context, text: string) {
 	rest := text
 	for len(rest) > 0 {
 		r := mu.layout_next(ctx)
-		end, next := wrap_line(ctx, font, rest, r.w)
+		end, next := txt.wrap_line(ctx, font, rest, r.w)
 		mu.draw_text(ctx, font, rest[:end], {r.x, r.y}, ctx.style.colors[.TEXT])
 		rest = rest[next:]
 	}

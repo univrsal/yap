@@ -213,8 +213,8 @@ rich_width :: proc(ctx: ^mu.Context, r: ^Rich, a, b: int) -> i32 {
 	return w
 }
 
-// rich_wrap is where the line text[from:to] breaks at `width`, as line_end and
-// next_line do for plain text: at the last space that fits, or after as many
+// rich_wrap is where the line text[from:to] breaks at `width`, as txt.line_end and
+// txt.next_line do for plain text: at the last space that fits, or after as many
 // characters as fit if the first word doesn't fit (but always at least one).
 // With `anywhere` it breaks wherever it has to. text[from:end] is drawn, and
 // the next line starts at `next`, after the spaces it broke at.

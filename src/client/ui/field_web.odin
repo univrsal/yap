@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import txt "text"
 import "core:hash"
 import mu "vendor:microui"
 
@@ -99,7 +100,7 @@ foreign _ {
 // buffer and selection, gives it the focus if the page did, and notes in `area`
 // whether the field stands in for it in this frame. Call before the text area
 // is laid out.
-field_take :: proc(ui: ^UI, id: mu.Id, buf: []u8, textlen: ^int, area: ^Text_Area) {
+field_take :: proc(ui: ^UI, id: mu.Id, buf: []u8, textlen: ^int, area: ^txt.Area) {
 	ctx := &ui.ctx
 	area.field.live = !g_covered[id]
 	area.field.lines = g_lines[id]
@@ -147,7 +148,7 @@ field_place :: proc(
 	ui: ^UI,
 	id: mu.Id,
 	text: string,
-	area: ^Text_Area,
+	area: ^txt.Area,
 	tr: mu.Rect,
 	top, bottom: i32,
 	focused: bool,

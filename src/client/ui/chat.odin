@@ -1,11 +1,10 @@
 package ui
 
+import txt "text"
 import "core:fmt"
 import "core:strings"
 import "core:time"
 import "core:time/datetime"
-import "core:unicode"
-import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
@@ -32,7 +31,7 @@ UI_Chat :: struct {
 	tab:          Side_Tab,
 	buf:          ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
 	len:          int,
-	area:         Text_Area, // the box it is written in
+	area:         txt.Area, // the box it is written in
 
 	// The link under the mouse (as its first byte's address), found while
 	// drawing a frame and used for the next one, because a link that wraps over
@@ -242,7 +241,7 @@ composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
 	// On a phone, one line to start with, to leave room for the messages.
 	c.area.min_lines = 1 if ui.compact else COMPOSER_LINES
 	c.area.footer = composer_button_size(&ui.ctx) + COMPOSER_INSET
-	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
+	return txt.area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
 
 // composer_row lays out the row that a composer's box is in, `height` tall.
@@ -320,7 +319,7 @@ composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id, r
 	if c.area.preview {
 		// The box's frame, with the preview in the part above the buttons.
 		ctx.draw_frame(ctx, rect, .BASE)
-		mu.layout_set_next(ctx, text_area_text_rect(rect, c.area), false)
+		mu.layout_set_next(ctx, txt.area_text_rect(rect, c.area), false)
 		chat_preview(ui, c)
 	} else {
 		mu.layout_set_next(ctx, rect, false)
@@ -377,7 +376,7 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	// sized to wouldn't hold it, and the preview would scroll.
 	padding := ctx.style.padding
 	lh := ctx.text_height(ctx.style.font)
-	top := (text_area_single(ctx, ctx.style.font) - lh) / 2
+	top := (txt.area_single(ctx, ctx.style.font) - lh) / 2
 	ctx.style.padding = top
 	defer ctx.style.padding = padding
 	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread), {.NO_FRAME})
@@ -696,8 +695,8 @@ wrapped_lines :: proc(ctx: ^mu.Context, text: string, width: i32) -> (n: i32) {
 	font := ctx.style.font
 	rest := text
 	for len(rest) > 0 {
-		end := line_end(ctx, font, rest, width)
-		rest = next_line(rest, end)
+		end := txt.line_end(ctx, font, rest, width)
+		rest = txt.next_line(rest, end)
 		n += 1
 	}
 	return
@@ -1005,11 +1004,11 @@ wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 	rest := text
 	for len(rest) > 0 {
 		r := mu.layout_next(ctx)
-		end := line_end(ctx, font, rest, r.w)
+		end := txt.line_end(ctx, font, rest, r.w)
 		start := len(text) - len(rest)
 		select_line(ui, item, text, start, start + end, {r.x, r.y})
 		mu.draw_text(ctx, font, text[start:start + end], {r.x, r.y}, color)
-		rest = next_line(rest, end)
+		rest = txt.next_line(rest, end)
 	}
 }
 
@@ -1019,55 +1018,4 @@ wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 custom_emoji_size :: proc(ctx: ^mu.Context) -> (size, advance: i32) {
 	zoom := f32(ctx.text_height(ctx.style.font)) / render.LINE_HEIGHT
 	return i32(render.CUSTOM_EMOJI_SIZE * zoom), i32(render.CUSTOM_EMOJI_ADVANCE * zoom)
-}
-
-// wrap_line returns the first line of `text` wrapped at `width`, as the chat
-// wraps it: text[:end] is drawn, and the next line starts at `next`
-// (after the newline or the spaces it broke at).
-wrap_line :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> (end, next: int) {
-	end = line_end(ctx, font, text, width)
-	return end, len(text) - len(next_line(text, end))
-}
-
-// line_end is how much of `text` fits in `width`: up to the first
-// newline if that fits, otherwise up to the last space that fits, or as many
-// characters as fit if the first word doesn't (but always at least one
-// character, unless the line is empty).
-@(private = "file")
-line_end :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> int {
-	last_space := -1
-	fit := 0
-	w: i32
-	for ch, i in text {
-		if ch == '\n' {
-			return i
-		}
-		size := utf8.rune_size(ch)
-		w += ctx.text_width(font, text[i:][:size])
-		if w > width && fit > 0 {
-			return last_space if last_space > 0 else fit
-		}
-		fit = i + size
-		if ch == ' ' {
-			last_space = i
-		}
-	}
-	return len(text)
-}
-
-// next_line is what is left of `text` after a line of it that ended at
-// `end` (see line_end): after the newline that ended it, or after the spaces it
-// was wrapped at (and a newline right after them, which the wrap has
-// already broken the line for). The next line's indentation stays.
-@(private = "file")
-next_line :: proc(text: string, end: int) -> string {
-	rest := text[end:]
-	if strings.has_prefix(rest, "\n") {
-		return rest[1:]
-	}
-	rest = strings.trim_left_proc(
-		rest,
-		proc(r: rune) -> bool {return r != '\n' && unicode.is_space(r)},
-	)
-	return strings.trim_prefix(rest, "\n")
 }

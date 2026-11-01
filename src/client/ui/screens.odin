@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import "base:intrinsics"
 import "client:render"
 import "client:video"
@@ -260,7 +261,7 @@ log_panel :: proc(ui: ^UI) {
 			for {
 				end, next := len(text), len(text)
 				if ctx.text_width(font, text[start:]) > width - x {
-					e, n := wrap_line(ctx, font, text[start:], width - x)
+					e, n := txt.wrap_line(ctx, font, text[start:], width - x)
 					end, next = start + e, start + n
 				}
 				mu.layout_row(ctx, {-1}, render.LINE_HEIGHT)

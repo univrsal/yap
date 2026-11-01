@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
@@ -36,7 +37,7 @@ UI_Scripts :: struct {
 	add_name:  Text_Field(48),
 	add_text:  []u8, // MAX_SCRIPT_SIZE bytes, made when the form opens
 	add_len:   int,
-	add_area:  Text_Area,
+	add_area:  txt.Area,
 }
 
 scripts_ui_destroy :: proc(ui: ^UI) {
@@ -151,7 +152,7 @@ script_add_form :: proc(ui: ^UI) {
 	mu.layout_row(
 		ctx,
 		{-1},
-		text_area_height(ctx, ctx.style.font, string(su.add_text[:su.add_len]), &su.add_area),
+		txt.area_height(ctx, ctx.style.font, string(su.add_text[:su.add_len]), &su.add_area),
 	)
 	text_area(ui, su.add_text, &su.add_len, &su.add_area)
 	mu.layout_row(ctx, {120, -1})

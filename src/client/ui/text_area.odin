@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import "core:strings"
 import textedit "core:text/edit"
 import mu "vendor:microui"
@@ -7,8 +8,8 @@ import mu "vendor:microui"
 import "client:platform"
 
 // A text area is the box that messages are written in: a text box over several
-// lines. Its text wraps the way the chat wraps messages (wrap_line), it grows
-// one line at a time up to TEXT_AREA_MAX_LINES and scrolls beyond that, and
+// lines. Its text wraps the way the chat wraps messages (txt.wrap_line), it grows
+// one line at a time up to txt.AREA_MAX_LINES and scrolls beyond that, and
 // Shift+Enter starts a new line while Enter submits, as in a text box.
 //
 // It is microui's text box (textbox_raw) taken over line by line: the same id
@@ -19,7 +20,7 @@ import "client:platform"
 // column they started in, Home and End go to the ends of the line (with Ctrl,
 // of the text), and the pointer lands on the line it is over.
 //
-// The box's height is worked out before it is laid out (text_area_height), so
+// The box's height is worked out before it is laid out (txt.area_height), so
 // the rows above can make room. It is based on the width the text had in the
 // previous frame, and a frame whose lines don't fit the box it got asks for
 // another frame.
@@ -29,109 +30,6 @@ import "client:platform"
 // over it (the composer's, see composer_buttons). Pressing in the strip doesn't
 // move the caret.
 
-// The most lines a text area grows to. Beyond that it scrolls.
-TEXT_AREA_MAX_LINES :: 10
-
-// What a text area keeps between frames.
-Text_Area :: struct {
-	width:        i32, // the text's width in the last frame, for working out the height
-	scroll:       i32, // pixels of the text above the box's top
-	// Up and Down keep to the column they started in: where they left the
-	// caret, and the x position they were aiming for.
-	vert_at:      int,
-	vert_x:       i32,
-	// The selection and length in the last frame. When either changes, the
-	// box scrolls to the caret.
-	last_sel:     [2]int,
-	last_len:     int,
-	// Its scrollbar, when there is more text than it shows: where it was in
-	// the last frame (zero: none), and while its thumb is dragged, how far
-	// down the thumb it was grabbed.
-	bar:          mu.Rect,
-	dragging:     bool,
-	drag_at:      i32,
-	// Whether the message is shown as it will look instead (the composer's
-	// eye, preview_button).
-	preview:      bool,
-	had_focus:    bool, // in the last frame
-	// Set by its owner before it is measured and laid out: how many lines tall
-	// it is at least (0 or 1 for one), and how tall the strip at its bottom is.
-	min_lines:    int,
-	footer:       i32,
-	// A press in the footer, which the caret ignores until it is released.
-	footer_press: bool,
-	// In a web build, the page's own text field that stands in for it.
-	field:        Field_Sync,
-	// What Ctrl+Z and Ctrl+Y go through (ui/text_history.odin). Not in a web
-	// build, where the page's field has its own.
-	history:      Text_History,
-}
-
-// What a text area keeps about the page's text field that stands in for it in
-// a web build (ui/field_web.odin): whether it does in this frame, how many
-// lines the page wraps the text into (0 while it hasn't said), whether the
-// field changed the text since the text area last said so, and the text (as a
-// hash and its length) and selection that the two last agreed on.
-Field_Sync :: struct {
-	live:    bool,
-	lines:   int,
-	changed: bool,
-	synced:  bool,
-	hash:    u64,
-	len:     int,
-	sel:     [2]int,
-}
-
-// One line of a text area's text: text[start:end] is drawn, and the caret is
-// on it from `start` up to `stop` (where the next line starts, or before the
-// newline that ends it, or the end of the text).
-Area_Line :: struct {
-	start, end, stop: int,
-}
-
-// area_lines lays `text` out in lines `width` wide. Every place in the text is
-// on exactly one line: a place where a wrap broke the text is on the line that
-// starts there. There is always at least one line, and a text ending in a
-// newline ends in an empty line for the caret to go to.
-area_lines :: proc(
-	ctx: ^mu.Context,
-	font: mu.Font,
-	text: string,
-	width: i32,
-	allocator := context.temp_allocator,
-) -> []Area_Line {
-	lines := make([dynamic]Area_Line, allocator)
-	at := 0
-	for at < len(text) {
-		end, next := wrap_line(ctx, font, text[at:], width)
-		stop := at + next - 1
-		if at + next == len(text) && text[len(text) - 1] != '\n' {
-			stop = len(text)
-		}
-		append(&lines, Area_Line{at, at + end, stop})
-		at += next
-	}
-	if len(text) == 0 || text[len(text) - 1] == '\n' {
-		append(&lines, Area_Line{len(text), len(text), len(text)})
-	}
-	return lines[:]
-}
-
-// area_line_of is the line that the place `at` is on.
-area_line_of :: proc(lines: []Area_Line, at: int) -> int {
-	for l, i in lines {
-		if at <= l.stop {
-			return i
-		}
-	}
-	return len(lines) - 1
-}
-
-// area_x is how far along its line the place `at` is, in pixels.
-area_x :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, at: int) -> i32 {
-	return ctx.text_width(font, text[l.start:clamp(at, l.start, l.stop)])
-}
-
 // area_vertical is the place on the line above (`down` false) or below the
 // one `at` is on, nearest to `x` pixels along it. Past the first line it is
 // the start, and past the last line the end.
@@ -139,12 +37,12 @@ area_vertical :: proc(
 	ctx: ^mu.Context,
 	font: mu.Font,
 	text: string,
-	lines: []Area_Line,
+	lines: []txt.Area_Line,
 	at: int,
 	x: i32,
 	down: bool,
 ) -> int {
-	i := area_line_of(lines, at) + (1 if down else -1)
+	i := txt.area_line_of(lines, at) + (1 if down else -1)
 	if i < 0 {
 		return 0
 	}
@@ -155,48 +53,14 @@ area_vertical :: proc(
 	return offset_at(ctx, font, text, l.start, l.stop, x)
 }
 
-// text_area_single is how tall a text area of one line is: a control's
-// height, or more for a bigger font. Each additional line adds a line's height.
-text_area_single :: proc(ctx: ^mu.Context, font: mu.Font) -> i32 {
-	return max(ctx.style.size.y + 2 * ctx.style.padding, ctx.text_height(font) + 4)
-}
-
-// text_area_height is how tall the text area for `text` is, in `font` (which
-// ctx.style.font has to be when it is laid out).
-text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^Text_Area) -> i32 {
-	n := 1
-	if area.field.live && area.field.lines > 0 {
-		n = area.field.lines // as the page wraps it
-	} else if area.width > 0 {
-		n = len(area_lines(ctx, font, text, area.width))
-	}
-	return(
-		text_area_single(ctx, font) +
-		i32(area_rows(area, n) - 1) * ctx.text_height(font) +
-		area.footer \
-	)
-}
-
-// area_rows is how many lines tall a text area with `n` lines of text is.
-@(private = "file")
-area_rows :: proc(area: ^Text_Area, n: int) -> int {
-	return max(min(n, TEXT_AREA_MAX_LINES), area.min_lines, 1)
-}
-
-// text_area_text_rect is the part of a text area's rect that the text is in:
-// all of it except the footer.
-text_area_text_rect :: proc(r: mu.Rect, area: ^Text_Area) -> mu.Rect {
-	return {r.x, r.y, r.w, max(r.h - area.footer, 1)}
-}
-
 // text_area lays out a text area in the next layout cell, as tall as
-// text_area_height said, with its text in ctx.style.font. Like a text box, it
+// txt.area_height said, with its text in ctx.style.font. Like a text box, it
 // returns CHANGE when the text changed and SUBMIT on Enter (and releases the
 // focus then).
 //
 // In a web build the page's own text field draws and edits the text instead,
 // over the box (ui/field_web.odin), unless something covers it.
-text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: mu.Result_Set) {
+text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^txt.Area) -> (res: mu.Result_Set) {
 	ctx := &ui.ctx
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
@@ -215,7 +79,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
 	nav_control(ctx, id, r, textlen^)
-	tr := text_area_text_rect(r, area)
+	tr := txt.area_text_rect(r, area)
 	if .LEFT in ctx.mouse_pressed_bits {
 		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)
 	} else if .LEFT not_in ctx.mouse_down_bits {
@@ -227,9 +91,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 	font := ctx.style.font
 	lh := ctx.text_height(font)
-	single := text_area_single(ctx, font)
+	single := txt.area_single(ctx, font)
 	top := (single - lh) / 2 // from the box's top to its first line's top
-	rows := clamp((tr.h - (single - lh)) / lh, 1, TEXT_AREA_MAX_LINES)
+	rows := clamp((tr.h - (single - lh)) / lh, 1, txt.AREA_MAX_LINES)
 	full := max(r.w - 2 * ctx.style.padding, 1)
 	if area.width != full {
 		// The next frame's height is worked out at this width.
@@ -240,7 +104,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	// the text's. (The box is as tall either way.)
 	bar_w := ctx.style.scrollbar_size
 	width := full
-	if len(area_lines(ctx, font, string(buf[:textlen^]), full)) > TEXT_AREA_MAX_LINES {
+	if len(txt.area_lines(ctx, font, string(buf[:textlen^]), full)) > txt.AREA_MAX_LINES {
 		width = max(full - bar_w, 1)
 	}
 	s := &ctx.textbox_state
@@ -253,12 +117,12 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			}
 			ui.keys -= {key}
 			text := string(buf[:textlen^])
-			step: History_Step
+			step: txt.History_Step
 			ok: bool
 			if key == .Undo {
-				step, ok = history_undo(&area.history, text)
+				step, ok = txt.history_undo(&area.history, text)
 			} else {
-				step, ok = history_redo(&area.history, text)
+				step, ok = txt.history_redo(&area.history, text)
 			}
 			if !ok || len(step.text) > len(buf) {
 				continue
@@ -341,8 +205,8 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 			// What is left needs the lines, as the text is now.
 			text := string(buf[:textlen^])
-			lines := area_lines(ctx, font, text, width)
-			l := lines[area_line_of(lines, s.selection[0])]
+			lines := txt.area_lines(ctx, font, text, width)
+			l := lines[txt.area_line_of(lines, s.selection[0])]
 			s.line_start, s.line_end = l.start, l.stop
 			if .HOME in ctx.key_pressed_bits {
 				move(s, .Start if ctrl else .Soft_Line_Start, shift)
@@ -356,7 +220,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 				at := s.selection[0]
 				x := area.vert_x
 				if area.vert_at != at {
-					x = area_x(ctx, font, text, lines[area_line_of(lines, at)], at)
+					x = txt.area_x(ctx, font, text, lines[txt.area_line_of(lines, at)], at)
 				}
 				to := area_vertical(ctx, font, text, lines, at, x, down)
 				s.selection[0] = to
@@ -400,14 +264,14 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 	text := string(buf[:textlen^])
 	when !platform.WEB {
-		history_note_now(&area.history, text, s.selection if focused else area.history.now.sel)
+		txt.history_note_now(&area.history, text, s.selection if focused else area.history.now.sel)
 	}
-	lines := area_lines(ctx, font, text, width)
+	lines := txt.area_lines(ctx, font, text, width)
 	n := len(lines)
 	if live && area.field.lines > 0 {
 		n = area.field.lines
 	}
-	if i32(area_rows(area, n)) != rows {
+	if i32(txt.area_rows(area, n)) != rows {
 		// The box is the height that the text had before this frame's typing.
 		ui_redraw(ui)
 	}
@@ -427,10 +291,10 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	// if the box were already as tall as it is about to be: while it grows to
 	// fit a new line, that line is cut off for a frame instead of the text
 	// scrolling and a scrollbar showing for one.
-	view := max(rows, i32(min(len(lines), TEXT_AREA_MAX_LINES)))
+	view := max(rows, i32(min(len(lines), txt.AREA_MAX_LINES)))
 	most := max(i32(len(lines)) * lh - view * lh, 0)
 	if focused && (s.selection != area.last_sel || textlen^ != area.last_len || !area.had_focus) {
-		y := i32(area_line_of(lines, s.selection[0])) * lh
+		y := i32(txt.area_line_of(lines, s.selection[0])) * lh
 		if y < area.scroll {
 			area.scroll = y
 		} else if y + lh > area.scroll + view * lh {
@@ -476,15 +340,15 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	if lo > hi {
 		lo, hi = hi, lo
 	}
-	caret := area_line_of(lines, s.selection[0])
+	caret := txt.area_line_of(lines, s.selection[0])
 	for l, i in lines {
 		y := r.y + top + i32(i) * lh - area.scroll
 		if y + lh <= tr.y || y >= tr.y + tr.h {
 			continue
 		}
 		if focused && lo != hi && lo <= l.stop && hi >= l.start {
-			a := area_x(ctx, font, text, l, max(lo, l.start))
-			b := area_x(ctx, font, text, l, min(hi, l.stop))
+			a := txt.area_x(ctx, font, text, l, max(lo, l.start))
+			b := txt.area_x(ctx, font, text, l, min(hi, l.stop))
 			// Past the end of the line: its newline is selected too.
 			if hi > l.stop {
 				b += ctx.text_width(font, " ")
@@ -493,7 +357,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		}
 		mu.draw_text(ctx, font, text[l.start:l.end], {x0, y}, color)
 		if focused && i == caret {
-			x := min(area_x(ctx, font, text, l, s.selection[0]), width)
+			x := min(txt.area_x(ctx, font, text, l, s.selection[0]), width)
 			mu.draw_rect(ctx, {x0 + x, y, 1, lh}, color)
 		}
 	}

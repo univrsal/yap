@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import log "common:wlog"
 import "core:fmt"
 import "core:strings"
@@ -216,7 +217,7 @@ Composer :: struct {
 	conv:    ^proto.Conv_Id, // the conversation of the message being edited
 	thread:  int, // 0 for the page's composer, otherwise the thread window's slot
 	files:   ^[dynamic]Picked_File, // the files attached to it (ui/attachments.odin)
-	area:    ^Text_Area, // the text box it is written in
+	area:    ^txt.Area, // the text box it is written in
 }
 
 composer_of_page :: proc(ui: ^UI) -> Composer {
@@ -372,7 +373,7 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 		// A /command of a script is not a message.
 		if scripts_command(ui, text) {
 			ui_redraw(ui)
-			history_clear(&c.area.history)
+			txt.history_clear(&c.area.history)
 			c.len^ = 0
 			return true
 		}
@@ -394,7 +395,7 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	}
 	ui_redraw(ui) // so the box shrinks back to a single line
 	c.area.preview = false
-	history_clear(&c.area.history) // a sent message is not to be got back by undo
+	txt.history_clear(&c.area.history) // a sent message is not to be got back by undo
 	text = richtext.emoji_encode(
 		richtext.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
 		ui.view.emoji.names[:],

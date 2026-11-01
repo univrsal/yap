@@ -129,7 +129,7 @@ Extra_Key :: enum {
 	Strike,
 	Code,
 	// Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z: undo and redo in a composer
-	// (see Text_History).
+	// (see text/history.odin).
 	Undo,
 	Redo,
 }

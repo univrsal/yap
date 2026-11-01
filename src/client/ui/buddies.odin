@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import log "common:wlog"
 import "core:fmt"
 import "core:time"
@@ -42,7 +43,7 @@ UI_Buddies :: struct {
 	// What is being written to them.
 	buf:             ^[proto.MAX_CHAT_SIZE]u8, // made the first time it is needed (composer_buffer)
 	len:             int,
-	area:            Text_Area, // the box it is written in
+	area:            txt.Area, // the box it is written in
 	// Something to tell the user about the conversation, and since when.
 	notice:          string,
 	notice_at:       time.Tick,

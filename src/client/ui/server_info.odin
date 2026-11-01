@@ -1,5 +1,6 @@
 package ui
 
+import txt "text"
 import "core:hash"
 import "core:strings"
 import "core:sync"
@@ -27,7 +28,7 @@ UI_Server_Info :: struct {
 	loaded_for: rawptr,
 	name:       Text_Field(proto.MAX_SERVER_NAME),
 	about:      Text_Field(proto.MAX_SERVER_DESCRIPTION),
-	about_area: Text_Area,
+	about_area: txt.Area,
 	asked:      bool,
 }
 
@@ -165,7 +166,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		FORM_LABEL,
 		"Description",
 		{-1},
-		text_area_height(ctx, font, about, &s.about_area),
+		txt.area_height(ctx, font, about, &s.about_area),
 		fill_min = FORM_FIELD,
 	)
 	submitted |= .SUBMIT in text_area(ui, s.about.buf[:], &s.about.len, &s.about_area)

@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import txt "text"
 import "core:math"
 import "core:testing"
 import "core:time"
@@ -16,7 +17,7 @@ Composer_Test :: struct {
 	n:       int,
 	editing: proto.Msg_Id,
 	conv:    proto.Conv_Id,
-	area:    Text_Area,
+	area:    txt.Area,
 	box:     mu.Id,
 	rect:    mu.Rect,
 }
@@ -91,7 +92,7 @@ test_composer_two_lines :: proc(t: ^testing.T) {
 	for _ in 0 ..< 2 {
 		composer_test_frame(ct)
 	}
-	single := text_area_single(&ct.ui.ctx, ct.ui.ctx.style.font)
+	single := txt.area_single(&ct.ui.ctx, ct.ui.ctx.style.font)
 	testing.expect_value(t, ct.rect.h, single + 16 + COMPOSER_BUTTON + COMPOSER_INSET)
 }
 
@@ -154,7 +155,7 @@ test_composer_grows_without_scrollbar :: proc(t: ^testing.T) {
 		mu.input_key_up(ctx, .RETURN)
 		mu.input_key_up(ctx, .SHIFT)
 	}
-	for _ in 1 ..< TEXT_AREA_MAX_LINES {
+	for _ in 1 ..< txt.AREA_MAX_LINES {
 		newline(ct)
 		testing.expect_value(t, ct.area.bar.w, 0)
 		testing.expect_value(t, ct.area.scroll, 0)

@@ -1,4 +1,4 @@
-package ui
+package text
 
 import "core:strings"
 import "core:time"
@@ -27,7 +27,7 @@ History_Step :: struct {
 	sel:  [2]int,
 }
 
-Text_History :: struct {
+History :: struct {
 	undo, redo: [dynamic]History_Step,
 	now:        History_Step, // the text at the last note
 	bytes:      int, // what undo and redo hold
@@ -39,7 +39,7 @@ Text_History :: struct {
 
 // history_note says what the text is. When it differs from the last note, the
 // change is recorded.
-history_note :: proc(h: ^Text_History, text: string, sel: [2]int, at: time.Tick) {
+history_note :: proc(h: ^History, text: string, sel: [2]int, at: time.Tick) {
 	if !h.started {
 		h.started = true
 		h.now = History_Step{clone_text(text), sel}
@@ -68,22 +68,22 @@ history_note :: proc(h: ^Text_History, text: string, sel: [2]int, at: time.Tick)
 	h.grew, h.at, h.new_step = grew, at, false
 }
 
-history_note_now :: proc(h: ^Text_History, text: string, sel: [2]int) {
+history_note_now :: proc(h: ^History, text: string, sel: [2]int) {
 	history_note(h, text, sel, time.tick_now())
 }
 
 // history_undo steps back. It returns the text to put back and the selection
 // that goes with it, or false when there is nothing to undo.
-history_undo :: proc(h: ^Text_History, text: string) -> (to: History_Step, ok: bool) {
+history_undo :: proc(h: ^History, text: string) -> (to: History_Step, ok: bool) {
 	return history_move(h, &h.undo, &h.redo, text)
 }
 
-history_redo :: proc(h: ^Text_History, text: string) -> (to: History_Step, ok: bool) {
+history_redo :: proc(h: ^History, text: string) -> (to: History_Step, ok: bool) {
 	return history_move(h, &h.redo, &h.undo, text)
 }
 
 // history_clear forgets everything: the text was sent, or is another's now.
-history_clear :: proc(h: ^Text_History) {
+history_clear :: proc(h: ^History) {
 	for s in h.undo {
 		delete(s.text)
 	}
@@ -98,7 +98,7 @@ history_clear :: proc(h: ^Text_History) {
 
 @(private = "file")
 history_move :: proc(
-	h: ^Text_History,
+	h: ^History,
 	from, to: ^[dynamic]History_Step,
 	text: string,
 ) -> (
@@ -123,7 +123,7 @@ history_move :: proc(
 
 // history_push puts a step on a stack, which takes over its text.
 @(private = "file")
-history_push :: proc(h: ^Text_History, stack: ^[dynamic]History_Step, step: History_Step) {
+history_push :: proc(h: ^History, stack: ^[dynamic]History_Step, step: History_Step) {
 	append(stack, step)
 	h.bytes += len(step.text)
 	for len(h.undo) > HISTORY_STEPS || (h.bytes > HISTORY_BYTES && len(h.undo) > 1) {

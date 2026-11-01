@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import txt "text"
 import "core:fmt"
 import "core:testing"
 import mu "vendor:microui"
@@ -29,7 +30,7 @@ test_composer_preview_fits :: proc(t: ^testing.T) {
 		n := copy(buf[:], text)
 		editing: proto.Msg_Id
 		conv: proto.Conv_Id
-		area: Text_Area
+		area: txt.Area
 		c := Composer {
 			buf     = buf[:],
 			len     = &n,
