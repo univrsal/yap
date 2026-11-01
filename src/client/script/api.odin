@@ -31,13 +31,13 @@ Op :: enum c.int {
 // The names the functions get in the yap table. Op is the index.
 @(private)
 OP_NAMES := [?]cstring {
-	int(Op.Log)          = "_log",
-	int(Op.Send)         = "send",
-	int(Op.Notify)       = "notify",
-	int(Op.Timer)        = "timer",
-	int(Op.Cancel)       = "cancel",
-	int(Op.Store_Get)    = "store.get",
-	int(Op.Store_Set)    = "store.set",
+	int(Op.Log) = "_log",
+	int(Op.Send) = "send",
+	int(Op.Notify) = "notify",
+	int(Op.Timer) = "timer",
+	int(Op.Cancel) = "cancel",
+	int(Op.Store_Get) = "store.get",
+	int(Op.Store_Set) = "store.set",
 	int(Op.Store_Delete) = "store.delete",
 	int(Op.Register_Command) = "register_command",
 	int(Op.Unregister_Command) = "unregister_command",
@@ -72,7 +72,13 @@ register_api :: proc(s: ^Script) -> bool {
 
 // host_call is what C calls when a script calls a yap.* function.
 @(private)
-host_call :: proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, ret: ^C_Value) -> c.int {
+host_call :: proc "c" (
+	ud: rawptr,
+	op: c.int,
+	args: [^]C_Value,
+	nargs: c.int,
+	ret: ^C_Value,
+) -> c.int {
 	s := (^Script)(ud)
 	context = s.ctx
 	context.allocator = s.allocator
@@ -107,7 +113,15 @@ Args :: struct {
 }
 
 @(private)
-arg_string :: proc(a: Args, i: int, max: int, optional := false) -> (text: string, err: Maybe(string)) {
+arg_string :: proc(
+	a: Args,
+	i: int,
+	max: int,
+	optional := false,
+) -> (
+	text: string,
+	err: Maybe(string),
+) {
 	if i >= len(a.values) || a.values[i] == nil {
 		if optional {
 			return "", nil
@@ -119,7 +133,12 @@ arg_string :: proc(a: Args, i: int, max: int, optional := false) -> (text: strin
 		return "", error_of("yap.%s: argument #%d must be a string", a.name, i + 1)
 	}
 	if len(text) > max {
-		return "", error_of("yap.%s: argument #%d is too long (at most %d bytes)", a.name, i + 1, max)
+		return "", error_of(
+			"yap.%s: argument #%d is too long (at most %d bytes)",
+			a.name,
+			i + 1,
+			max,
+		)
 	}
 	return text, nil
 }
@@ -164,7 +183,11 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 			s.send_window, s.sent = now, 0
 		}
 		if s.sent >= MAX_SENDS {
-			return nil, error_of("yap.send: sending too fast (at most %d messages in %v)", MAX_SENDS, SEND_WINDOW)
+			return nil, error_of(
+				"yap.send: sending too fast (at most %d messages in %v)",
+				MAX_SENDS,
+				SEND_WINDOW,
+			)
 		}
 		s.sent += 1
 		if e := s.host.send(s.host, s, server, channel, text); e != "" {
@@ -184,7 +207,11 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 			s.notify_window, s.notified = now, 0
 		}
 		if s.notified >= MAX_NOTIFICATIONS {
-			return nil, error_of("yap.notify: too many notifications (at most %d in %v)", MAX_NOTIFICATIONS, NOTIFY_WINDOW)
+			return nil, error_of(
+				"yap.notify: too many notifications (at most %d in %v)",
+				MAX_NOTIFICATIONS,
+				NOTIFY_WINDOW,
+			)
 		}
 		s.notified += 1
 		if e := s.host.notify(s.host, s, server, title, text); e != "" {
@@ -302,7 +329,10 @@ command_name_ok :: proc(name: string) -> bool {
 command_register :: proc(s: ^Script, name, help: string, fn: c.int) -> (err: Maybe(string)) {
 	lower := strings.to_lower(name, context.temp_allocator)
 	if !command_name_ok(lower) {
-		return error_of("yap.register_command: %q is not a command name (letters, digits, - and _)", name)
+		return error_of(
+			"yap.register_command: %q is not a command name (letters, digits, - and _)",
+			name,
+		)
 	}
 	command_unregister(s, lower) // registering again replaces it
 	if len(s.commands) >= MAX_COMMANDS {
@@ -310,7 +340,11 @@ command_register :: proc(s: ^Script, name, help: string, fn: c.int) -> (err: May
 	}
 	append(
 		&s.commands,
-		Command{name = strings.clone(lower, s.allocator), help = strings.clone(help, s.allocator), fn = fn},
+		Command {
+			name = strings.clone(lower, s.allocator),
+			help = strings.clone(help, s.allocator),
+			fn = fn,
+		},
 	)
 	return nil
 }
@@ -344,7 +378,14 @@ truthy :: proc(v: Value) -> bool {
 // pick_server returns the server an action is about: the one named by the
 // script, if it did, otherwise the one the handler is running for.
 @(private = "file")
-pick_server :: proc(s: ^Script, key: string, current: Server_Id) -> (server: Server_Id, err: Maybe(string)) {
+pick_server :: proc(
+	s: ^Script,
+	key: string,
+	current: Server_Id,
+) -> (
+	server: Server_Id,
+	err: Maybe(string),
+) {
 	if key != "" {
 		if s.host == nil || s.host.server_by_key == nil {
 			return 0, "there are no servers"
@@ -362,7 +403,15 @@ pick_server :: proc(s: ^Script, key: string, current: Server_Id) -> (server: Ser
 }
 
 @(private = "file")
-timer_set :: proc(s: ^Script, name: string, delay: time.Duration, again: bool, server: Server_Id) -> (err: Maybe(string)) {
+timer_set :: proc(
+	s: ^Script,
+	name: string,
+	delay: time.Duration,
+	again: bool,
+	server: Server_Id,
+) -> (
+	err: Maybe(string),
+) {
 	timer_cancel(s, name)
 	if len(s.timers) >= MAX_TIMERS {
 		return error_of("yap.timer: at most %d timers", MAX_TIMERS)

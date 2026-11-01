@@ -101,7 +101,10 @@ http_finish :: proc(s: ^Script, id: u64, r: Http_Response) {
 		}
 		c.response.headers = make([]Http_Header, len(r.headers), s.allocator)
 		for h, k in r.headers {
-			c.response.headers[k] = {strings.clone(h.name, s.allocator), strings.clone(h.value, s.allocator)}
+			c.response.headers[k] = {
+				strings.clone(h.name, s.allocator),
+				strings.clone(h.value, s.allocator),
+			}
 		}
 		append(&s.completions, c)
 		unordered_remove(&s.requests, i)
@@ -137,7 +140,10 @@ completions_deliver :: proc(s: ^Script) {
 			found := false
 			for &p in headers {
 				if p.key == name {
-					p.value = strings.concatenate({p.value.(string), ", ", h.value}, context.temp_allocator)
+					p.value = strings.concatenate(
+						{p.value.(string), ", ", h.value},
+						context.temp_allocator,
+					)
 					found = true
 				}
 			}
@@ -198,7 +204,27 @@ header_name_ok :: proc(name: string) -> bool {
 	}
 	for r in name {
 		switch r {
-		case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+		case 'a' ..=
+		     'z',
+		     'A' ..=
+		     'Z',
+		     '0' ..=
+		     '9',
+		     '!',
+		     '#',
+		     '$',
+		     '%',
+		     '&',
+		     '\'',
+		     '*',
+		     '+',
+		     '-',
+		     '.',
+		     '^',
+		     '_',
+		     '`',
+		     '|',
+		     '~':
 		case:
 			return false
 		}
@@ -292,7 +318,10 @@ request_make :: proc(
 				given, given_map := p.value.(Map)
 				if !given_map {
 					if l, is_list := p.value.(List); !is_list || len(l) != 0 {
-						err = error_of("yap.%s: headers must be a table of names and values", a.name)
+						err = error_of(
+							"yap.%s: headers must be a table of names and values",
+							a.name,
+						)
 						return
 					}
 				}
@@ -322,7 +351,14 @@ request_make :: proc(
 // and hands the request to the host, or has the function told at once that there
 // is none. The function is kept (by the caller) in either case.
 @(private)
-request_start :: proc(s: ^Script, req: Http_Request, fn: Function, server: Server_Id) -> (err: Maybe(string)) {
+request_start :: proc(
+	s: ^Script,
+	req: Http_Request,
+	fn: Function,
+	server: Server_Id,
+) -> (
+	err: Maybe(string),
+) {
 	if len(s.requests) >= MAX_PENDING_REQUESTS {
 		return error_of("yap.http: at most %d requests at once", MAX_PENDING_REQUESTS)
 	}
@@ -339,7 +375,10 @@ request_start :: proc(s: ^Script, req: Http_Request, fn: Function, server: Serve
 	append(&s.requests, Pending_Request{id = id, fn = c.int(fn), server = server})
 	fail := ""
 	switch {
-	case s.host == nil || s.host.http_begin == nil || s.host.http_available == nil || !s.host.http_available(s.host):
+	case s.host == nil ||
+	     s.host.http_begin == nil ||
+	     s.host.http_available == nil ||
+	     !s.host.http_available(s.host):
 		fail = "requests can't be made here (no libcurl was found)"
 	case true:
 		fail = s.host.http_begin(s.host, s, id, req)

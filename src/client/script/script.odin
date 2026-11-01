@@ -56,16 +56,26 @@ Server_Id :: distinct u64
 // script (timers and its store). Each returns an error message, "" if it went
 // well. The runtime provides them; a test provides its own.
 Host :: struct {
-	data:          rawptr,
-	log:           proc(host: ^Host, s: ^Script, text: string),
-	send:          proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: string) -> string,
+	data:           rawptr,
+	log:            proc(host: ^Host, s: ^Script, text: string),
+	send:           proc(
+		host: ^Host,
+		s: ^Script,
+		server: Server_Id,
+		channel, text: string,
+	) -> string,
 	// A desktop notification, like the client's own for mentions and calls.
-	notify:        proc(host: ^Host, s: ^Script, server: Server_Id, title, text: string) -> string,
+	notify:         proc(
+		host: ^Host,
+		s: ^Script,
+		server: Server_Id,
+		title, text: string,
+	) -> string,
 	// A line of text in the client's status area (the top of the chat window).
-	status:        proc(host: ^Host, s: ^Script, server: Server_Id, text: string) -> string,
+	status:         proc(host: ^Host, s: ^Script, server: Server_Id, text: string) -> string,
 	// The server with this key, 0 if the script has no such server (it isn't
 	// one it runs for, or there is none).
-	server_by_key: proc(host: ^Host, s: ^Script, key: string) -> Server_Id,
+	server_by_key:  proc(host: ^Host, s: ^Script, key: string) -> Server_Id,
 	// Web requests (http.odin). `http_begin` starts one, an error message if it
 	// can't, and the host reports the outcome with http_finish; `http_cancel` is for
 	// when the script is going, with requests still out.
@@ -92,58 +102,58 @@ Timer :: struct {
 }
 
 Script :: struct {
-	name:      string, // owned
-	state:     State,
-	limits:    Limits,
-	perms:     Permissions,
-	host:      ^Host,
+	name:           string, // owned
+	state:          State,
+	limits:         Limits,
+	perms:          Permissions,
+	host:           ^Host,
 	// The values of its settings (info.odin), for yap.setting: the user's choices,
 	// the defaults where there are none. Scalars; the strings are owned.
-	settings:  map[string]Value,
+	settings:       map[string]Value,
 	// Being read for its get_info only: every yap.* function does nothing, so that
 	// what it does when it loads (registering commands, say) is harmless.
-	meta:      bool,
-	timers:    [dynamic]Timer,
+	meta:           bool,
+	timers:         [dynamic]Timer,
 	// The /commands it registered (api.odin).
-	commands:  [dynamic]Command,
+	commands:       [dynamic]Command,
 	// Web requests that are out, answers waiting to be given (http.odin), and the
 	// requests started in the current minute.
-	requests:    [dynamic]Pending_Request,
-	completions: [dynamic]Completion,
-	next_request: u64,
-	http_window:  time.Tick,
-	http_count:   int,
+	requests:       [dynamic]Pending_Request,
+	completions:    [dynamic]Completion,
+	next_request:   u64,
+	http_window:    time.Tick,
+	http_count:     int,
 	// The argument of the host call being made that the host keeps (a function),
 	// -1 for none.
-	keep_arg:    int,
+	keep_arg:       int,
 	// What the script keeps between runs: yap.store (api.odin). Only scalars.
-	store:     map[string]Value,
-	store_size: int, // the bytes in it, as far as they are counted
-	store_dirty: bool, // it changed since the runtime last saved it
+	store:          map[string]Value,
+	store_size:     int, // the bytes in it, as far as they are counted
+	store_dirty:    bool, // it changed since the runtime last saved it
 	// Filters (filter below) that went wrong in a row; at MAX_FILTER_STRIKES they
 	// are switched off for this script.
 	filter_strikes: int,
 	filters_off:    bool,
 	// How many messages it has sent in the current SEND_WINDOW, and notifications
 	// in the current NOTIFY_WINDOW (api.odin).
-	send_window: time.Tick,
-	sent: int,
-	notify_window: time.Tick,
-	notified: int,
+	send_window:    time.Tick,
+	sent:           int,
+	notify_window:  time.Tick,
+	notified:       int,
 	// Memory for the values passed to a host function and back; emptied at the
 	// start of every call of one.
-	scratch:   runtime.Arena,
+	scratch:        runtime.Arena,
 	// The tasks that haven't finished, in the order they get their turn.
-	tasks:     [dynamic]Task,
+	tasks:          [dynamic]Task,
 	// What the hook needs to know, and the allocator. Their addresses are
 	// handed to C, so a Script stays where create put it.
-	hook:      Hook,
-	mem:       Memory,
-	run:       Run,
-	allocator: runtime.Allocator,
+	hook:           Hook,
+	mem:            Memory,
+	run:            Run,
+	allocator:      runtime.Allocator,
 	// The context it was made in: what the callbacks from C run in, so they log
 	// like everything else.
-	ctx:       runtime.Context,
+	ctx:            runtime.Context,
 }
 
 @(private)
@@ -314,7 +324,17 @@ run_source :: proc(s: ^Script, source: string) -> (err: string, ok: bool) {
 		name = s.name,
 	}
 	src := raw_data(source)
-	status := spawn_chunk(s.state, src, c.size_t(len(source)), cname, &t.thread, &t.ref, &t.nargs, &buf[0], len(buf))
+	status := spawn_chunk(
+		s.state,
+		src,
+		c.size_t(len(source)),
+		cname,
+		&t.thread,
+		&t.ref,
+		&t.nargs,
+		&buf[0],
+		len(buf),
+	)
 	return queue(s, &t, status, buf[:])
 }
 
@@ -322,7 +342,15 @@ run_source :: proc(s: ^Script, source: string) -> (err: string, ok: bool) {
 // argument if it isn't nil, on behalf of `server`. A script that has no such
 // function (it doesn't care about that event) is not an error: `ok` is false
 // and `err` empty.
-call :: proc(s: ^Script, handler: string, arg: Value = nil, server := Server_Id(0)) -> (err: string, ok: bool) {
+call :: proc(
+	s: ^Script,
+	handler: string,
+	arg: Value = nil,
+	server := Server_Id(0),
+) -> (
+	err: string,
+	ok: bool,
+) {
 	cname, _ := strings.clone_to_cstring(handler, context.temp_allocator)
 	buf: [ERROR_LEN]u8
 	t := Task {
@@ -351,7 +379,15 @@ call :: proc(s: ^Script, handler: string, arg: Value = nil, server := Server_Id(
 
 // call_command queues a run of the /command `name` (without the slash) with
 // `arg`, on behalf of `server`. `ok` is false if the script has no such command.
-call_command :: proc(s: ^Script, name: string, arg: Value, server := Server_Id(0)) -> (err: string, ok: bool) {
+call_command :: proc(
+	s: ^Script,
+	name: string,
+	arg: Value,
+	server := Server_Id(0),
+) -> (
+	err: string,
+	ok: bool,
+) {
 	fn := c.int(-1)
 	for cmd in s.commands {
 		if cmd.name == name {
@@ -409,7 +445,16 @@ call_sync :: proc(
 	free_all(arena)
 	defer free_all(arena)
 	value := to_c(arg, arena)
-	#partial switch spawn_global(s.state, cname, &value, &thread, &ref, &nargs, &buf[0], len(buf)) {
+	#partial switch spawn_global(
+		s.state,
+		cname,
+		&value,
+		&thread,
+		&ref,
+		&nargs,
+		&buf[0],
+		len(buf),
+	) {
 	case .Missing:
 		return nil, false, ""
 	case .Error:

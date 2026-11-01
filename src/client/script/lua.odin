@@ -65,7 +65,13 @@ C_FUNC :: 7
 // after the call, unless the host keeps it by setting its type to C_NIL.
 Hook :: struct {
 	check: #type proc "c" (ud: rawptr, thread: State) -> c.int,
-	host:  #type proc "c" (ud: rawptr, op: c.int, args: [^]C_Value, nargs: c.int, ret: ^C_Value) -> c.int,
+	host:  #type proc "c" (
+		ud: rawptr,
+		op: c.int,
+		args: [^]C_Value,
+		nargs: c.int,
+		ret: ^C_Value,
+	) -> c.int,
 	ud:    rawptr,
 }
 

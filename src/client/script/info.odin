@@ -121,7 +121,12 @@ parse_into :: proc(
 ) {
 	problems := problems_out
 	defs := defs_out
-	note :: proc(problems: ^[dynamic]string, allocator: runtime.Allocator, format: string, args: ..any) {
+	note :: proc(
+		problems: ^[dynamic]string,
+		allocator: runtime.Allocator,
+		format: string,
+		args: ..any,
+	) {
 		append(problems, strings.clone(fmt.tprintf(format, ..args), allocator))
 	}
 
@@ -131,7 +136,14 @@ parse_into :: proc(
 		return
 	}
 	info.name = text_field(table, "name", MAX_INFO_NAME, problems, allocator, "name")
-	info.description = text_field(table, "description", MAX_INFO_DESCRIPTION, problems, allocator, "description")
+	info.description = text_field(
+		table,
+		"description",
+		MAX_INFO_DESCRIPTION,
+		problems,
+		allocator,
+		"description",
+	)
 	info.version = text_field(table, "version", MAX_INFO_VERSION, problems, allocator, "version")
 	info.author = text_field(table, "author", MAX_INFO_NAME, problems, allocator, "author")
 
@@ -158,7 +170,8 @@ parse_into :: proc(
 	if list, ok := field(table, "servers").(List); ok {
 		servers := make([dynamic]string, allocator)
 		for s in list {
-			if name, is_text := s.(string); is_text && name != "" && len(name) <= 256 && len(servers) < 16 {
+			if name, is_text := s.(string);
+			   is_text && name != "" && len(name) <= 256 && len(servers) < 16 {
 				append(&servers, strings.clone(name, allocator))
 			}
 		}
@@ -237,7 +250,12 @@ key_ok :: proc(key: string) -> bool {
 		return false
 	}
 	for r in key {
-		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' && r != '.' {
+		if !(r >= 'a' && r <= 'z') &&
+		   !(r >= 'A' && r <= 'Z') &&
+		   !(r >= '0' && r <= '9') &&
+		   r != '_' &&
+		   r != '-' &&
+		   r != '.' {
 			return false
 		}
 	}
@@ -266,8 +284,20 @@ parse_setting :: proc(
 	def: Setting_Def,
 	ok: bool,
 ) {
-	bad :: proc(problems: ^[dynamic]string, allocator: runtime.Allocator, n: int, format: string, args: ..any) {
-		append(problems, strings.clone(fmt.tprintf("setting %d: %s", n, fmt.tprintf(format, ..args)), allocator))
+	bad :: proc(
+		problems: ^[dynamic]string,
+		allocator: runtime.Allocator,
+		n: int,
+		format: string,
+		args: ..any,
+	) {
+		append(
+			problems,
+			strings.clone(
+				fmt.tprintf("setting %d: %s", n, fmt.tprintf(format, ..args)),
+				allocator,
+			),
+		)
 	}
 	m, is_map := entry.(Map)
 	if !is_map {
@@ -276,7 +306,13 @@ parse_setting :: proc(
 	}
 	key, _ := field(m, "key").(string)
 	if !key_ok(key) {
-		bad(problems, allocator, n, "the key must be 1 to %d letters, digits, _ - or .", MAX_SETTING_KEY)
+		bad(
+			problems,
+			allocator,
+			n,
+			"the key must be 1 to %d letters, digits, _ - or .",
+			MAX_SETTING_KEY,
+		)
 		return
 	}
 	for d in existing {
@@ -298,7 +334,13 @@ parse_setting :: proc(
 	case "choice":
 		def.type = .Choice
 	case:
-		bad(problems, allocator, n, "%q is not a type (bool, int, number, string, choice)", type_name)
+		bad(
+			problems,
+			allocator,
+			n,
+			"%q is not a type (bool, int, number, string, choice)",
+			type_name,
+		)
 		return
 	}
 	label, _ := field(m, "label").(string)
@@ -333,7 +375,8 @@ parse_setting :: proc(
 		choices := make([dynamic]string, allocator)
 		if list, has := field(m, "choices").(List); has {
 			for c in list {
-				if text, is_text := c.(string); is_text && text != "" && len(choices) < MAX_CHOICES {
+				if text, is_text := c.(string);
+				   is_text && text != "" && len(choices) < MAX_CHOICES {
 					append(&choices, strings.clone(cut(text, MAX_CHOICE), allocator))
 				}
 			}

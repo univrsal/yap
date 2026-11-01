@@ -46,7 +46,13 @@ load :: proc(t: ^testing.T, s: ^Script, source: string) {
 	defer finish(&results)
 	testing.expect_value(t, len(results), 1)
 	if len(results) == 1 {
-		testing.expectf(t, results[0].status == .Finished, "script's own code: %v %v", results[0].status, results[0].message)
+		testing.expectf(
+			t,
+			results[0].status == .Finished,
+			"script's own code: %v %v",
+			results[0].status,
+			results[0].message,
+		)
 	}
 }
 
@@ -54,7 +60,11 @@ load :: proc(t: ^testing.T, s: ^Script, source: string) {
 test_runs_a_handler :: proc(t: ^testing.T) {
 	s := new_script(t)
 	defer destroy(s)
-	load(t, s, "seen = {}\nfunction on_message(text) seen[#seen + 1] = text:upper() end\nfunction count() assert(#seen == 2 and seen[2] == 'WORLD') end")
+	load(
+		t,
+		s,
+		"seen = {}\nfunction on_message(text) seen[#seen + 1] = text:upper() end\nfunction count() assert(#seen == 2 and seen[2] == 'WORLD') end",
+	)
 
 	for text in ([]string{"hello", "world"}) {
 		err, ok := call(s, "on_message", text)
@@ -119,9 +129,19 @@ test_errors_are_reported :: proc(t: ^testing.T) {
 	defer finish(&results)
 	testing.expect_value(t, len(results), 2)
 	testing.expect_value(t, results[0].status, Status.Error)
-	testing.expectf(t, strings.contains(results[0].message, "nope"), "message: %q", results[0].message)
+	testing.expectf(
+		t,
+		strings.contains(results[0].message, "nope"),
+		"message: %q",
+		results[0].message,
+	)
 	testing.expect_value(t, results[1].status, Status.Error)
-	testing.expectf(t, strings.contains(results[1].message, "table"), "message: %q", results[1].message)
+	testing.expectf(
+		t,
+		strings.contains(results[1].message, "table"),
+		"message: %q",
+		results[1].message,
+	)
 
 	// The script is still there afterwards.
 	load(t, s, "ok = true")
@@ -268,12 +288,21 @@ test_coroutines_of_the_script :: proc(t: ^testing.T) {
 test_memory_is_limited :: proc(t: ^testing.T) {
 	s := new_script(t, Limits{memory = 1024 * 1024, total = DEFAULT_LIMITS.total})
 	defer destroy(s)
-	load(t, s, "function hog() local t = {} for i = 1, 1e7 do t[i] = ('x'):rep(100) .. i end end function ok() local t = {} for i = 1, 100 do t[i] = i end end")
+	load(
+		t,
+		s,
+		"function hog() local t = {} for i = 1, 1e7 do t[i] = ('x'):rep(100) .. i end end function ok() local t = {} for i = 1, 100 do t[i] = i end end",
+	)
 	_, _ = call(s, "hog")
 	results, _, _ := run_to_end(s)
 	testing.expect_value(t, len(results), 1)
 	testing.expect_value(t, results[0].status, Status.Error)
-	testing.expectf(t, strings.contains(results[0].message, "memory"), "message: %q", results[0].message)
+	testing.expectf(
+		t,
+		strings.contains(results[0].message, "memory"),
+		"message: %q",
+		results[0].message,
+	)
 	finish(&results)
 
 	// It was freed, and the script still works.
@@ -295,7 +324,11 @@ test_memory_is_limited_when_spawning :: proc(t: ^testing.T) {
 	defer destroy(s)
 	load(t, s, "keep = {} function f() end")
 	// Fill what is left, without letting the script's own allocation fail.
-	load(t, s, "for i = 1, 100000 do local ok = pcall(function() keep[#keep + 1] = ('y'):rep(1000) .. i end) if not ok then break end end")
+	load(
+		t,
+		s,
+		"for i = 1, 100000 do local ok = pcall(function() keep[#keep + 1] = ('y'):rep(1000) .. i end) if not ok then break end end",
+	)
 	failed := 0
 	for _ in 0 ..< 50 {
 		_, ok := call(s, "f")
@@ -350,24 +383,24 @@ test_nothing_leaks_when_destroyed_midway :: proc(t: ^testing.T) {
 // A host for tests: it records what the script asked for.
 @(private = "file")
 Fake :: struct {
-	host:     Host,
-	logs:     [dynamic]string,
-	sent:     [dynamic]string,
-	notices:  [dynamic]string,
-	statuses: [dynamic]string,
-	servers:  map[string]Server_Id,
+	host:        Host,
+	logs:        [dynamic]string,
+	sent:        [dynamic]string,
+	notices:     [dynamic]string,
+	statuses:    [dynamic]string,
+	servers:     map[string]Server_Id,
 	// Web requests: what was asked for, whether they can be made, and what
 	// starting one says.
-	asked:        [dynamic]Asked,
-	http_off:     bool,
-	begin_error:  string,
+	asked:       [dynamic]Asked,
+	http_off:    bool,
+	begin_error: string,
 }
 
 Asked :: struct {
-	id:                   u64,
-	method, url, body:    string,
-	headers:              string, // "Name: value" lines
-	timeout:              time.Duration,
+	id:                u64,
+	method, url, body: string,
+	headers:           string, // "Name: value" lines
+	timeout:           time.Duration,
 }
 
 @(private = "file")
@@ -541,7 +574,12 @@ test_yap_functions :: proc(t: ^testing.T) {
 	results, _, _ = run_to_end(s)
 	defer finish(&results)
 	testing.expect_value(t, results[0].status, Status.Error)
-	testing.expectf(t, strings.contains(results[0].message, "no server"), "message: %q", results[0].message)
+	testing.expectf(
+		t,
+		strings.contains(results[0].message, "no server"),
+		"message: %q",
+		results[0].message,
+	)
 }
 
 @(test)
@@ -552,14 +590,18 @@ test_permissions :: proc(t: ^testing.T) {
 	s := new_script(t)
 	defer destroy(s)
 	s.host = &f.host
-	load(t, s, `
+	load(
+		t,
+		s,
+		`
 		function try()
 			local ok, err = pcall(yap.send, "general", "x")
 			assert(not ok and err:find("'send' permission"), err)
 			ok, err = pcall(yap.notify, "t", "x")
 			assert(not ok and err:find("'notify' permission"), err)
 			yap.log("logging needs none")
-		end`)
+		end`,
+	)
 	_, _ = call(s, "try", nil, 1)
 	results, _, _ := run_to_end(s)
 	defer finish(&results)
@@ -698,7 +740,11 @@ test_register_command :: proc(t: ^testing.T) {
 	}
 	_, ok := call(s, "bad")
 	testing.expect(t, ok)
-	_, ok = call_command(s, "roll", Map([]Pair{{"name", "roll"}, {"args", "2d6 +1"}, {"argv", List([]Value{"2d6", "+1"})}}))
+	_, ok = call_command(
+		s,
+		"roll",
+		Map([]Pair{{"name", "roll"}, {"args", "2d6 +1"}, {"argv", List([]Value{"2d6", "+1"})}}),
+	)
 	testing.expect(t, ok)
 	_, ok = call_command(s, "short", Map([]Pair{}))
 	testing.expect(t, ok)
@@ -750,7 +796,14 @@ test_filters :: proc(t: ^testing.T) {
 		`,
 	)
 	ev := Map([]Pair{{"text", "spam"}})
-	check :: proc(t: ^testing.T, s: ^Script, handler: string, ev: Value, want: Filter_Outcome, want_text := "") {
+	check :: proc(
+		t: ^testing.T,
+		s: ^Script,
+		handler: string,
+		ev: Value,
+		want: Filter_Outcome,
+		want_text := "",
+	) {
 		outcome, text, err := filter(s, handler, ev)
 		testing.expectf(t, err == "", "%s: %s", handler, err)
 		testing.expect_value(t, outcome, want)
@@ -823,10 +876,14 @@ test_a_filter_between_the_steps_of_a_handler :: proc(t: ^testing.T) {
 	// Running a filter must not disturb a handler that has been suspended.
 	s := new_script(t)
 	defer destroy(s)
-	load(t, s, `
+	load(
+		t,
+		s,
+		`
 		function slow() local x = 0 for i = 1, 3000000 do x = x + i end done = x end
 		function check() assert(done == 3000000 * 3000001 // 2) end
-		function f(ev) return "filtered" end`)
+		function f(ev) return "filtered" end`,
+	)
 	_, _ = call(s, "slow")
 	results: [dynamic]Result
 	defer finish(&results)
@@ -903,7 +960,20 @@ test_http_requests_and_answers :: proc(t: ^testing.T) {
 		testing.expect_value(t, f.asked[1].timeout, 3 * time.Second)
 		testing.expect_value(t, f.asked[0].timeout, DEFAULT_REQUEST_TIME)
 		// Nothing has answered yet, so nothing has been called.
-		http_finish(s, f.asked[0].id, Http_Response{ok = true, status = 200, body = "hello", headers = []Http_Header{{"Content-Type", "text/plain"}, {"X-Multi", "1"}, {"x-multi", "2"}}})
+		http_finish(
+			s,
+			f.asked[0].id,
+			Http_Response {
+				ok = true,
+				status = 200,
+				body = "hello",
+				headers = []Http_Header {
+					{"Content-Type", "text/plain"},
+					{"X-Multi", "1"},
+					{"x-multi", "2"},
+				},
+			},
+		)
 		http_finish(s, f.asked[1].id, Http_Response{ok = true, status = 404, body = "gone"})
 		http_finish(s, f.asked[2].id, Http_Response{error = "timed out"})
 		http_finish(s, 999, Http_Response{ok = true}) // not a request of its own: ignored
@@ -970,7 +1040,11 @@ test_http_needs_permission_and_a_good_request :: proc(t: ^testing.T) {
 	results2, _, _ := run_to_end(s)
 	defer finish(&results2)
 	testing.expect_value(t, results2[0].status, Status.Error)
-	testing.expect(t, strings.contains(results2[0].message, "'net' permission") || strings.contains(results2[0].message, "assert"))
+	testing.expect(
+		t,
+		strings.contains(results2[0].message, "'net' permission") ||
+		strings.contains(results2[0].message, "assert"),
+	)
 }
 
 @(test)
@@ -1012,7 +1086,11 @@ test_http_limits :: proc(t: ^testing.T) {
 		results, _, _ = run_to_end(s)
 		if results[0].status == .Error {
 			failed = true
-			testing.expect(t, strings.contains(results[0].message, "in a minute"), results[0].message)
+			testing.expect(
+				t,
+				strings.contains(results[0].message, "in a minute"),
+				results[0].message,
+			)
 		} else if len(f.asked) > 0 {
 			http_finish(s, f.asked[len(f.asked) - 1].id, Http_Response{ok = true, status = 200})
 		}
@@ -1117,7 +1195,11 @@ test_status_and_the_limit_on_notifications :: proc(t: ^testing.T) {
 	_, _ = call(s, "flood")
 	results, _, _ = run_to_end(s)
 	testing.expect_value(t, results[0].status, Status.Error)
-	testing.expect(t, strings.contains(results[0].message, "too many notifications"), results[0].message)
+	testing.expect(
+		t,
+		strings.contains(results[0].message, "too many notifications"),
+		results[0].message,
+	)
 	finish(&results)
 	testing.expect_value(t, len(f.notices), MAX_NOTIFICATIONS)
 
@@ -1126,11 +1208,15 @@ test_status_and_the_limit_on_notifications :: proc(t: ^testing.T) {
 	load_check :: proc(t: ^testing.T, s: ^Script, source: string) {
 		load(t, s, source)
 	}
-	load_check(t, s, `
+	load_check(
+		t,
+		s,
+		`
 		function nope()
 			local ok, err = pcall(yap.status, "x") assert(not ok and err:find("'notify' permission"), err)
 			ok, err = pcall(yap.notify, "x") assert(not ok and err:find("'notify' permission"), err)
-		end`)
+		end`,
+	)
 	_, _ = call(s, "nope")
 	results, _, _ = run_to_end(s)
 	defer finish(&results)

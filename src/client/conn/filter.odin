@@ -16,7 +16,7 @@ import "common:proto"
 HIDDEN_TEXT :: "[hidden by a script]"
 
 Filter_Result :: struct {
-	hide: bool,
+	hide:     bool,
 	// What to show instead of the text, if `replaced`. In the temp allocator.
 	text:     string,
 	replaced: bool,

@@ -111,9 +111,15 @@ script_command :: proc(rt: ^script.Runtime, line: string) {
 		} else {
 			script.runtime_set_scope(rt, args[2], false, args[3:])
 		}
-		log.infof("%s: runs for %s", args[2], "every server" if args[3] == "all" else strings.join(args[3:], ", ", context.temp_allocator))
+		log.infof(
+			"%s: runs for %s",
+			args[2],
+			"every server" if args[3] == "all" else strings.join(args[3:], ", ", context.temp_allocator),
+		)
 	case:
-		log.warn("commands: /script, /script on|off <file>, /script reload, /script settings <file>, /script set <file> <key> <value>, /script servers <file> all|<address> ...")
+		log.warn(
+			"commands: /script, /script on|off <file>, /script reload, /script settings <file>, /script set <file> <key> <value>, /script servers <file> all|<address> ...",
+		)
 	}
 }
 
@@ -167,6 +173,12 @@ script_list :: proc(rt: ^script.Runtime) {
 		case v.problem != "":
 			state = fmt.tprintf("can't run: %s", v.problem)
 		}
-		log.infof("%s (%s): %s; asks for: %s", v.file, v.name, state, permissions_text(v.requested))
+		log.infof(
+			"%s (%s): %s; asks for: %s",
+			v.file,
+			v.name,
+			state,
+			permissions_text(v.requested),
+		)
 	}
 }

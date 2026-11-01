@@ -104,7 +104,13 @@ test_read_info :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(info.settings), 6)
 	testing.expect_value(t, len(info.problems), 7)
 	if len(info.settings) == 6 {
-		words, volume, count, loud, place, token := info.settings[0], info.settings[1], info.settings[2], info.settings[3], info.settings[4], info.settings[5]
+		words, volume, count, loud, place, token :=
+			info.settings[0],
+			info.settings[1],
+			info.settings[2],
+			info.settings[3],
+			info.settings[4],
+			info.settings[5]
 		testing.expect_value(t, words.default.(string), "yap")
 		testing.expect_value(t, volume.default.(f64), 1) // clamped to the range
 		testing.expect_value(t, count.default.(i64), 1) // an int doesn't take 3.5: the least it may be
@@ -124,7 +130,13 @@ test_read_info_without_get_info_or_with_trouble :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, "")
 	info_destroy(&info)
 
-	for source in ([]string{"function (", "error('boom')", "while true do end", "function get_info() error('oops') end", "function get_info() while true do end end"}) {
+	for source in ([]string {
+			"function (",
+			"error('boom')",
+			"while true do end",
+			"function get_info() error('oops') end",
+			"function get_info() while true do end end",
+		}) {
 		info, has, err = read_info("bad.lua", source)
 		testing.expect(t, !has, source)
 		testing.expectf(t, err != "", "no error for %q", source)
@@ -145,7 +157,14 @@ test_setting_values_are_checked :: proc(t: ^testing.T) {
 	def :: proc(type: Setting_Type, choices: []string) -> Setting_Def {
 		return Setting_Def{type = type, max_len = 5, choices = choices}
 	}
-	check :: proc(t: ^testing.T, d: ^Setting_Def, v: Value, want: Value, ok: bool, loc := #caller_location) {
+	check :: proc(
+		t: ^testing.T,
+		d: ^Setting_Def,
+		v: Value,
+		want: Value,
+		ok: bool,
+		loc := #caller_location,
+	) {
 		got, valid := setting_value(d, v)
 		testing.expect_value(t, valid, ok, loc = loc)
 		if ok {

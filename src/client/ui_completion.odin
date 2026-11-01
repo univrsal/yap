@@ -268,8 +268,12 @@ command_items :: proc(ui: ^UI, text: string, cursor: int) -> bool {
 		if !strings.has_prefix(info.name, prefix) {
 			continue
 		}
-		label := strings.concatenate({"/", info.name, "   ", info.help}) if info.help != "" else strings.concatenate({"/", info.name})
-		append(&cm.items, Completion_Item{insert = strings.concatenate({"/", info.name, " "}), label = label})
+		label :=
+			strings.concatenate({"/", info.name, "   ", info.help}) if info.help != "" else strings.concatenate({"/", info.name})
+		append(
+			&cm.items,
+			Completion_Item{insert = strings.concatenate({"/", info.name, " "}), label = label},
+		)
 	}
 	// Once the whole name is typed there is nothing left to complete, and Enter
 	// runs the command.

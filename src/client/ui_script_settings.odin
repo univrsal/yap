@@ -27,16 +27,16 @@ Script_Field :: struct {
 }
 
 UI_Scripts :: struct {
-	dir:        string, // where they are kept, for the page to say (owned)
-	fields:     map[string]^Script_Field, // by "file/key" (owned keys)
-	approving:  string, // the script whose approval is open (owned)
-	removing:   bool, // the delete button of that script is armed
-	note:       string, // what the last action said, if it failed (owned)
-	adding:     bool, // the form for a new script is open
-	add_name:   Text_Field(48),
-	add_text:   []u8, // MAX_SCRIPT_SIZE bytes, made when the form opens
-	add_len:    int,
-	add_area:   Text_Area,
+	dir:       string, // where they are kept, for the page to say (owned)
+	fields:    map[string]^Script_Field, // by "file/key" (owned keys)
+	approving: string, // the script whose approval is open (owned)
+	removing:  bool, // the delete button of that script is armed
+	note:      string, // what the last action said, if it failed (owned)
+	adding:    bool, // the form for a new script is open
+	add_name:  Text_Field(48),
+	add_text:  []u8, // MAX_SCRIPT_SIZE bytes, made when the form opens
+	add_len:   int,
+	add_area:  Text_Area,
 }
 
 scripts_ui_destroy :: proc(ui: ^UI) {
@@ -76,7 +76,10 @@ script_settings :: proc(ui: ^UI) {
 	)
 	if su.dir != "" {
 		mu.layout_row(ctx, {-1})
-		dim_note(ctx, fmt.tprintf("  Put scripts (files ending in .lua) in %s, then press Reload.", su.dir))
+		dim_note(
+			ctx,
+			fmt.tprintf("  Put scripts (files ending in .lua) in %s, then press Reload.", su.dir),
+		)
 	}
 	// Whether scripts can make web requests at all (on Linux that takes libcurl).
 	http_ok, http_how := script.runtime_http_status(rt)
@@ -84,7 +87,13 @@ script_settings :: proc(ui: ^UI) {
 	if http_ok {
 		dim_note(ctx, fmt.tprintf("  Web requests: available (%s).", http_how))
 	} else {
-		error_note(ctx, fmt.tprintf("  Web requests are not available: %s. Scripts that need them will not work.", http_how))
+		error_note(
+			ctx,
+			fmt.tprintf(
+				"  Web requests are not available: %s. Scripts that need them will not work.",
+				http_how,
+			),
+		)
 	}
 	mu.layout_row(ctx, {120, 120, -1})
 	if .SUBMIT in button(ctx, "Reload") {
@@ -139,11 +148,19 @@ script_add_form :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	dim_note(ctx, "  Letters, digits, _ and -, ending in .lua. Paste the script below.")
 	su.add_area.min_lines = 8
-	mu.layout_row(ctx, {-1}, text_area_height(ctx, ctx.style.font, string(su.add_text[:su.add_len]), &su.add_area))
+	mu.layout_row(
+		ctx,
+		{-1},
+		text_area_height(ctx, ctx.style.font, string(su.add_text[:su.add_len]), &su.add_area),
+	)
 	text_area(ui, su.add_text, &su.add_len, &su.add_area)
 	mu.layout_row(ctx, {120, -1})
 	if .SUBMIT in button(ctx, "Save") {
-		if err := script.runtime_add_source(ui.scripts, field_text(&su.add_name), string(su.add_text[:su.add_len])); err != "" {
+		if err := script.runtime_add_source(
+			ui.scripts,
+			field_text(&su.add_name),
+			string(su.add_text[:su.add_len]),
+		); err != "" {
 			set_note(su, err)
 		} else {
 			set_note(su, "")
@@ -216,7 +233,8 @@ script_card :: proc(ui: ^UI, v: script.Item_View) {
 		)
 		mu.layout_row(ctx, {160, 160, -1})
 		if .SUBMIT in button(ctx, "Allow and switch on") {
-			if err := script.runtime_set_enabled(ui.scripts, v.file, true, v.requested); err != "" {
+			if err := script.runtime_set_enabled(ui.scripts, v.file, true, v.requested);
+			   err != "" {
 				set_note(su, err)
 			} else {
 				set_note(su, "")
@@ -242,7 +260,13 @@ script_card :: proc(ui: ^UI, v: script.Item_View) {
 	}
 
 	mu.layout_row(ctx, {160, -1})
-	if confirm_button(ctx, &su.removing, fmt.tprintf("remove %s", v.file), "Delete script", "Really delete?") {
+	if confirm_button(
+		ctx,
+		&su.removing,
+		fmt.tprintf("remove %s", v.file),
+		"Delete script",
+		"Really delete?",
+	) {
 		script.runtime_remove_source(ui.scripts, v.file)
 		scripts_forget_fields(su)
 	}
@@ -359,13 +383,21 @@ script_setting :: proc(ui: ^UI, v: script.Item_View, s: script.Setting_View) {
 		text, _ := s.value.(string)
 		items := make([]Dropdown_Item, len(def.choices), context.temp_allocator)
 		for c, i in def.choices {
-			items[i] = {label = c}
+			items[i] = {
+				label = c,
+			}
 			if c == text {
 				current = i
 			}
 		}
 		field_row(ui, 160, def.label, {-1})
-		if picked, ok := dropdown(ui, fmt.tprintf("script %s %s", v.file, def.key), text, items, current); ok {
+		if picked, ok := dropdown(
+			ui,
+			fmt.tprintf("script %s %s", v.file, def.key),
+			text,
+			items,
+			current,
+		); ok {
 			set(ui, v.file, def.key, def.choices[picked])
 		}
 	case .Int, .Number:
@@ -388,30 +420,48 @@ script_setting :: proc(ui: ^UI, v: script.Item_View, s: script.Setting_View) {
 				set(ui, v.file, def.key, i64(f.slider) if def.type == .Int else f64(f.slider))
 			}
 		} else {
-			script_text_setting(ui, v, def, f, fmt.tprint(current), false, proc(ui: ^UI, v: script.Item_View, def: script.Setting_Def, text: string) {
-				n, ok := strconv.parse_f64(strings.trim_space(text))
-				if !ok {
-					set_note(&ui.script_ui, fmt.tprintf("%s needs a number", def.label))
-					return
-				}
-				if def.type == .Int {
-					if err := script.runtime_set_value(ui.scripts, v.file, def.key, i64(n)); err != "" {
+			script_text_setting(
+				ui,
+				v,
+				def,
+				f,
+				fmt.tprint(current),
+				false,
+				proc(ui: ^UI, v: script.Item_View, def: script.Setting_Def, text: string) {
+					n, ok := strconv.parse_f64(strings.trim_space(text))
+					if !ok {
+						set_note(&ui.script_ui, fmt.tprintf("%s needs a number", def.label))
+						return
+					}
+					if def.type == .Int {
+						if err := script.runtime_set_value(ui.scripts, v.file, def.key, i64(n));
+						   err != "" {
+							set_note(&ui.script_ui, err)
+						}
+					} else if err := script.runtime_set_value(ui.scripts, v.file, def.key, n);
+					   err != "" {
 						set_note(&ui.script_ui, err)
 					}
-				} else if err := script.runtime_set_value(ui.scripts, v.file, def.key, n); err != "" {
-					set_note(&ui.script_ui, err)
-				}
-			})
+				},
+			)
 		}
 	case .String:
 		f := script_field(su, v.file, def.key)
 		text, _ := s.value.(string)
 		field_row(ui, 160, def.label, {-1})
-		script_text_setting(ui, v, def, f, text, def.secret, proc(ui: ^UI, v: script.Item_View, def: script.Setting_Def, text: string) {
-			if err := script.runtime_set_value(ui.scripts, v.file, def.key, text); err != "" {
-				set_note(&ui.script_ui, err)
-			}
-		})
+		script_text_setting(
+			ui,
+			v,
+			def,
+			f,
+			text,
+			def.secret,
+			proc(ui: ^UI, v: script.Item_View, def: script.Setting_Def, text: string) {
+				if err := script.runtime_set_value(ui.scripts, v.file, def.key, text); err != "" {
+					set_note(&ui.script_ui, err)
+				}
+			},
+		)
 	}
 	if def.description != "" {
 		mu.layout_row(ctx, {-1})

@@ -96,8 +96,11 @@ http_start :: proc(rt: ^Runtime) {
 	backend: cstring
 	rt.http.client = new(MAX_RESPONSE, &backend)
 	if rt.http.client == nil {
-		when ODIN_OS == .Linux || ODIN_OS == .FreeBSD || ODIN_OS == .OpenBSD || ODIN_OS == .NetBSD {
-			log.warn("script: libcurl was not found, so scripts can't make web requests (yap.http_get, yap.http_post)")
+		when ODIN_OS ==
+			.Linux || ODIN_OS == .FreeBSD || ODIN_OS == .OpenBSD || ODIN_OS == .NetBSD {
+			log.warn(
+				"script: libcurl was not found, so scripts can't make web requests (yap.http_get, yap.http_post)",
+			)
 		} else {
 			log.warn("script: web requests are not available, so scripts can't make them")
 		}

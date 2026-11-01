@@ -125,9 +125,25 @@ test_scripts_only_run_for_their_servers :: proc(t: ^testing.T) {
 	defer rig_destroy(&r)
 	source := `function on_message(ev) yap.send("c", ev.server.address) end`
 	// By address, ignoring case; by key; and for all of them.
-	testing.expect(t, runtime_add(r.rt, "by_address.lua", source, Script_Config{permissions = {"send"}, servers = {"A.EXAMPLE:7777"}}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"by_address.lua",
+			source,
+			Script_Config{permissions = {"send"}, servers = {"A.EXAMPLE:7777"}},
+		),
+	)
 	key_b := fmt.tprintf("bb%s", strings.repeat("0", 62, context.temp_allocator))
-	testing.expect(t, runtime_add(r.rt, "by_key.lua", source, Script_Config{permissions = {"send"}, servers = {key_b}}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"by_key.lua",
+			source,
+			Script_Config{permissions = {"send"}, servers = {key_b}},
+		),
+	)
 	testing.expect(t, runtime_add(r.rt, "all.lua", source, Script_Config{permissions = {"send"}}))
 
 	emit(r.a, message("x"))
@@ -160,7 +176,16 @@ test_connect_and_presence_events :: proc(t: ^testing.T) {
 		),
 	)
 	emit(r.a, conn.Event_Connected{})
-	emit(r.a, conn.Event_Presence{account = 4, name = strings.clone("Bob"), username = strings.clone("bob"), activity = .Away, was = .Online})
+	emit(
+		r.a,
+		conn.Event_Presence {
+			account = 4,
+			name = strings.clone("Bob"),
+			username = strings.clone("bob"),
+			activity = .Away,
+			was = .Online,
+		},
+	)
 	emit(r.a, conn.Event_Disconnected{why = strings.clone("timeout")})
 	runtime_step(r.rt, 10 * time.Millisecond)
 	texts := posted(r.a)
@@ -177,9 +202,28 @@ test_connect_and_presence_events :: proc(t: ^testing.T) {
 test_a_failing_handler_does_not_stop_the_others :: proc(t: ^testing.T) {
 	r := rig_new()
 	defer rig_destroy(&r)
-	testing.expect(t, runtime_add(r.rt, "bad.lua", `function on_message(ev) error("oops") end`, Script_Config{}))
-	testing.expect(t, runtime_add(r.rt, "loop.lua", `function on_message(ev) while true do end end`, Script_Config{}))
-	testing.expect(t, runtime_add(r.rt, "good.lua", `function on_message(ev) yap.send("c", "fine") end`, Script_Config{permissions = {"send"}}))
+	testing.expect(
+		t,
+		runtime_add(r.rt, "bad.lua", `function on_message(ev) error("oops") end`, Script_Config{}),
+	)
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"loop.lua",
+			`function on_message(ev) while true do end end`,
+			Script_Config{},
+		),
+	)
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"good.lua",
+			`function on_message(ev) yap.send("c", "fine") end`,
+			Script_Config{permissions = {"send"}},
+		),
+	)
 	emit(r.a, message("x"))
 	// Until every script is done, however long a sleep takes on this system.
 	busy :: proc(r: ^Rig) -> bool {
@@ -217,7 +261,11 @@ test_a_script_that_does_not_load_is_not_run :: proc(t: ^testing.T) {
 @(test)
 test_load_from_config_and_keep_the_store :: proc(t: ^testing.T) {
 	tmp := os.get_env("TMPDIR", context.temp_allocator)
-	dir := fmt.aprintf("%s/yap-script-test-%d", tmp if tmp != "" else "/tmp", time.tick_now()._nsec)
+	dir := fmt.aprintf(
+		"%s/yap-script-test-%d",
+		tmp if tmp != "" else "/tmp",
+		time.tick_now()._nsec,
+	)
 	defer delete(dir)
 	defer os.remove_all(dir)
 	{
@@ -232,7 +280,10 @@ test_load_from_config_and_keep_the_store :: proc(t: ^testing.T) {
 		os.make_directory_all(dir)
 		_ = os.write_entire_file(fmt.tprintf("%s/config.json", dir), transmute([]u8)config)
 		_ = os.write_entire_file(fmt.tprintf("%s/count.lua", dir), transmute([]u8)script)
-		_ = os.write_entire_file(fmt.tprintf("%s/off.lua", dir), transmute([]u8)string("syntax error here"))
+		_ = os.write_entire_file(
+			fmt.tprintf("%s/off.lua", dir),
+			transmute([]u8)string("syntax error here"),
+		)
 	}
 
 	for run in 1 ..= 2 {
@@ -254,7 +305,10 @@ test_load_from_config_and_keep_the_store :: proc(t: ^testing.T) {
 		delete(other)
 		rig_destroy(&r) // saves the store
 	}
-	saved, ok := os.read_entire_file(fmt.tprintf("%s/data/count.lua.json", dir), context.temp_allocator)
+	saved, ok := os.read_entire_file(
+		fmt.tprintf("%s/data/count.lua.json", dir),
+		context.temp_allocator,
+	)
 	testing.expect(t, ok == nil)
 	testing.expectf(t, strings.contains(string(saved), `"who": "Ann"`), "saved: %s", saved)
 }
@@ -281,8 +335,24 @@ test_script_commands_run_for_their_servers :: proc(t: ^testing.T) {
 			assert(ev.channel == "general" and ev.server.address)
 			yap.send(ev.channel, "rolled " .. ev.args .. " on " .. ev.server.address)
 		end)`
-	testing.expect(t, runtime_add(r.rt, "dice.lua", src, Script_Config{permissions = {"send"}, servers = {"a.example:7777"}}))
-	testing.expect(t, runtime_add(r.rt, "all.lua", `yap.register_command("hello", "Say hello", function() end)`, Script_Config{}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"dice.lua",
+			src,
+			Script_Config{permissions = {"send"}, servers = {"a.example:7777"}},
+		),
+	)
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"all.lua",
+			`yap.register_command("hello", "Say hello", function() end)`,
+			Script_Config{},
+		),
+	)
 
 	list_a := runtime_commands(r.rt, r.a)
 	list_b := runtime_commands(r.rt, r.b)
@@ -309,8 +379,18 @@ test_script_commands_run_for_their_servers :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-incoming :: proc(c: ^conn.Server_Conn, text: string, sender := proto.Account_Id(9)) -> (shown: string, hidden: bool) {
-	out, hide := conn.filter_message(c, proto.Message{id = 5, conv = 3, sender = sender, kind = .Text, text = text})
+incoming :: proc(
+	c: ^conn.Server_Conn,
+	text: string,
+	sender := proto.Account_Id(9),
+) -> (
+	shown: string,
+	hidden: bool,
+) {
+	out, hide := conn.filter_message(
+		c,
+		proto.Message{id = 5, conv = 3, sender = sender, kind = .Text, text = text},
+	)
 	return out.text, hide
 }
 
@@ -369,7 +449,10 @@ test_incoming_filters :: proc(t: ^testing.T) {
 test_incoming_filter_does_not_wait_for_a_busy_runtime :: proc(t: ^testing.T) {
 	r := rig_new()
 	defer rig_destroy(&r)
-	testing.expect(t, runtime_add(r.rt, "f.lua", `function on_incoming(ev) return false end`, Script_Config{}))
+	testing.expect(
+		t,
+		runtime_add(r.rt, "f.lua", `function on_incoming(ev) return false end`, Script_Config{}),
+	)
 	sync.mutex_lock(&r.rt.mutex) // as if a step were running
 	began := time.tick_now()
 	shown, hidden := incoming(r.a, "hello")
@@ -386,7 +469,15 @@ test_incoming_filter_does_not_wait_for_a_busy_runtime :: proc(t: ^testing.T) {
 test_a_bad_incoming_filter_is_switched_off :: proc(t: ^testing.T) {
 	r := rig_new()
 	defer rig_destroy(&r)
-	testing.expect(t, runtime_add(r.rt, "bad.lua", `function on_incoming(ev) while true do end end`, Script_Config{}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"bad.lua",
+			`function on_incoming(ev) while true do end end`,
+			Script_Config{},
+		),
+	)
 	began := time.tick_now()
 	for _ in 0 ..< 10 {
 		shown, hidden := incoming(r.a, "hello")
@@ -394,7 +485,12 @@ test_a_bad_incoming_filter_is_switched_off :: proc(t: ^testing.T) {
 		testing.expect(t, !hidden)
 	}
 	// Three that took the filter's limit, and the other seven nothing.
-	testing.expectf(t, time.tick_since(began) < 100 * time.Millisecond, "took %v", time.tick_since(began))
+	testing.expectf(
+		t,
+		time.tick_since(began) < 100 * time.Millisecond,
+		"took %v",
+		time.tick_since(began),
+	)
 	testing.expect(t, r.rt.entries[0].script.filters_off)
 }
 
@@ -444,7 +540,11 @@ Folder :: struct {
 @(private)
 folder_make :: proc(files: ..File) -> (f: Folder) {
 	tmp := os.get_env("TMPDIR", context.temp_allocator)
-	f.dir = fmt.aprintf("%s/yap-script-test-%d", tmp if tmp != "" else "/tmp", time.tick_now()._nsec)
+	f.dir = fmt.aprintf(
+		"%s/yap-script-test-%d",
+		tmp if tmp != "" else "/tmp",
+		time.tick_now()._nsec,
+	)
 	_ = os.make_directory_all(f.dir)
 	for file in files {
 		_ = os.write_entire_file(fmt.tprintf("%s/%s", f.dir, file.name), transmute([]u8)file.text)
@@ -487,7 +587,12 @@ function on_message(ev) yap.send("c", "word is " .. yap.setting("word") .. ", " 
 
 @(test)
 test_scripts_are_found_but_do_not_run_until_approved :: proc(t: ^testing.T) {
-	f := folder_make(File{"keywords.lua", KEYWORDS}, File{"plain.lua", "function on_message() end"}, File{"notes.txt", "not a script"}, File{"broken.lua", "function ("})
+	f := folder_make(
+		File{"keywords.lua", KEYWORDS},
+		File{"plain.lua", "function on_message() end"},
+		File{"notes.txt", "not a script"},
+		File{"broken.lua", "function ("},
+	)
 	defer folder_destroy(&f)
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
@@ -520,7 +625,11 @@ test_scripts_are_found_but_do_not_run_until_approved :: proc(t: ^testing.T) {
 	}
 	// A script that can't be read can't be switched on.
 	testing.expect(t, runtime_set_enabled(r.rt, "broken.lua", true, {}) != "")
-	testing.expect_value(t, runtime_set_enabled(r.rt, "nothing.lua", true, {}), "there is no such script")
+	testing.expect_value(
+		t,
+		runtime_set_enabled(r.rt, "nothing.lua", true, {}),
+		"there is no such script",
+	)
 }
 
 @(test)
@@ -544,7 +653,10 @@ test_approval_is_for_the_text_that_was_approved :: proc(t: ^testing.T) {
 		rig_destroy(&r)
 	}
 	// Changed, it is not: it asks again, and gets nothing until it is.
-	_ = os.write_entire_file(fmt.tprintf("%s/keywords.lua", f.dir), transmute([]u8)string(KEYWORDS + "\n-- now it does something else\n"))
+	_ = os.write_entire_file(
+		fmt.tprintf("%s/keywords.lua", f.dir),
+		transmute([]u8)string(KEYWORDS + "\n-- now it does something else\n"),
+	)
 	{
 		r := rig_new(f.dir)
 		runtime_load(r.rt)
@@ -649,8 +761,20 @@ test_adding_removing_and_reloading :: proc(t: ^testing.T) {
 
 	testing.expect(t, runtime_add_source(r.rt, "../escape.lua", "x") != "")
 	testing.expect(t, runtime_add_source(r.rt, "noext", "x") != "")
-	testing.expect(t, runtime_add_source(r.rt, "big.lua", strings.repeat("x", MAX_SCRIPT_SIZE + 1, context.temp_allocator)) != "")
-	testing.expect_value(t, runtime_add_source(r.rt, "new.lua", `function get_info() return { name = "New" } end`), "")
+	testing.expect(
+		t,
+		runtime_add_source(
+			r.rt,
+			"big.lua",
+			strings.repeat("x", MAX_SCRIPT_SIZE + 1, context.temp_allocator),
+		) !=
+		"",
+	)
+	testing.expect_value(
+		t,
+		runtime_add_source(r.rt, "new.lua", `function get_info() return { name = "New" } end`),
+		"",
+	)
 	v, ok := view_of(r.rt, "new.lua")
 	testing.expect(t, ok)
 	testing.expect_value(t, v.name, "New")
@@ -703,7 +827,15 @@ test_the_showcase_example :: proc(t: ^testing.T) {
 	v := notices_on(r.a)
 	defer notices_off(r.a, v)
 	runtime_notifications_to_ui(r.rt)
-	testing.expect(t, runtime_add(r.rt, "showcase.lua", SHOWCASE, Script_Config{permissions = {"send", "notify"}}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"showcase.lua",
+			SHOWCASE,
+			Script_Config{permissions = {"send", "notify"}},
+		),
+	)
 	cmds := runtime_commands(r.rt, r.a)
 	testing.expect_value(t, len(cmds), 3)
 	if len(cmds) == 3 {
@@ -724,7 +856,12 @@ test_the_showcase_example :: proc(t: ^testing.T) {
 	texts := posted(r.a)
 	testing.expect_value(t, len(texts), 1)
 	if len(texts) == 1 {
-		testing.expectf(t, strings.has_prefix(texts[0], "general: 2d6: ") && strings.contains(texts[0], " = "), "%q", texts[0])
+		testing.expectf(
+			t,
+			strings.has_prefix(texts[0], "general: 2d6: ") && strings.contains(texts[0], " = "),
+			"%q",
+			texts[0],
+		)
 	}
 	delete(texts)
 	// The largest die is a setting.
@@ -857,7 +994,7 @@ test_the_examples_describe_themselves :: proc(t: ^testing.T) {
 		settings:     int,
 		permissions:  Permissions,
 	}
-	for c in ([]Case{
+	for c in ([]Case {
 			{"keywords.lua", KEYWORDS_EXAMPLE, 2, {.Notify}},
 			{"presence.lua", PRESENCE_EXAMPLE, 2, {.Notify}},
 			{"webhook.lua", WEBHOOK_EXAMPLE, 1, {.Net}},
@@ -887,7 +1024,15 @@ test_the_keywords_example :: proc(t: ^testing.T) {
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
 	runtime_notifications_to_ui(r.rt)
-	testing.expect(t, runtime_add(r.rt, "keywords.lua", KEYWORDS_EXAMPLE, Script_Config{permissions = {"notify"}}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"keywords.lua",
+			KEYWORDS_EXAMPLE,
+			Script_Config{permissions = {"notify"}},
+		),
+	)
 
 	say :: proc(r: ^Rig, e: conn.Event) -> []Notification {
 		emit(r.a, e)
@@ -908,13 +1053,21 @@ test_the_keywords_example :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(say(&r, mine)), 0) // not our own
 
 	// Different words, and only in direct messages.
-	testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "words", " Tea ,, coffee "), "")
+	testing.expect_value(
+		t,
+		runtime_set_value(r.rt, "keywords.lua", "words", " Tea ,, coffee "),
+		"",
+	)
 	got = say(&r, message("lua and Coffee"))
 	testing.expect_value(t, len(got), 1)
 	if len(got) == 1 {
 		testing.expect_value(t, got[0].title, `Ann said "coffee" in general`)
 	}
-	testing.expect_value(t, runtime_set_value(r.rt, "keywords.lua", "where", "direct messages only"), "")
+	testing.expect_value(
+		t,
+		runtime_set_value(r.rt, "keywords.lua", "where", "direct messages only"),
+		"",
+	)
 	testing.expect_value(t, len(say(&r, message("tea time"))), 0) // a channel
 	testing.expect_value(t, len(say(&r, dm_message("tea time"))), 1)
 }
@@ -926,9 +1079,26 @@ test_the_presence_example :: proc(t: ^testing.T) {
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
 	runtime_notifications_to_ui(r.rt)
-	testing.expect(t, runtime_add(r.rt, "presence.lua", PRESENCE_EXAMPLE, Script_Config{permissions = {"notify"}}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"presence.lua",
+			PRESENCE_EXAMPLE,
+			Script_Config{permissions = {"notify"}},
+		),
+	)
 	change :: proc(r: ^Rig, username: string, was, now: proto.Activity) -> []Notification {
-		emit(r.a, conn.Event_Presence{account = 4, name = strings.clone("Bob"), username = strings.clone(username), activity = now, was = was})
+		emit(
+			r.a,
+			conn.Event_Presence {
+				account = 4,
+				name = strings.clone("Bob"),
+				username = strings.clone(username),
+				activity = now,
+				was = was,
+			},
+		)
 		runtime_step(r.rt, 10 * time.Millisecond)
 		return runtime_take_notifications(r.rt)
 	}
@@ -999,7 +1169,15 @@ test_notifications_without_a_ui_go_to_the_log :: proc(t: ^testing.T) {
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
 	// No runtime_notifications_to_ui: as in the headless client.
-	testing.expect(t, runtime_add(r.rt, "n.lua", `function on_message(ev) yap.notify("Title", "text") end`, Script_Config{permissions = {"notify"}}))
+	testing.expect(
+		t,
+		runtime_add(
+			r.rt,
+			"n.lua",
+			`function on_message(ev) yap.notify("Title", "text") end`,
+			Script_Config{permissions = {"notify"}},
+		),
+	)
 	emit(r.a, message("x"))
 	runtime_step(r.rt, 10 * time.Millisecond)
 	testing.expect_value(t, len(notified(&r)), 0)
@@ -1011,7 +1189,10 @@ test_the_away_example :: proc(t: ^testing.T) {
 	defer folder_destroy(&f)
 	r := rig_new(f.dir)
 	defer rig_destroy(&r)
-	testing.expect(t, runtime_add(r.rt, "away.lua", AWAY_EXAMPLE, Script_Config{permissions = {"send"}}))
+	testing.expect(
+		t,
+		runtime_add(r.rt, "away.lua", AWAY_EXAMPLE, Script_Config{permissions = {"send"}}),
+	)
 	mention :: proc(r: ^Rig, author: proto.Account_Id, mine := false) {
 		e := message("hey @me", true).(conn.Event_Message)
 		delete(e.username)
@@ -1031,7 +1212,11 @@ test_the_away_example :: proc(t: ^testing.T) {
 	texts := posted(r.a)
 	testing.expect_value(t, len(texts), 1)
 	if len(texts) == 1 {
-		testing.expect_value(t, texts[0], "general: @user9 I am away right now and will answer later.")
+		testing.expect_value(
+			t,
+			texts[0],
+			"general: @user9 I am away right now and will answer later.",
+		)
 	}
 	delete(texts)
 	mention(&r, 9) // the same person, soon again
@@ -1084,7 +1269,10 @@ test_the_documentation_code_works :: proc(t: ^testing.T) {
 	if len(blocks) == 0 {
 		return
 	}
-	testing.expect(t, runtime_add(r.rt, "hello.lua", blocks[0], Script_Config{permissions = {"send"}}))
+	testing.expect(
+		t,
+		runtime_add(r.rt, "hello.lua", blocks[0], Script_Config{permissions = {"send"}}),
+	)
 	view, found := view_of(r.rt, "hello.lua")
 	testing.expect(t, found)
 	testing.expect_value(t, view.name, "Hello")

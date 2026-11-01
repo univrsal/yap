@@ -25,7 +25,7 @@ Event_Message :: struct {
 	id:          proto.Msg_Id,
 	conv:        proto.Conv_Id,
 	channel:     string, // owned; the channel's name, or who the DM or group is with
-	kind:       proto.Conv_Kind,
+	kind:        proto.Conv_Kind,
 	msg_kind:    proto.Msg_Kind,
 	author:      proto.Account_Id,
 	author_name: string, // owned; as shown

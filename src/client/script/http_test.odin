@@ -61,7 +61,8 @@ server_stop :: proc(s: ^Server) {
 	s.stop = true
 	// Wake the accept with a connection of our own, and close the socket, so that
 	// it can't stay blocked whichever of the two a system takes notice of.
-	if c, err := net.dial_tcp(net.Endpoint{address = net.IP4_Loopback, port = s.port}); err == nil {
+	if c, err := net.dial_tcp(net.Endpoint{address = net.IP4_Loopback, port = s.port});
+	   err == nil {
 		net.close(c)
 	}
 	net.close(s.socket)
@@ -136,7 +137,10 @@ serve :: proc(s: ^Server, client: net.TCP_Socket) {
 		}
 		length := 0
 		for line in strings.split_lines_iterator(&text) {
-			if strings.has_prefix(strings.to_lower(line, context.temp_allocator), "content-length:") {
+			if strings.has_prefix(
+				strings.to_lower(line, context.temp_allocator),
+				"content-length:",
+			) {
 				length, _ = strconv.parse_int(strings.trim_space(line[len("content-length:"):]))
 			}
 		}
@@ -159,7 +163,12 @@ serve :: proc(s: ^Server, client: net.TCP_Socket) {
 	}
 
 	reply :: proc(client: net.TCP_Socket, status: string, extra: string, body: string) {
-		head := fmt.tprintf("HTTP/1.1 %s\r\nContent-Length: %d\r\nConnection: close\r\n%s\r\n", status, len(body), extra)
+		head := fmt.tprintf(
+			"HTTP/1.1 %s\r\nContent-Length: %d\r\nConnection: close\r\n%s\r\n",
+			status,
+			len(body),
+			extra,
+		)
 		net.send_tcp(client, transmute([]u8)head)
 		// In pieces, so that a large body is sent whole.
 		sent := 0
@@ -173,16 +182,31 @@ serve :: proc(s: ^Server, client: net.TCP_Socket) {
 	}
 	switch {
 	case method == "GET" && path == "/small":
-		reply(client, "200 OK", "Content-Type: text/plain\r\nX-Multi: 1\r\nX-Multi: 2\r\n", "hello from the server")
+		reply(
+			client,
+			"200 OK",
+			"Content-Type: text/plain\r\nX-Multi: 1\r\nX-Multi: 2\r\n",
+			"hello from the server",
+		)
 	case method == "GET" && path == "/missing":
 		reply(client, "404 Not Found", "", "nothing here")
 	case method == "GET" && path == "/big":
 		reply(client, "200 OK", "", strings.repeat("x", 3 * 1024 * 1024, context.temp_allocator))
 	case method == "GET" && path == "/medium":
 		// Under the cap, but more than the socket buffers hold.
-		reply(client, "200 OK", "Content-Type: text/plain\r\n", strings.repeat("m", 700 * 1024, context.temp_allocator))
+		reply(
+			client,
+			"200 OK",
+			"Content-Type: text/plain\r\n",
+			strings.repeat("m", 700 * 1024, context.temp_allocator),
+		)
 	case method == "GET" && path == "/big-typed":
-		reply(client, "200 OK", "Content-Type: text/plain\r\n", strings.repeat("x", 3 * 1024 * 1024, context.temp_allocator))
+		reply(
+			client,
+			"200 OK",
+			"Content-Type: text/plain\r\n",
+			strings.repeat("x", 3 * 1024 * 1024, context.temp_allocator),
+		)
 	case method == "GET" && path == "/hop":
 		reply(client, "302 Found", "Location: /small\r\n", "")
 	case method == "GET" && path == "/to-file":
@@ -379,7 +403,10 @@ test_the_webget_example :: proc(t: ^testing.T) {
 	defer server_stop(server)
 	base := fmt.tprintf("http://127.0.0.1:%d", server.port)
 
-	testing.expect(t, runtime_add(r.rt, "webget.lua", WEBGET, Script_Config{permissions = {"notify", "net"}}))
+	testing.expect(
+		t,
+		runtime_add(r.rt, "webget.lua", WEBGET, Script_Config{permissions = {"notify", "net"}}),
+	)
 	s := r.rt.entries[0].script
 	last :: proc(s: ^Script) -> string {
 		text, _ := s.store["last"].(string)
@@ -395,7 +422,14 @@ test_the_webget_example :: proc(t: ^testing.T) {
 				return
 			}
 		}
-		testing.expectf(t, strings.has_prefix(last(s), want), "after %q: %q (wanted %q)", line, last(s), want)
+		testing.expectf(
+			t,
+			strings.has_prefix(last(s), want),
+			"after %q: %q (wanted %q)",
+			line,
+			last(s),
+			want,
+		)
 	}
 	ask(t, &r, s, fmt.tprintf("/get %s/small", base), "200 hello from the server")
 	ask(t, &r, s, fmt.tprintf("/get %s/missing", base), "404 nothing here")
@@ -479,7 +513,10 @@ test_the_webhook_example :: proc(t: ^testing.T) {
 		return
 	}
 	defer server_stop(server)
-	testing.expect(t, runtime_add(r.rt, "webhook.lua", WEBHOOK_EXAMPLE, Script_Config{permissions = {"net"}}))
+	testing.expect(
+		t,
+		runtime_add(r.rt, "webhook.lua", WEBHOOK_EXAMPLE, Script_Config{permissions = {"net"}}),
+	)
 	s := r.rt.entries[0].script
 
 	hear :: proc(r: ^Rig, e: conn.Event) {
@@ -508,7 +545,16 @@ test_the_webhook_example :: proc(t: ^testing.T) {
 	hear(&r, message("hello @me", true))
 	testing.expect_value(t, len(s.requests), 0)
 
-	testing.expect_value(t, runtime_set_value(r.rt, "webhook.lua", "url", fmt.tprintf("http://127.0.0.1:%d/echo", server.port)), "")
+	testing.expect_value(
+		t,
+		runtime_set_value(
+			r.rt,
+			"webhook.lua",
+			"url",
+			fmt.tprintf("http://127.0.0.1:%d/echo", server.port),
+		),
+		"",
+	)
 	// Not a mention, or our own: nothing.
 	hear(&r, message("hello"))
 	mine := message("hi @me", true).(conn.Event_Message)

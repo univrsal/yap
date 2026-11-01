@@ -64,28 +64,28 @@ Entry :: struct {
 FILTER_WAIT :: 5 * time.Millisecond
 
 Runtime :: struct {
-	mutex:    sync.Mutex,
-	dir:      string, // owned
-	host:     Host,
-	attached: [dynamic]^Attached,
-	items:    [dynamic]^Item, // the scripts it knows of (items.odin)
-	http:     Http_Transport, // web requests (http_native.odin, http_web.odin)
-	entries:  [dynamic]Entry, // those that are running
-	next_id:  Server_Id,
-	results:  [dynamic]Result,
+	mutex:               sync.Mutex,
+	dir:                 string, // owned
+	host:                Host,
+	attached:            [dynamic]^Attached,
+	items:               [dynamic]^Item, // the scripts it knows of (items.odin)
+	http:                Http_Transport, // web requests (http_native.odin, http_web.odin)
+	entries:             [dynamic]Entry, // those that are running
+	next_id:             Server_Id,
+	results:             [dynamic]Result,
 	// Command lines typed on another thread (runtime_queue_command), run by
 	// the next runtime_step.
-	queue_mutex: sync.Mutex,
-	queued:   [dynamic]Queued,
+	queue_mutex:         sync.Mutex,
+	queued:              [dynamic]Queued,
 	// The connections are driven by the thread that steps the runtime, so that
 	// it may look at their state (headless mode).
-	inline_conns: bool,
+	inline_conns:        bool,
 	// The desktop notifications scripts have asked for, for the UI to show
 	// (runtime_take_notifications); without a UI they are written to the log.
-	notifications: [dynamic]Notification,
+	notifications:       [dynamic]Notification,
 	notifications_to_ui: bool,
 	// For what is made while stepping, which is emptied at the start of the next.
-	scratch:  runtime.Arena,
+	scratch:             runtime.Arena,
 }
 
 runtime_create :: proc(dir: string) -> ^Runtime {
@@ -93,15 +93,15 @@ runtime_create :: proc(dir: string) -> ^Runtime {
 	rt.dir = strings.clone(dir)
 	rt.next_id = 1
 	rt.host = Host {
-		data          = rt,
-		log           = host_log,
-		send          = host_send,
-		notify        = host_notify,
-		status        = host_status,
-		server_by_key = host_server_by_key,
+		data           = rt,
+		log            = host_log,
+		send           = host_send,
+		notify         = host_notify,
+		status         = host_status,
+		server_by_key  = host_server_by_key,
 		http_available = host_http_available,
-		http_begin = host_http_begin,
-		http_cancel = host_http_cancel,
+		http_begin     = host_http_begin,
+		http_cancel    = host_http_cancel,
 	}
 	http_start(rt)
 	_ = runtime.arena_init(&rt.scratch, 256 * 1024, context.allocator)
@@ -377,7 +377,11 @@ host_send :: proc(host: ^Host, s: ^Script, server: Server_Id, channel, text: str
 	conn.push_command(
 		&a.c.commands,
 		// `typed`: @username in the text is a mention, as it is when it is typed.
-		conn.Chat_Command{text = strings.clone(text), channel = strings.clone(channel), typed = true},
+		conn.Chat_Command {
+			text = strings.clone(text),
+			channel = strings.clone(channel),
+			typed = true,
+		},
 	)
 	return ""
 }
@@ -515,7 +519,11 @@ store_read_file :: proc(s: ^Script, path: string) {
 	if !ok {
 		return
 	}
-	parsed, err := json.parse(transmute([]u8)text, parse_integers = true, allocator = context.temp_allocator)
+	parsed, err := json.parse(
+		transmute([]u8)text,
+		parse_integers = true,
+		allocator = context.temp_allocator,
+	)
 	obj, is_object := parsed.(json.Object)
 	if err != nil || !is_object {
 		log.warnf("script %s: its saved store is unreadable and is ignored", s.name)
@@ -563,7 +571,11 @@ entry_save :: proc(e: ^Entry, force := false) {
 		case List, Map, Function:
 		}
 	}
-	data, err := json.marshal(obj, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
+	data, err := json.marshal(
+		obj,
+		{pretty = true, use_spaces = true, spaces = 2},
+		context.temp_allocator,
+	)
 	if err != nil {
 		log.warnf("script %s: could not encode its store: %v", s.name, err)
 		return
@@ -738,7 +750,13 @@ runtime_inline_conns :: proc(rt: ^Runtime) {
 // the screen (conn/filter.odin): the scripts that run for the server and have
 // an on_incoming are asked in turn, each seeing what the one before made of it.
 @(private = "file")
-filter_incoming :: proc(data: rawptr, c: ^conn.Server_Conn, info: conn.Event_Message) -> (r: conn.Filter_Result) {
+filter_incoming :: proc(
+	data: rawptr,
+	c: ^conn.Server_Conn,
+	info: conn.Event_Message,
+) -> (
+	r: conn.Filter_Result,
+) {
 	a := (^Attached)(data)
 	rt := a.rt
 	if !lock_for(rt, FILTER_WAIT) {
