@@ -91,6 +91,9 @@ Request_Op :: enum u16 {
 	Push_Unsubscribe     = 0x0027,
 	// A channel's admins, see convs.odin (the conversations' range is full).
 	Conv_Admin_Set       = 0x0028,
+	// Slash commands of bots, see bot_commands.odin.
+	Bot_Commands_Set     = 0x0029,
+	Command_Run          = 0x002A,
 	// Conversations and voice rooms, see convs.odin.
 	Conv_Create          = 0x0030,
 	Conv_Update          = 0x0031,
@@ -161,6 +164,9 @@ Event_Op :: enum u16 {
 	Role_Removed     = 0x0012,
 	Setting_Changed  = 0x0020,
 	Logged_Out       = 0x0013,
+	// Slash commands of bots, see bot_commands.odin.
+	Commands_Changed = 0x0014,
+	Command_Invoked  = 0x0015,
 	// See buddies.odin.
 	Buddy_Changed    = 0x0021,
 	// See convs.odin.

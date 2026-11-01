@@ -52,25 +52,26 @@ the channel's, and commands for things that aren't accounts (webhooks).
 
 ## Design
 
-### The registry lives on the server
+### The registry lives on the server, in memory
 
-Recommended: a table `bot_commands (account, name, description, usage)`,
-and the server sends the list to clients.
+Recommended (D1): the server keeps each connected bot's commands in
+memory and sends the list to clients. There is no table.
 
 - A bot sets **its whole set at once** (`Bot_Commands_Set`: the old set
   is replaced, as Discord's bulk overwrite is), so a bot that dropped a
-  command doesn't have to remember to delete it, and a restart is
-  idempotent.
-- Persisted, so a bot's commands are there at once after a server
-  restart, not only after the bot reconnects. A bot that isn't connected
-  has its commands listed but marked offline (see below).
-- Removed when the account is deleted or disabled. Not tied to a session,
-  so a bot that reconnects doesn't flicker the list for everyone.
+  command doesn't have to remember to delete it.
+- The set belongs to the bot's connection. When its last connection
+  closes (or the account is disabled or deleted) the set is gone and
+  clients are told (`Commands_Changed` with an empty set). A bot
+  registers at startup, so nothing is lost; a command in the list always
+  has a bot that can answer it.
+- A bot with several connections (several tokens) has the set of the
+  one that set it last; a closed connection takes its own set only.
 - Only an account with the Bot flag may set commands (`Denied`
   otherwise). No new permission: an admin who doesn't want a bot's
   commands removes the bot's roles or the bot.
 
-Limits (constants in `proto/bots.odin`): 50 commands per bot; name 1-32
+Limits (constants in `proto/bot_commands.odin`): 50 commands per bot; name 1-32
 of lower-case letters, digits, `-` and `_` (the same rule as a script's,
 `docs/Scripting.md`); description up to 100 bytes; usage hint up to 64
 bytes ("<city> [days]"); all text through `proto/sanitize.odin`, since a
@@ -79,19 +80,19 @@ bot's description is shown to everyone.
 ### The protocol
 
 New ops, next to `Bot_Create` and `Bot_Token_Add` in `proto/rpc.odin`,
-described in `proto/bots.odin`:
+described in `proto/bot_commands.odin`:
 
 | Op | Direction | Body |
 | --- | --- | --- |
-| `Bot_Commands_Set` | request, a bot | `[n u8]`, then per command `[name str8][description str8][usage str8]`; answer: nothing |
-| `Commands_Get` | request, anyone | nothing; answer: every command on the server, `[account u32][name str8][description str8][usage str8]` |
-| `Commands_Changed` | event, everyone | `[account u32]` and that account's new set (empty if gone), so clients patch their list rather than refetch |
-| `Command_Run` | request, anyone | `[conv u64][thread root u64][account u32][name str8][args str16]`; answer: Ok, or why not |
-| `Command_Invoked` | event, to that bot only | `[id u64][conv u64][thread root u64][invoker u32][name str8][args str16]` |
+| `Bot_Commands_Set` (0x0029) | request, a bot | `[n u8]`, then per command `[name str8][description str8][usage str8]`; answer: nothing |
+| `Commands_Changed` (event 0x0014) | event, everyone | `[account u32]` and that account's new set as in `Bot_Commands_Set` (empty if gone), so clients patch their list |
+| `Command_Run` (0x002A) | request, anyone | `[conv u32][thread root u64][account u32][name str8][args str16]`; answer: Ok, or why not |
+| `Command_Invoked` (event 0x0015) | event, to that bot only | `[id u64][conv u32][thread root u64][invoker u32][name str8][args str16]` |
 
-The list comes with the login sync (Sync_Begin..Sync_End already carries
-roles, accounts and emoji), so the first completion needs no request. A
-client of a server that doesn't know the ops simply has no bot commands.
+The login sync (Sync_Begin..Sync_End) sends one `Commands_Changed` per
+connected bot that has commands, so the first completion needs no request
+and there is no "get" op. A client of a server that doesn't know the ops
+simply has no bot commands.
 
 `Command_Run` carries the **account** so that two bots with a `/roll`
 don't collide (see "Names"). The server checks, in this order:
@@ -104,8 +105,9 @@ don't collide (see "Names"). The server checks, in this order:
    channel's rights let its roles see it): otherwise `Denied`, and the
    client says the bot isn't in this channel. Without this a command
    could be run into a place the bot can't answer.
-4. The bot is connected: otherwise `Closed`, and the client says
-   "weatherbot isn't online".
+4. The bot is still connected (it can have left since the client last
+   heard): otherwise `Closed`, and the client says "weatherbot isn't
+   online".
 5. A rate limit per invoker (a token bucket; the server has none for
    posting yet, see "Limits" in `bot-api.md`), so one person can't flood
    a bot.
@@ -142,14 +144,6 @@ works as long as there's a way to say which, and nobody is surprised:
 A script and a bot with the same name: the script wins (it's the person's
 own setting), and the completion list shows both so it's not mysterious.
 
-### Offline bots
-
-Listed, but dimmed in completion with "(offline)" if the account has no
-live session (the server already knows; it's what the online indicator
-uses). Running one fails fast with the `Closed` answer above. Hiding them
-would make a command vanish whenever a bot restarts, which looks like a
-bug; offering one that can't answer is the lesser problem.
-
 ### Which bots are offered where
 
 Completion only offers commands that could work here (D9): in a DM, that
@@ -161,7 +155,8 @@ rights), and the server's check in step 3 is the authority.
 
 - `PUT /api/v1/commands` (bot token): body `[{"name", "description",
   "usage"}]`, replaces the set (`Bot_Commands_Set`). `GET /api/v1/commands`
-  lists the server's commands (`Commands_Get`). Errors as everywhere.
+  lists the server's commands, from the gateway's model (built from
+  `Commands_Changed`). Errors as everywhere.
 - Event `COMMAND` on the WebSocket (the name `bot-api.md` already
   reserved), from `Command_Invoked`:
 
@@ -174,9 +169,10 @@ rights), and the server's check in step 3 is the authority.
   `bot-api.md` phase 2 made of it) gets the ops directly.
 - The server sends `Command_Invoked` only to the account the command
   belongs to, so a bot never sees another's.
-- A bot registers **at startup** (`PUT` after `READY`). A bot that
-  forgets leaves its previous set in place, which is what persisted
-  means.
+- A bot registers **at startup** (`PUT` after `READY`), and again after
+  every reconnect, since its set goes away with its connection. A
+  gateway connection kept for a few minutes after the last REST request
+  (`bot-api.md`) keeps the set meanwhile.
 
 ### The client
 
@@ -223,11 +219,11 @@ register a command for others; that is what a bot is for.
 
 | # | Change | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Protocol: the five ops, the codec and its tests; limits and sanitizing | S | `common/proto` | - | planned |
-| 2 | Server: `bot_commands` table, `Bot_Commands_Set`, `Commands_Get` and the list in the sync, `Commands_Changed`, clean-up on account removal | M | `server` | 1 | planned |
-| 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, offline, thread) | M | `server` | 2 | planned |
+| 1 | Protocol: the four ops, the codec and its tests; limits and sanitizing | S | `common/proto` | - | planned |
+| 2 | Server: the in-memory registry, `Bot_Commands_Set`, `Commands_Changed` (also in the sync, and when a bot's last connection closes) | M | `server` | 1 | planned |
+| 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | planned |
 | 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | planned |
-| 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, offline marking, composer order, headless | M | `client/conn`, `client` | 3 | planned |
+| 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | planned |
 | 6 | Docs and an example: `API.md` (commands, the event), `Scripting.md` (script and bot commands are listed together), `scripting.md` D7 updated, `docs/examples/slash.py` | S | docs | 4, 5 | planned |
 
 Why this order:
@@ -242,10 +238,10 @@ Why this order:
   the completion, palette and composer changes only make sense together.
 
 Testing in general: codec round trips and limits (1); server tests for
-the registry (set replaces, bots only, removed with the account) and
+the registry (set replaces, bots only, gone when the bot disconnects, in the sync) and
 every refusal in `Command_Run`, and that the event reaches only the bot
 (2-3); gateway JSON in and out (4); completion tests for merge, prefix,
-an ambiguous name and offline (5, next to the existing completion tests);
+an ambiguous name and a bot that left (5, next to the existing completion tests);
 then one run against a live server with the Python example, as
 `bot-api.md` did for its phase 9.
 
@@ -253,7 +249,7 @@ then one run against a live server with the Python example, as
 
 | # | Question | Recommendation |
 | --- | --- | --- |
-| D1 | Registry on the server (persisted), or only while the bot is connected | Persisted, set as a whole; offline commands shown dimmed. No list that flickers on every bot restart |
+| D1 | Registry on the server (persisted), or only while the bot is connected | Only while the bot is connected (decided): in memory, no table; a command in the list always has a bot that can answer |
 | D2 | Two bots with the same command name | Allowed. Completion shows both; the bare name runs nothing when several match, and says so; `/bot:name` always works |
 | D3 | Script vs. bot with the same name | Script wins; built-ins win over both |
 | D4 | Arguments: typed options (Discord) or a text string with a usage hint | Text and a hint in v1. Typed options need per-option completion and validation in every client; they can be added later as extra fields at the end of the same body, which old decoders ignore |
