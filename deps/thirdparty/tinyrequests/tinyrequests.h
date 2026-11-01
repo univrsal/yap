@@ -10,6 +10,11 @@
  *     redirects (CURLOPT_PROTOCOLS, CURLOPT_REDIR_PROTOCOLS, CURLOPT_MAXREDIRS).
  *   - CFNetwork backend: a request that passes its deadline is TR_ERROR_TIMEOUT, as
  *     in the other backends, instead of TR_ERROR_BACKEND (two places).
+ *   - CFNetwork backend, tr__apple_read_available: CFReadStreamRead blocks until a byte
+ *     arrives, which stopped the polling thread for as long as a server took to
+ *     answer and kept every timeout from firing; it is only called when
+ *     CFReadStreamHasBytesAvailable says there is one, and the end of the stream
+ *     and its errors are taken from CFReadStreamGetStatus.
  *   - CFNetwork backend, tr__apple_read_available: the response headers are
  *     captured when the whole answer is read there (they were only captured by the
  *     stream's callbacks, which may not have run, leaving the headers empty); the
@@ -932,10 +937,49 @@ static void tr__apple_close_stream(tr_async *async_request) {
     }
 }
 
+/* yap: what a stream error says: the system's own text for a POSIX one ("Connection refused"). */
+static void tr__apple_stream_error_text(CFStreamError stream_error, char *text, size_t size) {
+    if (stream_error.domain == kCFStreamErrorDomainPOSIX && stream_error.error > 0) {
+        snprintf(text, size, "%s", strerror((int) stream_error.error));
+    } else {
+        snprintf(text, size, "connection failed (domain %ld, code %ld)", (long) stream_error.domain, (long) stream_error.error);
+    }
+}
+
 static void tr__apple_read_available(tr_async *async_request) {
     UInt8 buffer[4096];
     CFIndex bytes_read;
     while (async_request->stream && async_request->status == TR_IN_PROGRESS) {
+        /*
+         * yap: CFReadStreamRead blocks until a byte arrives, so it is only called when
+         * there is one. This is called from the poll loop of whoever uses the library
+         * (the client's UI thread), and before, a slow server stopped that thread, and
+         * no timeout could fire. The end of the stream and its errors are read from the
+         * stream's status instead of from a read.
+         */
+        CFStreamStatus state = CFReadStreamGetStatus(async_request->stream);
+        if (state == kCFStreamStatusAtEnd) {
+            tr__apple_capture_status(async_request);
+            tr__apple_capture_headers(async_request);
+            tr__apple_finish_success(async_request);
+            tr__apple_close_stream(async_request);
+            return;
+        }
+        if (state == kCFStreamStatusError) {
+            CFStreamError stream_error = CFReadStreamGetError(async_request->stream);
+            if (stream_error.error == ETIMEDOUT) {
+                tr__apple_set_error(async_request, TR_ERROR_TIMEOUT, "timeout");
+            } else {
+                char message[96];
+                tr__apple_stream_error_text(stream_error, message, sizeof(message));
+                tr__apple_set_error(async_request, TR_ERROR_BACKEND, message);
+            }
+            tr__apple_close_stream(async_request);
+            return;
+        }
+        if ((state != kCFStreamStatusOpen && state != kCFStreamStatusReading) || !CFReadStreamHasBytesAvailable(async_request->stream)) {
+            return; /* not open yet, or nothing to read yet: the run loop says when */
+        }
         bytes_read = CFReadStreamRead(async_request->stream, buffer, (CFIndex) sizeof(buffer));
         if (bytes_read < 0 && async_request->status != TR_IN_PROGRESS) {
             return; /* yap: reading ran the stream's callbacks, which ended the request, and closed the stream */
@@ -959,7 +1003,7 @@ static void tr__apple_read_available(tr_async *async_request) {
             /* yap: say why */
             CFStreamError read_error = CFReadStreamGetError(async_request->stream);
             char message[96];
-            snprintf(message, sizeof(message), "read failed (domain %ld, code %ld)", (long) read_error.domain, (long) read_error.error);
+            tr__apple_stream_error_text(read_error, message, sizeof(message));
             tr__apple_set_error(async_request, TR_ERROR_BACKEND, message);
         }
         tr__apple_close_stream(async_request);

@@ -308,6 +308,11 @@ Lessons that cost something, for the next change here:
 
 - **A type-check isn't a link.** `odin check -target:wasi_wasm32` passed while the web
   build didn't link (a `time.sleep`); build `web/build.sh` after touching shared code.
+- **Fixing a platform from CI logs is slow; get a machine.** The macOS failures were
+  worked out in a few minutes once there was a Mac to run the real tests and a C program
+  on: the CFNetwork bug that CI showed (an error `read failed`) was a symptom of a worse
+  one (a blocking read) that no test had looked for. The old library and the old test
+  server could be run against each other to see which caused which.
 - **A test server must not trust its client.** One that handles a connection at a time
   and waits for it to speak hangs when a client opens a connection it never uses (as
   CFNetwork can); each connection gets a thread and a receive timeout, and stopping
@@ -325,12 +330,16 @@ Lessons that cost something, for the next change here:
 - **The Scripts page has only been compiled**, not seen: layout, the approval step, the
   add form and the text boxes need a look on a display. (Two bugs were found by using
   it: shared checkbox ids, and "all servers" unticking back.)
-- **WinHTTP and CFNetwork** are only exercised by the CI runners for Windows and macOS
-  (the tests make real requests); nobody has run them by hand. The size cap relies on the
-  function they share, and the redirect restriction exists only for libcurl (the other
-  two speak only http and https). The first runs on them found three bugs in the
-  library (a URL parser on Windows; headers not captured and an error overwritten on
-  macOS; all above or in its header), so more may be there.
+- **WinHTTP and CFNetwork** are exercised by the CI runners for Windows and macOS (the
+  tests make real requests); CFNetwork was also run by hand on an Intel Mac (macOS 26),
+  where the whole test suite passes (WinHTTP has not been run by hand). The size cap
+  relies on the function the backends share, and the redirect restriction exists only
+  for libcurl (the other two speak only http and https). The first runs on them found
+  bugs in the library, all fixed and marked in its header: a URL parser on Windows;
+  on macOS, headers not captured, an error overwritten, and, the worst, a read that
+  **blocks until a byte arrives** (`CFReadStreamRead`), which froze the polling thread
+  (the UI) for as long as a server took to answer and kept every timeout from firing.
+  More may be there.
 - **A browser** has not been used; node's `fetch` stood in, without CORS.
 - **`on_incoming` was not seen rewriting or hiding a live message.** Its hook was seen
   called in the real message path, and the rest is tested; but in the dev VM a client

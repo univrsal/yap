@@ -103,6 +103,17 @@ server_loop :: proc(s: ^Server) {
 handle :: proc(h: ^Handler) {
 	context.temp_allocator = runtime.default_context().temp_allocator
 	serve(h.server, h.client)
+	// A lingering close: say that nothing more comes, and read what the client still
+	// sends until it closes. Closing at once can reset the connection, and a reset
+	// throws away what has not been delivered yet.
+	net.shutdown(h.client, .Send)
+	scratch: [1024]u8
+	for {
+		n, err := net.recv_tcp(h.client, scratch[:])
+		if err != nil || n == 0 {
+			break
+		}
+	}
 	net.close(h.client)
 	free(h)
 }
@@ -167,6 +178,11 @@ serve :: proc(s: ^Server, client: net.TCP_Socket) {
 		reply(client, "404 Not Found", "", "nothing here")
 	case method == "GET" && path == "/big":
 		reply(client, "200 OK", "", strings.repeat("x", 3 * 1024 * 1024, context.temp_allocator))
+	case method == "GET" && path == "/medium":
+		// Under the cap, but more than the socket buffers hold.
+		reply(client, "200 OK", "Content-Type: text/plain\r\n", strings.repeat("m", 700 * 1024, context.temp_allocator))
+	case method == "GET" && path == "/big-typed":
+		reply(client, "200 OK", "Content-Type: text/plain\r\n", strings.repeat("x", 3 * 1024 * 1024, context.temp_allocator))
 	case method == "GET" && path == "/hop":
 		reply(client, "302 Found", "Location: /small\r\n", "")
 	case method == "GET" && path == "/to-file":
@@ -228,7 +244,12 @@ test_web_requests_for_real :: proc(t: ^testing.T) {
 		end
 		function go_more()
 			yap.http_get(BASE .. "/big", save("big"))
+			yap.http_get(BASE .. "/big-typed", save("big_typed"))
+			yap.http_get(BASE .. "/medium", save("medium"))
 			yap.http_get(BASE .. "/to-file", save("to_file"))
+		end
+		-- (A script may have four requests out at once.)
+		function go_rest()
 			yap.http_get("http://127.0.0.1:1/refused", save("refused"))
 			yap.http_get(BASE .. "/slow", save("slow"), { timeout = 1 })
 		end
@@ -238,27 +259,42 @@ test_web_requests_for_real :: proc(t: ^testing.T) {
 			return "ok=" .. tostring(r.ok) .. " status=" .. tostring(r.status) .. " error=" .. tostring(r.error)
 				.. " body=" .. tostring(r.body and #r.body) .. " bytes"
 		end
+		-- Every check is reported, not only the first that fails: some systems can only be
+		-- tried through the tests, and one run should show everything.
+		local problems
+		local function expect(cond, message) if not cond then problems[#problems + 1] = message end end
+		local function report() assert(#problems == 0, table.concat(problems, "; ")) end
 		function check_first()
+			problems = {}
 			local a = answers.small
-			assert(a and a.ok and a.status == 200 and a.body == "hello from the server", "small: " .. describe(a))
-			-- A header that comes twice is joined; how is up to the library the system has.
-			local multi = a.headers["x-multi"] or ""
-			assert(a.headers["content-type"] == "text/plain", "content-type is " .. tostring(a.headers["content-type"]))
-			assert(multi:find("1", 1, true) and multi:find("2", 1, true), "x-multi is " .. multi)
+			expect(a and a.ok and a.status == 200 and a.body == "hello from the server", "small: " .. describe(a))
+			if a and a.headers then
+				-- A header that comes twice is joined; how is up to the library the system has.
+				local multi = a.headers["x-multi"] or ""
+				expect(a.headers["content-type"] == "text/plain", "content-type is " .. tostring(a.headers["content-type"]))
+				expect(multi:find("1", 1, true) and multi:find("2", 1, true), "x-multi is " .. multi)
+			end
 			local m = answers.missing
-			assert(m and m.ok and m.status == 404 and m.body == "nothing here", "missing: " .. describe(m))
-			assert(answers.echo and answers.echo.body == 'application/json|abc|{"a":1}', "echo: " .. describe(answers.echo) .. " " .. tostring(answers.echo and answers.echo.body))
-			assert(answers.hop and answers.hop.ok and answers.hop.body == "hello from the server", "a redirect is followed: " .. describe(answers.hop))
+			expect(m and m.ok and m.status == 404 and m.body == "nothing here", "missing: " .. describe(m))
+			expect(answers.echo and answers.echo.body == 'application/json|abc|{"a":1}', "echo: " .. describe(answers.echo) .. " " .. tostring(answers.echo and answers.echo.body))
+			expect(answers.hop and answers.hop.ok and answers.hop.body == "hello from the server", "a redirect is followed: " .. describe(answers.hop))
+			report()
 		end
 		function check_more()
-			local big = answers.big
-			assert(big and not big.ok and big.error:find("too large") and big.body == nil, "big: " .. describe(big))
+			problems = {}
+			for _, name in ipairs({ "big", "big_typed" }) do
+				local big = answers[name]
+				expect(big and not big.ok and big.error:find("too large") and big.body == nil, name .. ": " .. describe(big))
+			end
+			local medium = answers.medium
+			expect(medium and medium.ok and medium.status == 200 and #medium.body == 700 * 1024, "medium: " .. describe(medium))
 			local file = answers.to_file
-			assert(file and not file.ok and file.status ~= 200, "a redirect to a file: " .. describe(file))
+			expect(file and not file.ok and file.status ~= 200, "a redirect to a file: " .. describe(file))
 			local refused = answers.refused
-			assert(refused and not refused.ok and refused.error ~= "", "refused: " .. describe(refused))
+			expect(refused and not refused.ok and refused.error ~= "", "refused: " .. describe(refused))
 			local slow = answers.slow
-			assert(slow and not slow.ok and slow.error == "timed out", "slow: " .. describe(slow))
+			expect(slow and not slow.ok and slow.error == "timed out", "slow: " .. describe(slow))
+			report()
 		end
 		yap.log("net available:", yap.http_available())
 		`,
@@ -308,6 +344,8 @@ test_web_requests_for_real :: proc(t: ^testing.T) {
 	check(t, s, "check_first")
 
 	_, _ = call(s, "go_more")
+	run_until(t, &r, s, idle)
+	_, _ = call(s, "go_rest")
 	run_until(t, &r, s, idle)
 	check(t, s, "check_more")
 }

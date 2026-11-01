@@ -37,7 +37,8 @@ void CFDictionaryApplyFunction(CFDictionaryRef d, CFDictionaryApplierFunction f,
 }
 CFIndex CFHTTPMessageGetResponseStatusCode(CFHTTPMessageRef m) { (void)m; return 200; }
 CFTypeRef CFReadStreamCopyProperty(CFReadStreamRef s, CFStreamPropertyKey k) { (void)s; (void)k; return MESSAGE; }
-CFStreamError CFReadStreamGetError(CFReadStreamRef s) { (void)s; CFStreamError e = {1, 54}; return e; }
+static CFStreamError g_error = {1, 54};
+CFStreamError CFReadStreamGetError(CFReadStreamRef s) { (void)s; return g_error; }
 
 /* the scripted stream */
 static size_t g_total, g_pos;      /* the answer's size, and how much has been read */
@@ -45,8 +46,21 @@ static int g_closed;
 static size_t g_reenter_at;        /* run the stream's callback while reading at this position (0: never) */
 static tr_async *g_async;
 static int g_reentered;
+static int g_reads;                /* calls of CFReadStreamRead */
+static int g_stalled;              /* the server has sent nothing (yet): no bytes are available */
+static int g_failed;               /* the stream is in an error state */
+CFStreamStatus CFReadStreamGetStatus(CFReadStreamRef s) {
+    (void)s;
+    if (g_failed) return kCFStreamStatusError;
+    if (g_closed) return kCFStreamStatusClosed;
+    if (!g_stalled && g_pos >= g_total) return kCFStreamStatusAtEnd;
+    return kCFStreamStatusOpen;
+}
+Boolean CFReadStreamHasBytesAvailable(CFReadStreamRef s) { (void)s; return !g_stalled && !g_closed && g_pos < g_total; }
 void CFReadStreamClose(CFReadStreamRef s) { (void)s; g_closed = 1; }
 CFIndex CFReadStreamRead(CFReadStreamRef s, UInt8 *buf, CFIndex len) {
+    g_reads++;
+    if (g_stalled) { printf("  (a read with nothing to read: it would block)\n"); return -1; }
     if (g_reenter_at && !g_reentered && g_pos >= g_reenter_at) {
         g_reentered = 1;
         tr__apple_stream_cb(s, kCFStreamEventHasBytesAvailable, g_async); /* what a run loop does */
@@ -82,6 +96,8 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static void run(const char *name, size_t total, size_t cap, size_t reenter_at, int expect_status, int expect_headers) {
+    g_stalled = g_failed = g_reads = 0;
+    g_error = (CFStreamError){1, 54};
     tr_config cfg; memset(&cfg, 0, sizeof cfg);
     cfg.max_response_size = cap;
     tr_client *client = tr_client_create(&cfg);
@@ -111,6 +127,47 @@ int main(void) {
     run("big, callback during a read", 3 << 20, 1 << 20, (1 << 20) - 8192, TR_ERROR_NOMEM, -1);
     printf("-- an answer under the cap, with a callback during a read\n");
     run("under the cap, callback during a read", 600 * 1024, 1 << 20, 100 * 1024, TR_OK, 1);
+    printf("-- nothing to read yet (a slow server): it must not read, and must not finish\n");
+    {
+        tr_config cfg; memset(&cfg, 0, sizeof cfg);
+        tr_client *client = tr_client_create(&cfg);
+        tr_async a; memset(&a, 0, sizeof a);
+        a.client = client; a.status = TR_IN_PROGRESS; a.result_code = TR_IN_PROGRESS;
+        a.stream = (CFReadStreamRef)&a; tr__response_reset(&a.response);
+        g_async = &a; g_total = 100; g_pos = 0; g_closed = 0; g_reenter_at = 0; g_reentered = 0; g_failed = 0; g_reads = 0;
+        g_stalled = 1;
+        tr__apple_read_available(&a);
+        tr__apple_read_available(&a);
+        printf("stalled                                      status=%d reads=%d\n", a.status, g_reads);
+        CHECK(g_reads == 0, "it read %d time(s) with nothing to read", g_reads);
+        CHECK(a.status == TR_IN_PROGRESS, "status %d, wanted in progress", a.status);
+        g_stalled = 0; /* the data comes */
+        tr__apple_read_available(&a);
+        CHECK(a.status == TR_OK && a.response.body_size == 100, "after the data came: status %d, %zu bytes", a.status, a.response.body_size);
+        tr_response_cleanup(&a.response);
+        tr_client_destroy(client);
+    }
+    printf("-- the stream failed: a refused connection says so; a timeout is a timeout\n");
+    {
+        tr_config cfg; memset(&cfg, 0, sizeof cfg);
+        tr_client *client = tr_client_create(&cfg);
+        for (int k = 0; k < 3; k++) {
+            tr_async a; memset(&a, 0, sizeof a);
+            a.client = client; a.status = TR_IN_PROGRESS; a.result_code = TR_IN_PROGRESS;
+            a.stream = (CFReadStreamRef)&a; tr__response_reset(&a.response);
+            g_async = &a; g_total = 100; g_pos = 0; g_closed = 0; g_reenter_at = 0; g_reentered = 0; g_stalled = 0; g_reads = 0;
+            g_failed = 1;
+            g_error = k == 0 ? (CFStreamError){kCFStreamErrorDomainPOSIX, ECONNREFUSED} : k == 1 ? (CFStreamError){kCFStreamErrorDomainPOSIX, ETIMEDOUT} : (CFStreamError){4, -4};
+            tr__apple_read_available(&a);
+            printf("failed (%ld, %d)                              status=%d error=\"%s\"\n", (long)g_error.domain, (int)g_error.error, a.status, a.response.error);
+            CHECK(g_reads == 0, "read a failed stream");
+            CHECK(a.status == (k == 1 ? TR_ERROR_TIMEOUT : TR_ERROR_BACKEND), "status %d", a.status);
+            if (k == 0) CHECK(strstr(a.response.error, "refused") != NULL, "error \"%s\"", a.response.error);
+            if (k == 2) CHECK(strstr(a.response.error, "domain 4, code -4") != NULL, "error \"%s\"", a.response.error);
+            tr_response_cleanup(&a.response);
+        }
+        tr_client_destroy(client);
+    }
     printf("%s\n", failures ? "FAILED" : "all as wanted");
     return failures != 0;
 }
