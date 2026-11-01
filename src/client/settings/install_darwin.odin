@@ -12,7 +12,7 @@ import "core:strings"
 // When started from the bundle, macOS asks for microphone access on behalf
 // of the app (NSMicrophoneUsageDescription) instead of the terminal, and
 // likewise for the audio of other applications
-// (NSAudioCaptureUsageDescription, see ui/app_audio_native.odin).
+// (NSAudioCaptureUsageDescription, see ui/appaudio/native.odin).
 
 INSTALL_DESCRIPTION :: "Adds Yap.app to the Applications folder in your home folder, so it can be started from Finder, Launchpad or Spotlight. The app starts this copy of yap; nothing is copied or moved. Uninstall removes it again."
 

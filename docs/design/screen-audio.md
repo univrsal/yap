@@ -29,7 +29,7 @@ Branch `screen-audio-share`, off `master`. Sizes as in `docs/design/next.md`.
   `conn.video_share_source`. Where the system has its own picker
   (`conn.video_system_picker`), the button skips our menu and opens the
   system's picker directly.
-- `ui/app_audio_native.odin` + `audio/app_audio_native.odin`: the app
+- `ui/appaudio/native.odin` + `audio/app_audio_native.odin`: the app
   audio button captures **one application** through tinyaac
   (`audio/aac`, `deps/thirdparty/tinyaac/tinyaac.h`) into
   `Voice.app`. The network thread mixes that into every frame sent
@@ -72,7 +72,7 @@ Branch `screen-audio-share`, off `master`. Sizes as in `docs/design/next.md`.
     device stays as it is for apps, without subdevices, so that a device
     with its own microphone can't add it. Nothing reports the device
     going away.
-- **D2** is decided in yap (`plays_on` in `ui/app_audio_native.odin`):
+- **D2** is decided in yap (`plays_on` in `ui/appaudio/native.odin`):
   on Windows it passes our PID only when the picked device is the
   settings' output device, or the default one when that is unset or
   gone. Linux and macOS always pass it.

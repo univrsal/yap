@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "core"
 import "base:intrinsics"
@@ -196,7 +197,7 @@ UI :: struct {
 	activity:            UI_Activity, // whether whoever uses this is idle (ui/activity.odin)
 	video:               UI_Video, // screen sharing (ui/video.odin)
 	camera:              UI_Camera, // our camera and calls' video (ui/camera.odin)
-	app_audio:           UI_App_Audio, // sharing an application's audio (ui/app_audio_native.odin)
+	app_audio:           appaudio.State, // sharing an application's audio (ui/appaudio/native.odin)
 	muted:               bool,
 	deafened:            bool,
 	// The mute state from before deafening turned it on, so that undeafening

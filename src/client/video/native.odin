@@ -545,7 +545,7 @@ yv_log :: proc "c" (user: rawptr, level: i32, msg: cstring) {
 }
 
 // A native share has no audio of its own: an application's is shared on its
-// own (ui/app_audio_native.odin), and owns the voice's app ring.
+// own (ui/appaudio/native.odin), and owns the voice's app ring.
 capture_audio :: proc(v: ^audio.Voice, sharing: bool) {}
 
 capture_live :: proc(stream: proto.Video_Stream) -> bool {

@@ -1,8 +1,8 @@
 #+build !wasi
-package ui
+package appaudio
 
-import "widgets"
-import "core"
+import "client:ui/core"
+import "client:ui/widgets"
 import log "common:wlog"
 import "core:os"
 import "core:strings"
@@ -44,10 +44,11 @@ MENU_NAME :: "app audio"
 @(private = "file")
 MENU_WIDTH :: 240
 
-UI_App_Audio :: struct {
+State :: struct {
+	hooks:     Hooks,
 	available: bool, // tinyaac came up
 	share:     ^audio.App_Share, // nil while nothing is shared
-	session:   ^Net_Session, // whose voice it goes into
+	owner:     rawptr, // the session whose voice it goes into (Target.owner)
 	name:      string, // what's being shared; owned
 	device:    bool, // the share is a playback device's, along with the screen
 	// The menu's applications, as they were when it was opened.
@@ -59,7 +60,8 @@ UI_App_Audio :: struct {
 	devices:   ^aac.App_List,
 }
 
-app_audio_init :: proc(ui: ^UI) {
+init :: proc(a: ^State, hooks: Hooks) {
+	a.hooks = hooks
 	if aac.init() != .Ok {
 		why := string(aac.last_error())
 		if why == "" {
@@ -68,12 +70,11 @@ app_audio_init :: proc(ui: ^UI) {
 		log.infof("app audio: unavailable: %s", why)
 		return
 	}
-	ui.app_audio.available = true
+	a.available = true
 }
 
-app_audio_destroy :: proc(ui: ^UI) {
-	a := &ui.app_audio
-	app_audio_stop(ui)
+destroy :: proc(a: ^State) {
+	stop(a)
 	if a.list != nil {
 		aac.app_list_destroy(a.list)
 		a.list = nil
@@ -90,62 +91,59 @@ app_audio_destroy :: proc(ui: ^UI) {
 	}
 }
 
-app_audio_available :: proc(ui: ^UI) -> bool {
-	return ui.app_audio.available
+available :: proc(a: ^State) -> bool {
+	return a.available
 }
 
 // app_audio_on is whether an application's audio is being shared.
-app_audio_on :: proc(ui: ^UI) -> bool {
-	return ui.app_audio.share != nil
+on :: proc(a: ^State) -> bool {
+	return a.share != nil
 }
 
 // app_audio_setting is whether the settings show how shared audio is sent.
-app_audio_setting :: proc(ui: ^UI) -> bool {
-	return ui.app_audio.available
+setting :: proc(a: ^State) -> bool {
+	return a.available
 }
 
 // app_audio_frame ends a share whose application has gone away, and a
 // device's share whose screen share has ended.
-app_audio_frame :: proc(ui: ^UI) {
-	a := &ui.app_audio
+frame :: proc(env: ^core.Env, a: ^State) {
 	s := a.share
 	if s == nil {
 		return
 	}
 	if audio.app_share_ended(s) {
 		log.infof("app audio: %s stopped: %s", a.name, cstring(&s.why[0]))
-		app_audio_stop(ui)
-		core.redraw_now(ui)
+		stop(a)
+		core.redraw_now(env)
 	} else if state := video.share_state(); a.device && state != .Starting && state != .Live {
-		app_audio_stop(ui)
-		core.redraw_now(ui)
+		stop(a)
+		core.redraw_now(env)
 	}
 }
 
 // app_audio_stop stops sharing, if anything is shared.
 // app_audio_session_gone stops sharing into a session about to be freed.
-app_audio_session_gone :: proc(ui: ^UI, ns: ^Net_Session) {
-	if ui.app_audio.session == ns {
-		app_audio_stop(ui)
+session_gone :: proc(a: ^State, owner: rawptr) {
+	if a.owner == owner {
+		stop(a)
 	}
 }
 
-app_audio_stop :: proc(ui: ^UI) {
-	a := &ui.app_audio
+stop :: proc(a: ^State) {
 	s := a.share
 	if s == nil {
 		return
 	}
 	audio.app_share_stop(s)
-	a.share, a.session, a.device = nil, nil, false
+	a.share, a.owner, a.device = nil, nil, false
 	log.infof("app audio: stopped sharing %s", a.name)
 	delete(a.name)
 	a.name = ""
 }
 
 // app_audio_button opens the menu. It is green while something is shared.
-app_audio_button :: proc(ui: ^UI) {
-	a := &ui.app_audio
+button :: proc(env: ^core.Env, a: ^State) {
 	hint := "Share an application's audio"
 	color := mu.Color{}
 	if a.share != nil {
@@ -155,28 +153,27 @@ app_audio_button :: proc(ui: ^UI) {
 		)
 		color = core.theme.speaking
 	}
-	if .SUBMIT in widgets.icon_button(ui, "app audio", .App_Audio, hint, color) {
-		app_audio_refresh(ui)
-		a.volume = settings.app_audio_gain(&ui.settings) * 100
+	if .SUBMIT in widgets.icon_button(env, "app audio", .App_Audio, hint, color) {
+		refresh(a)
+		a.volume = settings.app_audio_gain(&env.settings) * 100
 		a.requested = true
 	}
 }
 
 // app_audio_menu shows the menu while it is open: what is shared, how
 // loud it is, and the applications to pick from.
-app_audio_menu :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	a := &ui.app_audio
+menu :: proc(env: ^core.Env, a: ^State) {
+	ctx := &env.ctx
 	if a.requested {
 		a.requested = false
 		mu.open_popup(ctx, MENU_NAME)
 	}
 	if cnt := mu.get_container(ctx, MENU_NAME, {.CLOSED}); cnt != nil && cnt.open {
-		w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
+		w, h := i32(env.metrics.logical_w), i32(env.metrics.logical_h)
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !core.begin_popup(ui, MENU_NAME) {
+	if !core.begin_popup(env, MENU_NAME) {
 		return
 	}
 	defer mu.end_popup(ctx)
@@ -186,16 +183,16 @@ app_audio_menu :: proc(ui: ^UI) {
 		mu.label(ctx, strings.concatenate({"Sharing ", a.name}, context.temp_allocator))
 		mu.layout_row(ctx, {MENU_WIDTH})
 		if .SUBMIT in widgets.stable_button(ctx, "stop", "Stop sharing") {
-			app_audio_stop(ui)
+			stop(a)
 		}
 	}
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
 	if .CHANGE in widgets.slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
-		ui.settings.app_audio_volume = a.volume / 100
-		ui.settings_dirty = true
-		command_all(ui, conn.app_audio_command(&ui.settings))
+		env.settings.app_audio_volume = a.volume / 100
+		env.settings_dirty = true
+		a.hooks.send_all(a.hooks.user, conn.app_audio_command(&env.settings))
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
@@ -211,7 +208,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		}
 	}
 	if count > 0 {
-		widgets.menu_list_begin(ui, "apps", MENU_WIDTH, count)
+		widgets.menu_list_begin(env, "apps", MENU_WIDTH, count)
 		menu := mu.get_container(ctx, MENU_NAME)
 		for i in 0 ..< aac.app_list_count(a.list) {
 			app := aac.app_list_get(a.list, i)
@@ -222,7 +219,7 @@ app_audio_menu :: proc(ui: ^UI) {
 			mu.push_id(ctx, uintptr(i))
 			mu.layout_row(ctx, {-1})
 			if .SUBMIT in widgets.stable_button(ctx, "app", name) {
-				app_audio_start(ui, i, name)
+				start(env, a, i, name)
 				menu.open = false
 			}
 			mu.pop_id(ctx)
@@ -234,7 +231,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if .SUBMIT in widgets.stable_button(ctx, "refresh", "Refresh") {
-		app_audio_refresh(ui)
+		refresh(a)
 	}
 	if a.error != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
@@ -274,8 +271,7 @@ app_label :: proc(app: ^aac.App_Info) -> string {
 
 // app_audio_refresh lists the applications that are playing audio now.
 @(private = "file")
-app_audio_refresh :: proc(ui: ^UI) {
-	a := &ui.app_audio
+refresh :: proc(a: ^State) {
 	if a.list != nil {
 		aac.app_list_destroy(a.list)
 		a.list = nil
@@ -289,32 +285,31 @@ app_audio_refresh :: proc(ui: ^UI) {
 // app_audio_start shares the application at `index` in the menu list (called
 // `name`) with the connection, instead of whatever was shared before.
 @(private = "file")
-app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
-	a := &ui.app_audio
-	app_audio_stop(ui)
+start :: proc(env: ^core.Env, a: ^State, index: uint, name: string) {
+	stop(a)
 	delete(a.error)
 	a.error = ""
 	// Share it into the voice it goes with: the server it is in, wherever that is.
-	ns := sound_session(ui)
-	if ns == nil || !ns.client.voice.ready || a.list == nil {
+	t := a.hooks.target(a.hooks.user)
+	if t.conn == nil || !t.conn.voice.ready || a.list == nil {
 		return
 	}
-	s, st, why := audio.app_share_start(&ns.client.voice, a.list, index)
-	share_begun(ui, ns, s, st, why, name)
+	s, st, why := audio.app_share_start(&t.conn.voice, a.list, index)
+	share_begun(env, a, t, s, st, why, name)
 }
 
 // share_begun takes over a share that was just started (`s`, or the reason
 // in `st` and `why` why it wasn't), of what is called `name`.
 @(private = "file")
 share_begun :: proc(
-	ui: ^UI,
-	ns: ^Net_Session,
+	env: ^core.Env,
+	a: ^State,
+	t: Target,
 	s: ^audio.App_Share,
 	st: aac.Status,
 	why, name: string,
 	device := false,
 ) {
-	a := &ui.app_audio
 	if st != .Ok {
 		log.errorf("app audio: could not share %s: %s", name, why)
 		if st == .Permission_Denied {
@@ -326,16 +321,15 @@ share_begun :: proc(
 		}
 		return
 	}
-	conn.push_command(&ns.client.commands, conn.app_audio_command(&ui.settings))
+	conn.push_command(&t.conn.commands, conn.app_audio_command(&env.settings))
 	sync.atomic_store(&s.voice.app_input, true)
-	a.share, a.session, a.device = s, ns, device
+	a.share, a.owner, a.device = s, t.owner, device
 	a.name = strings.clone(name)
 	log.infof("app audio: sharing %s", name)
 }
 
 // share_audio_refresh lists the playback devices for the share menu.
-share_audio_refresh :: proc(ui: ^UI) {
-	a := &ui.app_audio
+share_audio_refresh :: proc(a: ^State) {
 	if !a.available {
 		return
 	}
@@ -353,9 +347,8 @@ share_audio_refresh :: proc(ui: ^UI) {
 // menu's list, or -1 for no audio. A device that isn't listed anymore
 // means the default one.
 @(private = "file")
-share_audio_index :: proc(ui: ^UI) -> int {
-	a := &ui.app_audio
-	choice := ui.settings.share_audio
+share_audio_index :: proc(env: ^core.Env, a: ^State) -> int {
+	choice := env.settings.share_audio
 	if choice == "" || a.devices == nil {
 		return -1
 	}
@@ -374,21 +367,20 @@ share_audio_index :: proc(ui: ^UI) -> int {
 
 // share_audio_choice is the share menu's audio choice: no audio, or one of
 // the playback devices. It is only there where devices can be captured.
-share_audio_choice :: proc(ui: ^UI, width: i32) {
-	a := &ui.app_audio
+share_audio_choice :: proc(env: ^core.Env, a: ^State, width: i32) {
 	if !a.available || a.devices == nil {
 		return
 	}
-	ctx := &ui.ctx
-	current := share_audio_index(ui)
+	ctx := &env.ctx
+	current := share_audio_index(env, a)
 	count := int(aac.app_list_count(a.devices))
 	mu.layout_row(ctx, {width})
 	widgets.dim_label(ctx, "Share the audio of:")
-	widgets.menu_list_begin(ui, "audio", width, 1 + count)
+	widgets.menu_list_begin(env, "audio", width, 1 + count)
 	mu.layout_row(ctx, {-1})
 	if .SUBMIT in widgets.list_row(ctx, "none", "No audio", current < 0) {
-		settings.set_setting(&ui.settings.share_audio, "")
-		ui.settings_dirty = true
+		settings.set_setting(&env.settings.share_audio, "")
+		env.settings_dirty = true
 	}
 	for i in 0 ..< count {
 		d := aac.app_list_get(a.devices, uint(i))
@@ -400,8 +392,8 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 		mu.push_id(ctx, uintptr(i))
 		if .SUBMIT in widgets.list_row(ctx, "device", label, i == current) {
 			// The default device is followed to wherever the system moves it.
-			settings.set_setting(&ui.settings.share_audio, "default" if d.is_default else name)
-			ui.settings_dirty = true
+			settings.set_setting(&env.settings.share_audio, "default" if d.is_default else name)
+			env.settings_dirty = true
 		}
 		mu.pop_id(ctx)
 	}
@@ -411,17 +403,16 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 // share_audio_start shares the playback device chosen in the share menu, if
 // any, along with a screen share that was just started, in place of an
 // application.
-share_audio_start :: proc(ui: ^UI) {
-	a := &ui.app_audio
-	index := share_audio_index(ui)
+share_audio_start :: proc(env: ^core.Env, a: ^State) {
+	index := share_audio_index(env, a)
 	if index < 0 {
 		return
 	}
-	app_audio_stop(ui)
+	stop(a)
 	delete(a.error)
 	a.error = ""
-	ns := sound_session(ui)
-	if ns == nil || !ns.client.voice.ready {
+	t := a.hooks.target(a.hooks.user)
+	if t.conn == nil || !t.conn.voice.ready {
 		return
 	}
 	d := aac.app_list_get(a.devices, uint(index))
@@ -432,20 +423,20 @@ share_audio_start :: proc(ui: ^UI) {
 		// Windows can only leave us out of every device at once (see
 		// aac.capture_create_device). That is what's wanted for the device we
 		// play on, while any other device can be captured on its own.
-		if !plays_on(ui, d) {
+		if !plays_on(env, a, d) {
 			exclude = 0
 		}
 	}
-	s, st, why := audio.app_share_start_device(&ns.client.voice, a.devices, uint(index), exclude)
-	share_begun(ui, ns, s, st, why, name, true)
+	s, st, why := audio.app_share_start_device(&t.conn.voice, a.devices, uint(index), exclude)
+	share_begun(env, a, t, s, st, why, name, true)
 }
 
 // plays_on says whether our own sound goes to the playback device `d`: the
 // output device in the settings, or the default one.
 @(private = "file")
-plays_on :: proc(ui: ^UI, d: ^aac.App_Info) -> bool {
-	if audio.find_device(ui.audio.outputs[:], ui.settings.output_device) == nil {
+plays_on :: proc(env: ^core.Env, a: ^State, d: ^aac.App_Info) -> bool {
+	if audio.find_device(a.hooks.outputs(a.hooks.user), env.settings.output_device) == nil {
 		return bool(d.is_default)
 	}
-	return string(d.display_name) == ui.settings.output_device
+	return string(d.display_name) == env.settings.output_device
 }

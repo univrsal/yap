@@ -11,7 +11,7 @@ import "client:audio/aac"
 // systems) and converts it to
 // 48 kHz stereo on the way. The network thread mixes it into every frame it
 // sends (app_mix in voice.odin). What is shared and when is decided by the
-// UI, see the client's ui/app_audio_native.odin.
+// UI, see the client's ui/appaudio/native.odin.
 
 // One application being captured into a Voice's app ring. Its address is
 // passed to tinyaac's callbacks as the user data.

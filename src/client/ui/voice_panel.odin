@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "core"
 import "core:fmt"
@@ -340,7 +341,7 @@ voice_panel :: proc(ui: ^UI) {
 			can_share :=
 				video.can_share() && ((v.video_link && v.may_video) || video.share_state() != .Off)
 			// Shared audio goes out with our voice.
-			can_music := app_audio_available(ui) && (v.may_speak || app_audio_on(ui))
+			can_music := appaudio.available(&ui.app_audio) && (v.may_speak || appaudio.on(&ui.app_audio))
 			// Likewise the camera.
 			can_camera :=
 				camera_available(v) &&
@@ -357,7 +358,7 @@ voice_panel :: proc(ui: ^UI) {
 			append(&widths, -1)
 			mu.layout_row(ctx, widths[:])
 			if can_music {
-				app_audio_button(ui)
+				appaudio.button(ui, &ui.app_audio)
 			}
 			if can_share {
 				share_button(ui)

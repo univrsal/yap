@@ -122,7 +122,7 @@ sharing_mark :: proc(env: ^core.Env, row: mu.Rect, slot: i32, id: proto.User_Num
 
 // The mark for someone whose audio still comes through while they are muted,
 // at the end of the row (in front of the others). That can only be an
-// application that they are sharing (ui/app_audio_native.odin), since muting
+// application that they are sharing (ui/appaudio/native.odin), since muting
 // stops the microphone. Without this mark, all there is to see is a
 // crossed-out microphone, however much is being heard. It is dim for someone
 // we have muted ourselves, whom we don't hear either way.

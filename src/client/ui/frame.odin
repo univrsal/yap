@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "core"
 import "titlebar"
@@ -193,7 +194,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	app_sound_step(ui)
 	sounds_frame(ui)
 	session_capture_update(ui)
-	app_audio_frame(ui)
+	appaudio.frame(ui, &ui.app_audio)
 	servers_frame(ui)
 	// Run before the tray and the taskbar update, so they show what a hotkey just
 	// did, and before returning early for a hidden window, since hotkeys work
@@ -413,7 +414,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	ui_avatars_destroy(ui)
 	conn.image_cache_destroy(&ui.image_cache)
 	ui_video_destroy(ui)
-	app_audio_destroy(ui)
+	appaudio.destroy(&ui.app_audio)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
 	core.nav_destroy(ui)

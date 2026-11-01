@@ -106,7 +106,7 @@ Settings :: struct {
 	// How loud the local join, leave and message sound effects are.
 	notification_volume:     f32, // 1 = as encoded, 0..MAX_USER_VOLUME
 	// How loud a shared application's audio is when it is sent
-	// (ui/app_audio_native.odin).
+	// (ui/appaudio/native.odin).
 	app_audio_volume:        f32, // 1 = as it plays, 0..MAX_USER_VOLUME
 	// Whether muting the microphone also mutes a shared application.
 	mute_app_audio_with_mic: bool,
@@ -160,7 +160,7 @@ Settings :: struct {
 	camera_device:           string,
 	camera_quality:          string,
 	camera_mirror:           bool,
-	// What audio a screen share sends on the desktop (ui/app_audio_native.odin):
+	// What audio a screen share sends on the desktop (ui/appaudio/native.odin):
 	// "" for none, "default" for the default playback device, or a
 	// playback device by name (the default if it is gone).
 	share_audio:             string,

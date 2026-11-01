@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "base:intrinsics"
 import "client:audio"
@@ -229,7 +230,7 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 		// What was shared there has nobody to go to any more.
 		video.share_stop()
 		video.camera_stop()
-		app_audio_stop(ui)
+		appaudio.stop(&ui.app_audio)
 	}
 	session_remove(ui, ns)
 	session_free(ui, ns)
@@ -271,7 +272,7 @@ session_remove :: proc(ui: ^UI, ns: ^Net_Session) {
 
 // session_free stops a session that is off the rail and frees it.
 session_free :: proc(ui: ^UI, ns: ^Net_Session) {
-	app_audio_session_gone(ui, ns)
+	appaudio.session_gone(&ui.app_audio, ns)
 	// Close the devices first, so nothing touches the rings after the voice goes away.
 	audio.close_streams(&ns.streams, &ns.client.voice)
 	sync.atomic_store(&ns.stop, true)
@@ -403,7 +404,7 @@ session_capture_update :: proc(ui: ^UI) {
 	// the menu bar icon).
 	if ui.voice_at == nil {
 		video.share_stop()
-		app_audio_stop(ui)
+		appaudio.stop(&ui.app_audio)
 	} else {
 		// Nor where we may not show it, or not be heard.
 		speak, video_ok := room_rights(ui.voice_at)
@@ -411,7 +412,7 @@ session_capture_update :: proc(ui: ^UI) {
 			video.share_stop()
 		}
 		if !speak {
-			app_audio_stop(ui)
+			appaudio.stop(&ui.app_audio)
 		}
 	}
 	// The camera, likewise, and when we move elsewhere (ui/camera.odin).

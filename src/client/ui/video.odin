@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "core"
 import "core:fmt"
@@ -20,7 +21,7 @@ import "common:proto"
 // yap_video library (video/native.odin). On the desktop, the Share button
 // opens a menu of monitors and windows to share (share_menu), or, where the
 // system asks by itself (Wayland's portal, macOS 15), the system's picker is
-// used. Where a playback device's audio can go along (ui/app_audio_native.odin),
+// used. Where a playback device's audio can go along (ui/appaudio/native.odin),
 // the menu asks for that first, and with the system's picker the menu
 // then has only that and a button to open the picker. A browser has its own picker. Either way, the channel list marks who is
 // sharing. The Screen tab's picture can be popped out into a window of its own
@@ -150,7 +151,7 @@ share_button :: proc(ui: ^UI) {
 	if .SUBMIT in widgets.icon_button(ui, "share", .Screen, hint, color) {
 		if state == .Live || state == .Starting {
 			video.share_stop()
-		} else if system && !app_audio_available(ui) {
+		} else if system && !appaudio.available(&ui.app_audio) {
 			// Its picker is all there is to ask.
 			video.share_source({}, share_config(ui))
 		} else if video.PICKER {
@@ -187,7 +188,7 @@ share_menu :: proc(ui: ^UI) {
 		if !system {
 			vid.sources = video.sources(context.allocator)
 		}
-		share_audio_refresh(ui)
+		appaudio.share_audio_refresh(&ui.app_audio)
 		mu.open_popup(ctx, SHARE_MENU)
 	}
 	if cnt := mu.get_container(ctx, SHARE_MENU, {.CLOSED}); cnt != nil && cnt.open {
@@ -204,12 +205,12 @@ share_menu :: proc(ui: ^UI) {
 		allow_capture(ui)
 		return
 	}
-	share_audio_choice(ui, SHARE_MENU_WIDTH)
+	appaudio.share_audio_choice(ui, &ui.app_audio, SHARE_MENU_WIDTH)
 	if system {
 		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
 		if .SUBMIT in widgets.stable_button(ctx, "pick", "Choose a screen or window...") {
 			video.share_source({}, share_config(ui))
-			share_audio_start(ui)
+			appaudio.share_audio_start(ui, &ui.app_audio)
 			mu.get_current_container(ctx).open = false
 		}
 		return
@@ -266,7 +267,7 @@ share_menu :: proc(ui: ^UI) {
 	}
 	if picked >= 0 {
 		video.share_source(vid.sources[picked], share_config(ui))
-		share_audio_start(ui)
+		appaudio.share_audio_start(ui, &ui.app_audio)
 		mu.get_current_container(ctx).open = false
 	}
 }

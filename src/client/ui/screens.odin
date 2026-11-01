@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "core"
 import txt "text"
@@ -175,7 +176,7 @@ session_screen :: proc(ui: ^UI) {
 	user_menu(ui)
 	channel_menu(ui)
 	message_menu(ui)
-	app_audio_menu(ui)
+	appaudio.menu(ui, &ui.app_audio)
 	share_menu(ui)
 }
 

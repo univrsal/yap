@@ -1,5 +1,6 @@
 package ui
 
+import "appaudio"
 import "widgets"
 import "core"
 import "titlebar"
@@ -276,7 +277,7 @@ category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 
 // audio_settings picks the send quality preset (see audio/quality.odin),
 // whether the microphone is denoised, and whether muting it also mutes a
-// shared application (ui/app_audio_native.odin).
+// shared application (ui/appaudio/native.odin).
 @(private = "file")
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -298,7 +299,7 @@ audio_settings :: proc(ui: ^UI) {
 		save_settings(ui)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
-	if app_audio_setting(ui) {
+	if appaudio.setting(&ui.app_audio) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   widgets.checkbox(
