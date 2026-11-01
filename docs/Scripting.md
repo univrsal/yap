@@ -326,6 +326,12 @@ usual.
 - The function runs like an event handler: it is time-limited, an error in it is
   logged, and its `yap.send` goes to the server you typed it in.
 
+Bots can have `/commands` too (see [API.md](API.md#slash-commands)). They are listed
+together with a script's, in the completion and the palette, with the bot's name after
+them. A script's command and a bot's command of the same name: the script's runs. If
+two bots have the same name, `/name` runs neither and says so: type `/botname:name`
+(completion does this for you).
+
 ## Changing what is shown and what is sent
 
 Two handlers can change things on their way, and answer the question

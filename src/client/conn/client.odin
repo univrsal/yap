@@ -70,6 +70,7 @@ Server_Conn :: struct {
 	msgs:            Message_Client, // messages (see messages.odin)
 	search:          Search_Client, // searching them (see search.odin)
 	bookmarks:       Bookmarks_Client, // see bookmarks.odin
+	bot_commands:    Bot_Commands_Client, // slash commands of bots (see bot_commands.odin)
 	blobs:           Blob_Client, // pictures (see blobs.odin)
 	buddies:         Buddy_Client, // our buddies, and when people were last online (see buddies.odin)
 	emoji:           Emoji_Client, // the server's own emoji (see emoji.odin)
@@ -162,6 +163,7 @@ client_close :: proc(c: ^Server_Conn) {
 	messages_destroy(c)
 	search_destroy(c)
 	bookmarks_destroy(c)
+	bot_commands_destroy(c)
 	profiles_destroy(c)
 	blobs_destroy(c)
 	video_destroy(c)

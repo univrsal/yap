@@ -141,7 +141,7 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		cursor = clamp(ctx.textbox_state.selection[0], 0, c.len^)
 	}
 	text := string(c.buf[:c.len^])
-	if command_items(ui, text, cursor) {
+	if command_items(ui, c, text, cursor) {
 		return
 	}
 	start := cursor
@@ -238,13 +238,13 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
 }
 
-// command_items lists the scripts' /commands that the first word of the text
+// command_items lists the scripts' and the bots' /commands that the first word of the text
 // could be, when the cursor is at the end of it. It is true if the text is such a
 // word, whether or not any command matches. Call with the View locked.
 @(private = "file")
-command_items :: proc(ui: ^UI, text: string, cursor: int) -> bool {
+command_items :: proc(ui: ^UI, c: Composer, text: string, cursor: int) -> bool {
 	cm := &ui.completion
-	if ui.scripts == nil || ui.session == nil || cursor < 1 || text[0] != '/' {
+	if ui.session == nil || cursor < 1 || text[0] != '/' {
 		return false
 	}
 	if strings.contains_any(text[:cursor], " \t\n") {
@@ -261,19 +261,37 @@ command_items :: proc(ui: ^UI, text: string, cursor: int) -> bool {
 	cm.start, cm.end = 0, cursor
 	items_clear(cm)
 	prefix := strings.to_lower(word[1:], context.temp_allocator)
-	for info in script.runtime_commands(ui.scripts, ui.session.client) {
+	if ui.scripts != nil {
+		for info in script.runtime_commands(ui.scripts, ui.session.client) {
+			if len(cm.items) >= COMPLETION_MAX {
+				break
+			}
+			if !strings.has_prefix(info.name, prefix) {
+				continue
+			}
+			label :=
+				strings.concatenate({"/", info.name, "   ", info.help}) if info.help != "" else strings.concatenate({"/", info.name})
+			append(
+				&cm.items,
+				Completion_Item{insert = strings.concatenate({"/", info.name, " "}), label = label},
+			)
+		}
+	}
+	// The commands of bots that could answer here. A name that two bots have
+	// is completed with the bot's name in front, which is how it is typed.
+	here := composer_bot_commands(ui, c, composer_dm(ui, c))
+	for e in here {
 		if len(cm.items) >= COMPLETION_MAX {
 			break
 		}
-		if !strings.has_prefix(info.name, prefix) {
+		typed := conn.bot_command_typed(e)
+		if !strings.has_prefix(e.name, prefix) && !strings.has_prefix(strings.to_lower(typed, context.temp_allocator), prefix) {
 			continue
 		}
-		label :=
-			strings.concatenate({"/", info.name, "   ", info.help}) if info.help != "" else strings.concatenate({"/", info.name})
-		append(
-			&cm.items,
-			Completion_Item{insert = strings.concatenate({"/", info.name, " "}), label = label},
-		)
+		name := typed if conn.bot_command_ambiguous(here, e) else e.name
+		usage := strings.concatenate({" ", e.usage}, context.temp_allocator) if e.usage != "" else ""
+		label := strings.concatenate({"/", e.name, usage, "   ", e.description, "   · ", e.bot})
+		append(&cm.items, Completion_Item{insert = strings.concatenate({"/", name, " "}), label = label})
 	}
 	// Once the whole name is typed there is nothing left to complete, and Enter
 	// runs the command.

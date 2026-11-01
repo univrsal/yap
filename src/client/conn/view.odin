@@ -217,6 +217,9 @@ View :: struct {
 	search:              View_Search,
 	// Which messages we bookmarked, and the list of them (bookmarks.odin).
 	bookmarks:           View_Bookmarks,
+	// The slash commands of the bots that are connected, sorted by name
+	// (bot_commands.odin).
+	bot_commands:        [dynamic]Bot_Command_Entry,
 	// The server's custom emoji (emoji.odin).
 	emoji:               View_Emoji,
 	// Our account's settings as the server stores them, whether the sync has
@@ -325,6 +328,7 @@ view_reset :: proc(v: ^View) {
 	clear(&v.roots_missing)
 	view_clear_search(v)
 	view_clear_bookmarks(v)
+	view_clear_bot_commands(v)
 	view_clear_emoji(v)
 	view_clear_shared(v)
 	view_clear_roles(v)
@@ -400,6 +404,8 @@ view_destroy :: proc(v: ^View) {
 	view_clear_bookmarks(v)
 	delete(v.bookmarks.list)
 	delete(v.bookmarks.ids)
+	view_clear_bot_commands(v)
+	delete(v.bot_commands)
 	delete(v.outbox)
 	delete(v.saves)
 	delete(v.typing)

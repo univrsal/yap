@@ -495,6 +495,7 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		convs_begin(c)
 		buddies_begin(c)
 		shared_begin(c)
+		bot_commands_begin(c)
 	case .Account_Changed:
 		record, ok := proto.decode_account(body)
 		if !ok {

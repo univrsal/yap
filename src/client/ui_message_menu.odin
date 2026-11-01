@@ -376,6 +376,18 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 			c.len^ = 0
 			return true
 		}
+		// So is a /command of a bot.
+		switch bot_slash(ui, c, dm_to, text) {
+		case .Run:
+			ui_redraw(ui)
+			history_clear(&c.area.history)
+			c.len^ = 0
+			return true
+		case .Keep:
+			ui_redraw(ui)
+			return false // what was typed stays
+		case .None:
+		}
 		// A script may change a message or stop it.
 		if ui.scripts != nil && ui.session != nil {
 			filtered, cancel, by := script.runtime_filter_send(

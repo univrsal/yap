@@ -200,6 +200,22 @@ rights), and the server's check in step 3 is the authority.
   know (`headless/commands.odin`), with log lines for denied/unavailable.
 - The web build uses the same code; nothing separate.
 
+*As built (phase 5):* `conn/bot_commands.odin` keeps the list (sorted by
+name, then bot) and gives the UI a copy in `View.bot_commands`. Running one
+is a queued `Bot_Run_Command` carrying the typed line; the network thread
+works out which bot it means and sends `Command_Run`, so the headless
+client shares the path (a `/word` that no script has is tried as a bot's
+command; a `/word` nobody has still gets the help). The UI decides whether
+a line is a bot's command with the same lookup (`ui_scripts.odin`,
+`bot_slash`), so that it isn't posted as text; with several bots the text
+stays in the box and a notice says to use `/bot:command`. Which bots are
+offered where is known for DMs (the one bot) and groups (their members);
+for a channel the client can't tell who is in it, so every bot's commands
+are offered and the server's answer (`Denied`) says if the bot isn't there.
+The pure parts (lookup, scope, ambiguity) are tested in
+`conn/bot_commands_test.odin`; the UI pieces are not, since they need a
+session.
+
 ### Scripts
 
 `yap.register_command` stays as it is. A possible small addition later
@@ -231,7 +247,7 @@ register a command for others; that is what a bot is for.
 | 2 | Server: the in-memory registry, `Bot_Commands_Set`, `Commands_Changed` (also in the sync, and when a bot's last connection closes) | M | `server` | 1 | done (2026-11-01) |
 | 3 | Server: `Command_Run` with the checks and the rate limit, `Command_Invoked` to the bot; a test per refusal (denied, bot not in channel, bot gone, thread) | M | `server` | 2 | done (2026-11-01) |
 | 4 | Gateway: `PUT/GET /commands`, the `COMMAND` event and resume; tests in `gateway_test.odin` | S | `server` | 3 | done (2026-11-01) |
-| 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | planned |
+| 5 | Client: the list in `View`, the run entry, the merged list in completion and palette, names and ambiguity, composer order, headless | M | `client/conn`, `client` | 3 | done (2026-11-01) |
 | 6 | Docs and an example: `API.md` (commands, the event), `Scripting.md` (script and bot commands are listed together), `scripting.md` D7 updated, `docs/examples/slash.py` | S | docs | 4, 5 | planned |
 
 Why this order:
