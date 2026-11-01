@@ -17,7 +17,7 @@ import "common:proto"
 
 
 // The right-hand side of the session screen: the channel's text chat, or
-// the log (opened from the header, see ui.odin) or, while watching somebody's
+// the log (opened from the header, see ui/screens.odin) or, while watching somebody's
 // screen or in a call with a camera on, the chat, that screen and the call's
 // video as tabs.
 

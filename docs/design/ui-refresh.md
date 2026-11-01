@@ -125,7 +125,7 @@ sized as `size.y + 2 * padding`), so every screen needs a look afterwards,
 and tests that measure layouts (`ui_chat_preview_test`,
 `ui_text_area_test`, the composer tests) may need new numbers.
 
-*As built:* `style_apply` (`ui.odin`) sets microui's style every frame,
+*As built:* `style_apply` (`ui/layout.odin`) sets microui's style every frame,
 before `mu.begin`: padding 6, spacing 6, size 80x14 (rows 26 px, from
 20), and on a phone padding 8, spacing 8, size 80x28 (rows 44 px). A
 phone (`ui.compact`) is a window narrower than `NARROW_LAYOUT` beside the
