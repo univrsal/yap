@@ -288,8 +288,8 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 	ui.msg_bar = {} // its messages belong to the previous server
 	ui.focus_composer = false
 	ui.page = .Main
-	ui.redraw_frames = max(ui.redraw_frames, 2)
-	ui.redraw_at = time.tick_now()
+	ui.redraw.frames = max(ui.redraw.frames, 2)
+	ui.redraw.at = time.tick_now()
 }
 
 // servers_frame counts what is unread on every server: in its channels for its

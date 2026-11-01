@@ -1,5 +1,6 @@
 package ui
 
+import "chrome"
 import "base:intrinsics"
 import "client:clipboard"
 import "client:platform"
@@ -11,6 +12,8 @@ import "core:strings"
 import "core:time"
 import "core:unicode/utf8"
 import mu "vendor:microui"
+
+_ :: chrome // only used outside the web build
 
 // The window: opening and closing it, its size and scale, the cursor, the
 // clipboard, and GLFW's callbacks, which turn its input into microui's.
@@ -38,7 +41,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
 	when !platform.WEB {
-		set_window_icon(ui.window)
+		chrome.set_window_icon(ui.window)
 	}
 	if !render.renderer_init(&ui.renderer, ui.window) {
 		log.errorf("failed to set up %s rendering", render.GPU_REQUIREMENT)

@@ -1,5 +1,6 @@
 package ui
 
+import "redraw"
 import "base:intrinsics"
 import "client:audio"
 import "client:conn"
@@ -399,8 +400,7 @@ UI :: struct {
 	// clock will next change something on screen (zero: nothing will), the
 	// hash of the last frame's draw commands, and how many log lines
 	// the log panel showed in it (-1: it wasn't on screen).
-	redraw_frames:       int,
-	redraw_at:           time.Tick,
+	redraw:              redraw.Request,
 	// The mouse wheel's scrolling not handed to microui yet, in pixels, and
 	// when some was last handed over (see scroll_step).
 	scroll_left:         [2]f32,

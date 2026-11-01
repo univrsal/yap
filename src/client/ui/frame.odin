@@ -1,5 +1,6 @@
 package ui
 
+import "redraw"
 import "base:intrinsics"
 import "client:audio"
 import "client:clipboard"
@@ -158,8 +159,8 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	// A frame asked for by a time (ui_redraw_at) wakes it sooner, so that what
 	// moves faster than that (scrolling, see scroll_step) does.
 	wait := 1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30
-	if ui.redraw_at != {} {
-		due := time.duration_seconds(time.tick_diff(time.tick_now(), ui.redraw_at))
+	if ui.redraw.at != {} {
+		due := time.duration_seconds(time.tick_diff(time.tick_now(), ui.redraw.at))
 		wait = clamp(due, 0.001, wait)
 	}
 	if ui.scripts != nil && script.runtime_scripts(ui.scripts) > 0 {
@@ -255,8 +256,8 @@ draw_frame :: proc(ui: ^UI) {
 	ui.titlebar_height = i32(height * m.input_scale)
 	// Whatever asked for this frame has been served now. The layout asks again
 	// for whatever still needs more frames (see frame_due).
-	ui.redraw_frames = max(ui.redraw_frames - 1, 0)
-	ui.redraw_at = {}
+	ui.redraw.frames = max(ui.redraw.frames - 1, 0)
+	ui.redraw.at = {}
 	ui.log_drawn = -1
 	// microui turns a press into focus for whatever `hover_id` names without
 	// checking the pointer again, and only a control itself clears its hover. If
@@ -314,13 +315,8 @@ draw_frame :: proc(ui: ^UI) {
 	video.frame_done()
 }
 
-// After input, draw at least this many frames, because microui answers some
-// input (a click) in the frame after the one that saw it.
-@(private = "file")
-SETTLE_FRAMES :: 2
-
 // How often things that move smoothly (a fade, the level meter) are redrawn.
-ANIMATION_FRAME :: time.Second / 30
+ANIMATION_FRAME :: redraw.ANIMATION_FRAME
 
 // ui_wake asks for a frame from any thread, for a change that no input
 // event reports: from the network side (View.wake) and from threads that
@@ -333,19 +329,17 @@ ui_wake :: proc "c" () {
 
 // ui_redraw asks for frames right now, from the UI's own thread.
 ui_redraw :: proc "contextless" (ui: ^UI) {
-	ui.redraw_frames = max(ui.redraw_frames, SETTLE_FRAMES)
+	redraw.now(&ui.redraw)
 }
 
 // ui_redraw_at asks for a frame by `at`, for things that change with the clock
 // alone. The layout asks again in every frame that still needs it.
 ui_redraw_at :: proc(ui: ^UI, at: time.Tick) {
-	if ui.redraw_at == {} || time.tick_diff(at, ui.redraw_at) > 0 {
-		ui.redraw_at = at
-	}
+	redraw.at(&ui.redraw, at)
 }
 
 ui_redraw_in :: proc(ui: ^UI, after: time.Duration) {
-	ui_redraw_at(ui, time.tick_add(time.tick_now(), max(after, 0)))
+	redraw.after(&ui.redraw, after)
 }
 
 // frame_due says whether the loop should draw a frame in this turn.
@@ -354,10 +348,10 @@ frame_due :: proc(ui: ^UI) -> bool {
 	if intrinsics.atomic_exchange(&g_wake, false) {
 		ui_redraw(ui)
 	}
-	if ui.redraw_frames > 0 {
+	if ui.redraw.frames > 0 {
 		return true
 	}
-	if ui.redraw_at != {} && time.tick_diff(ui.redraw_at, time.tick_now()) >= 0 {
+	if ui.redraw.at != {} && time.tick_diff(ui.redraw.at, time.tick_now()) >= 0 {
 		return true
 	}
 	// A new size or scale. No callback is needed for this.
@@ -408,7 +402,7 @@ settle :: proc(ui: ^UI) {
 	h = hash.fnv64a(slice.to_bytes(ui.images.draws[:]), h)
 	if h != ui.drawn_hash {
 		ui.drawn_hash = h
-		ui.redraw_frames = max(ui.redraw_frames, 1)
+		ui.redraw.frames = max(ui.redraw.frames, 1)
 	}
 }
 

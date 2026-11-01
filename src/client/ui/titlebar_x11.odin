@@ -1,6 +1,7 @@
 #+build linux
 package ui
 
+import "chrome"
 import glfw "client:wglfw"
 import log "common:wlog"
 import "core:c"
@@ -107,8 +108,8 @@ g_x11: struct {
 titlebar_init :: proc(merged: bool) {
 	if !merged {
 		// The compositor draws the title bar, so libdecor (and GTK) isn't
-		// needed (see ui/wayland_decorations.odin).
-		if wayland_server_decorations() {
+		// needed (see ui/chrome/wayland_decorations.odin).
+		if chrome.wayland_server_decorations() {
 			vglfw.InitHint(vglfw.WAYLAND_LIBDECOR, vglfw.WAYLAND_DISABLE_LIBDECOR)
 			log.debug("ui: the compositor draws the title bar, so no libdecor")
 		}

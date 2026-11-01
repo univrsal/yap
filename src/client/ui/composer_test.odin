@@ -205,10 +205,10 @@ test_spinner_redraws_while_shown :: proc(t: ^testing.T) {
 	mu.begin(ctx)
 	if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
 		spinner(ui, {1000, 1000, 20, 20}) // outside the window
-		testing.expect_value(t, ui.redraw_at, time.Tick{})
+		testing.expect_value(t, ui.redraw.at, time.Tick{})
 		spinner(ui, {10, 10, 20, 20})
-		testing.expect(t, ui.redraw_at != {})
-		left := time.tick_diff(time.tick_now(), ui.redraw_at)
+		testing.expect(t, ui.redraw.at != {})
+		left := time.tick_diff(time.tick_now(), ui.redraw.at)
 		testing.expect(t, left > 0 && left <= SPINNER_STEP)
 		mu.end_window(ctx)
 	}
@@ -294,7 +294,7 @@ test_scrollbar_fades :: proc(t: ^testing.T) {
 	strip := mu.Rect{388, 0, 12, 300}
 	step :: proc(ui: ^UI, strip: mu.Rect, scroll: i32, ago: time.Duration) -> (f: Scrollbar_Fade) {
 		ctx := &ui.ctx
-		ui.redraw_at = {}
+		ui.redraw.at = {}
 		mu.begin(ctx)
 		if mu.begin_window(
 			ctx,
@@ -318,15 +318,15 @@ test_scrollbar_fades :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.alpha, 0) // not scrolled yet
 	f = step(ui, strip, 40, 0)
 	testing.expect_value(t, f.alpha, 1)
-	testing.expect(t, ui.redraw_at != {}) // for when it starts to fade
+	testing.expect(t, ui.redraw.at != {}) // for when it starts to fade
 	f = step(ui, strip, 40, SCROLLBAR_SHOWN + SCROLLBAR_FADE / 2)
 	testing.expect(t, f.alpha > 0.3 && f.alpha < 0.7)
-	testing.expect(t, ui.redraw_at != {})
+	testing.expect(t, ui.redraw.at != {})
 	f = step(ui, strip, 40, SCROLLBAR_SHOWN + SCROLLBAR_FADE + time.Millisecond)
 	testing.expect_value(t, f.alpha, 0)
 	f = step(ui, strip, 40, 0)
 	testing.expect_value(t, f.alpha, 0) // and stays gone
-	testing.expect_value(t, ui.redraw_at, time.Tick{})
+	testing.expect_value(t, ui.redraw.at, time.Tick{})
 	mu.input_mouse_move(ctx, 394, 100)
 	step(ui, strip, 40, 0) // the pointer reaches the window
 	f = step(ui, strip, 40, 0)

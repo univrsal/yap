@@ -1,5 +1,5 @@
 #+build !wasi
-package ui
+package chrome
 
 import glfw "client:wglfw"
 import stbi "client:wstbi"
@@ -16,7 +16,7 @@ import log "common:wlog"
 // shows and GLFW uses until this replaces it.
 
 // Also what install_self installs as the icon on Linux and macOS.
-ICON_PNG :: #load("../assets/icon.png")
+ICON_PNG :: #load("../../assets/icon.png")
 
 set_window_icon :: proc(window: glfw.WindowHandle) {
 	when ODIN_OS == .Darwin {

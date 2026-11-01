@@ -1,5 +1,5 @@
 #+build linux
-package ui
+package chrome
 
 import "core:c"
 import "core:dynlib"

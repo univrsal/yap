@@ -170,7 +170,7 @@ less RSS (GTK's libraries) and 5 threads fewer. Under Weston, which like
 GNOME draws no title bars, GLFW's own decorations are a bare grey strip with
 no title and no buttons, so libdecor can't simply go. Now the client asks
 the compositor before GLFW starts (`wayland_server_decorations` in
-`ui/wayland_decorations.odin`: libwayland-client loaded for a moment, a
+`ui/chrome/wayland_decorations.odin`: libwayland-client loaded for a moment, a
 connection of its own, a look at the registry for
 `zxdg_decoration_manager_v1`) and turns libdecor off only where it is
 offered. Checked: under Sway no GTK is loaded and the title bar is Sway's;

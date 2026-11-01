@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "chrome"
 import glfw "client:wglfw"
 import log "common:wlog"
 import "core:math/linalg"
@@ -225,7 +226,7 @@ tray_pixels :: proc(look: Tray_Look) -> []u8 {
 	side := TRAY_ICON_PIXELS
 	pixels: []u8
 	if !look.voice {
-		pixels = window_icon_rgba(side, context.temp_allocator)
+		pixels = chrome.window_icon_rgba(side, context.temp_allocator)
 	}
 	if pixels == nil {
 		icon, color := look.icon, look.color

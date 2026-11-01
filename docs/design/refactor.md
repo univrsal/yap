@@ -674,7 +674,7 @@ Proposed, from the least to the most disruptive:
    | `client:video` | C4 |
    | `client:richtext` | C5 |
    | `client/headless` | `client_cli.odin` + `channels_cli.odin`, ~870 lines, need only conn/settings/proto and `avatar_load` |
-   | `client/image` | `image.odin`, `ui/window_icon.odin`, `ui/wayland_decorations.odin` (no `UI` references) |
+   | `client/image` | `image.odin`, `ui/chrome/window_icon.odin`, `ui/chrome/wayland_decorations.odin` (no `UI` references) |
    | `server/mail`, `webpush`, `gate` | E8 |
 
    The ~100 UI files (now in `client/ui`) should **stay one package**. In Odin a

@@ -1,6 +1,7 @@
 #+build !wasi
 package ui
 
+import "chrome"
 import "client:settings"
 import log "common:wlog"
 import "core:fmt"
@@ -71,7 +72,7 @@ install_do :: proc(ui: ^UI, install: bool) {
 		if st.exe == "" {
 			err = "Could not determine the location of this program's executable."
 		} else {
-			err = settings.install_self(st.exe, ICON_PNG)
+			err = settings.install_self(st.exe, chrome.ICON_PNG)
 		}
 	} else {
 		err = settings.uninstall_self()
