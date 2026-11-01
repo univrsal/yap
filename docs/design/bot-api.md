@@ -882,7 +882,8 @@ Not planned in detail; written down so v1 leaves room for them.
   arguments); clients complete them in the message bar (the completion
   popup exists, `ui_completion.odin`), and the bot gets a
   `COMMAND` event rather than parsing text. Needs protocol and client
-  work; the most Discord-like thing worth having.
+  work; the most Discord-like thing worth having. Planned in
+  [bot-commands.md](bot-commands.md).
 - **Outgoing webhooks**: for a bot that can't hold a WebSocket open
   (serverless), the gateway POSTs events to a URL.
 - **Incoming webhooks**: a URL with a secret in it that posts to one
