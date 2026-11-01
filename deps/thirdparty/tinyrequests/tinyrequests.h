@@ -10,6 +10,12 @@
  *     redirects (CURLOPT_PROTOCOLS, CURLOPT_REDIR_PROTOCOLS, CURLOPT_MAXREDIRS).
  *   - CFNetwork backend: a request that passes its deadline is TR_ERROR_TIMEOUT, as
  *     in the other backends, instead of TR_ERROR_BACKEND (two places).
+ *   - CFNetwork backend, tr__apple_read_available: the response headers are
+ *     captured when the whole answer is read there (they were only captured by the
+ *     stream's callbacks, which may not have run, leaving the headers empty); the
+ *     loop notices that reading ended the request (the stream's callbacks can fail
+ *     it, as when the answer is too large) instead of overwriting its error with
+ *     "read failed"; and tr__apple_set_error keeps the first error.
  *   - WinHTTP backend, tr__url_parse: a URL with a port ("http://host:8080/") was
  *     read with the port starting at the colon, so the port was 0 and the host
  *     lost its last character ("host" -> "hos", "127.0.0.1" -> "127.0.0.", which
@@ -751,6 +757,9 @@ static void tr__cf_release(CFTypeRef object_ref) {
 }
 
 static void tr__apple_set_error(tr_async *async_request, int code, const char *message) {
+    if (async_request->status != TR_IN_PROGRESS) {
+        return; /* yap: the first error, or the success, stays */
+    }
     async_request->status = code;
     async_request->result_code = code;
     async_request->response.result_code = code;
@@ -928,6 +937,9 @@ static void tr__apple_read_available(tr_async *async_request) {
     CFIndex bytes_read;
     while (async_request->stream && async_request->status == TR_IN_PROGRESS) {
         bytes_read = CFReadStreamRead(async_request->stream, buffer, (CFIndex) sizeof(buffer));
+        if (bytes_read < 0 && async_request->status != TR_IN_PROGRESS) {
+            return; /* yap: reading ran the stream's callbacks, which ended the request, and closed the stream */
+        }
         if (bytes_read > 0) {
             if (tr__append_bytes(async_request->client, &async_request->response, buffer, (size_t) bytes_read) != TR_OK) {
                 tr__apple_set_error(async_request, TR_ERROR_NOMEM, "response allocation failed");
@@ -938,11 +950,18 @@ static void tr__apple_read_available(tr_async *async_request) {
         }
         if (bytes_read == 0) {
             tr__apple_capture_status(async_request);
+            tr__apple_capture_headers(async_request); /* yap: not captured otherwise when the answer is read here */
             tr__apple_finish_success(async_request);
             tr__apple_close_stream(async_request);
             return;
         }
-        tr__apple_set_error(async_request, TR_ERROR_BACKEND, "read failed");
+        {
+            /* yap: say why */
+            CFStreamError read_error = CFReadStreamGetError(async_request->stream);
+            char message[96];
+            snprintf(message, sizeof(message), "read failed (domain %ld, code %ld)", (long) read_error.domain, (long) read_error.error);
+            tr__apple_set_error(async_request, TR_ERROR_BACKEND, message);
+        }
         tr__apple_close_stream(async_request);
         return;
     }

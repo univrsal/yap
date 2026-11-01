@@ -62,6 +62,9 @@ jobs:
         run: |
           python3 tools/gen_foreign.py
           git diff --exit-code -- src/client/audio
+      - name: tinyrequests' CFNetwork code works
+        # Its reading and size cap, against a stand-in for CoreFoundation (tools/tinyrequests_apple).
+        run: sh tools/tinyrequests_apple/run.sh
       - name: The web client's requests for scripts work
         # web/http.js, against a server of its own (node has fetch).
         run: node tools/test_web_http.mjs

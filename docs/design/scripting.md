@@ -297,7 +297,9 @@ starts** (answers, a 404, redirects, a POST with headers, an oversized answer, a
 redirect to `file://`, a refused connection, a timeout), and without a client. Every
 example script is loaded from its file and exercised, and a test loads every Lua block
 in `docs/Scripting.md` and runs its quick start. `node tools/test_web_http.mjs` tests
-`web/http.js` against a server of its own (in CI).
+`web/http.js` against a server of its own, and `tools/tinyrequests_apple` runs
+tinyrequests' CFNetwork code on Linux against a stand-in for CoreFoundation with a
+scripted stream (both in CI).
 
 The headless client was run against a live server for events, commands, `on_send`,
 settings, a restart, a changed script, and web requests.
@@ -326,8 +328,9 @@ Lessons that cost something, for the next change here:
 - **WinHTTP and CFNetwork** are only exercised by the CI runners for Windows and macOS
   (the tests make real requests); nobody has run them by hand. The size cap relies on the
   function they share, and the redirect restriction exists only for libcurl (the other
-  two speak only http and https). The first Windows run found a parser bug in the
-  library (above), so more may be there.
+  two speak only http and https). The first runs on them found three bugs in the
+  library (a URL parser on Windows; headers not captured and an error overwritten on
+  macOS; all above or in its header), so more may be there.
 - **A browser** has not been used; node's `fetch` stood in, without CORS.
 - **`on_incoming` was not seen rewriting or hiding a live message.** Its hook was seen
   called in the real message path, and the rest is tested; but in the dev VM a client
