@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -57,9 +58,9 @@ scripts_command :: proc(ui: ^UI, text: string) -> bool {
 
 // scripts_channel is the name of the channel being looked at, "" if it is a
 // conversation. Call with the View locked.
-scripts_channel :: proc(ui: ^UI) -> string {
-	for ch in ui.view.channels {
-		if ch.id == ui.view.viewing {
+scripts_channel :: proc(env: ^core.Env) -> string {
+	for ch in env.view.channels {
+		if ch.id == env.view.viewing {
 			return ch.name
 		}
 	}

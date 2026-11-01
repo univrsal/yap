@@ -276,8 +276,8 @@ video_docked :: proc(ui: ^UI) -> bool {
 
 // video_tab_label is the Video tab's name: in a channel, with how many cameras
 // are on. Call with the View locked.
-video_tab_label :: proc(ui: ^UI) -> string {
-	v := ui.view
+video_tab_label :: proc(env: ^core.Env) -> string {
+	v := env.view
 	if in_call(v) {
 		return "Video"
 	}
@@ -760,8 +760,8 @@ self_view :: proc(ui: ^UI, r: mu.Rect, none := "Your camera") {
 }
 
 @(private = "file")
-centred_text :: proc(ui: ^UI, r: mu.Rect, text: string) {
-	ctx := &ui.ctx
+centred_text :: proc(env: ^core.Env, r: mu.Rect, text: string) {
+	ctx := &env.ctx
 	if text == "" {
 		return
 	}

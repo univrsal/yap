@@ -253,8 +253,8 @@ settings_body :: proc(ui: ^UI) {
 
 // checkbox_noted is a checkbox with a note: the note follows the label in
 // brackets where that fits, otherwise it goes under it, in text that wraps.
-checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_Set {
-	ctx := &ui.ctx
+checkbox_noted :: proc(env: ^core.Env, label, note: string, state: ^bool) -> mu.Result_Set {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1})
 	full := fmt.tprintf("%s (%s)", label, note)
 	box := ctx.style.size.y + 2 * ctx.style.padding
@@ -504,7 +504,7 @@ device_settings :: proc(ui: ^UI) {
 // choice when one is picked.
 @(private = "file")
 device_choice :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	title, id: string,
 	devices: []audio.Audio_Device,
 	selected: string,
@@ -512,7 +512,7 @@ device_choice :: proc(
 	choice: string,
 	changed: bool,
 ) {
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	// A saved device that isn't plugged in falls back to the default, so the
 	// default is what is in effect. Say so instead of hiding it.
 	missing := selected != "" && audio.find_device(devices, selected) == nil
@@ -527,8 +527,8 @@ device_choice :: proc(
 			current = i + 1
 		}
 	}
-	widgets.field_row(ui, 60, title, {-1})
-	if picked, ok := widgets.choice_dropdown(ui, id, labels, current); ok {
+	widgets.field_row(env, 60, title, {-1})
+	if picked, ok := widgets.choice_dropdown(env, id, labels, current); ok {
 		choice = "" if picked == 0 else devices[picked - 1].name
 		changed = choice != selected
 	}

@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "widgets"
 import "core:strings"
 import "client:render"
@@ -8,12 +9,12 @@ import mu "vendor:microui"
 // hint_emoji_of makes the hint show `emoji` large: a reaction's or
 // message's emoji, ":name:" for the server's, else the characters. Call with
 // the View locked.
-hint_emoji_of :: proc(ui: ^UI, emoji: string) {
+hint_emoji_of :: proc(env: ^core.Env, emoji: string) {
 	if strings.has_prefix(emoji, ":") && strings.has_suffix(emoji, ":") && len(emoji) > 2 {
 		name := emoji[1:len(emoji) - 1]
-		for n, i in ui.view.emoji.names {
+		for n, i in env.view.emoji.names {
 			if n == name {
-				ui.hint_emoji = {
+				env.hint_emoji = {
 					custom = i,
 				}
 				return
@@ -21,7 +22,7 @@ hint_emoji_of :: proc(ui: ^UI, emoji: string) {
 		}
 		return
 	}
-	ui.hint_emoji = {
+	env.hint_emoji = {
 		unicode = emoji,
 	}
 }

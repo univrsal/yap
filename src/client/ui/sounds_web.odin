@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "core"
 import log "common:wlog"
 import "core:fmt"
 import "core:strings"
@@ -25,10 +26,10 @@ foreign _ {
 
 // sounds_load asks the page for the files of the user's own that the
 // settings name.
-sounds_load :: proc(ui: ^UI) {
+sounds_load :: proc(env: ^core.Env) {
 	asked := make([dynamic]string, context.temp_allocator)
 	for kind in audio.Sound_Event {
-		name := settings.sound_name(&ui.settings, kind)
+		name := settings.sound_name(&env.settings, kind)
 		if !strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX) ||
 		   audio.sound_custom_loaded(name) {
 			continue
@@ -46,12 +47,12 @@ sounds_load :: proc(ui: ^UI) {
 }
 
 // sound_pick_start opens the page's file input, for an event's sound.
-sound_pick_start :: proc(ui: ^UI, kind: audio.Sound_Event) {
+sound_pick_start :: proc(env: ^core.Env, kind: audio.Sound_Event) {
 	yap_sound_pick(i32(kind))
 }
 
 // sound_file_delete forgets a file no event plays any more.
-sound_file_delete :: proc(ui: ^UI, file: string) {
+sound_file_delete :: proc(env: ^core.Env, file: string) {
 	yap_sound_remove(strings.clone_to_cstring(file, context.temp_allocator))
 }
 

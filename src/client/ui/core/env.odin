@@ -1,9 +1,12 @@
 package core
 
 import "client:ui/redraw"
+import "client:conn"
+import "client:settings"
 import mu "vendor:microui"
 
-// What the widgets of the UI need, and nothing else: a ^UI embeds this (as
+// What the widgets of the UI, and the code that only draws what the view and the
+// settings say, need and nothing else: a ^UI embeds this (as
 // `using env`), so ui.ctx and the like still work there, and a ^UI can be
 // passed where a ^Env is wanted. A procedure that takes a ^Env says that it
 // needs none of the rest of the UI.
@@ -44,6 +47,15 @@ Env :: struct {
 	// Logical pixels per window coordinate, for mouse input (see
 	// window_metrics).
 	input_scale:         f32,
+
+	// What is shown: the view of the server being looked at, and the settings.
+	// What the shown server's connection reports (its session's View), or
+	// `no_view` when nothing is connected.
+	view:                ^conn.View,
+	settings:            settings.Settings,
+	// Slider drags change the settings every frame, so save at most once a
+	// second, and on exit.
+	settings_dirty:      bool,
 }
 
 // The UI's Env, for the code that is handed only a mu.Context (nav_of). Set when

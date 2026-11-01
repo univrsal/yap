@@ -155,8 +155,8 @@ server_memory_settings :: proc(ui: ^UI, v: ^conn.View) {
 // memory_report shows a memtrack report: headings and rows with an amount, a
 // detail and what it belongs to, in columns.
 @(private = "file")
-memory_report :: proc(ui: ^UI, report: string) {
-	ctx := &ui.ctx
+memory_report :: proc(env: ^core.Env, report: string) {
+	ctx := &env.ctx
 	rest := report
 	for line in strings.split_lines_iterator(&rest) {
 		if strings.has_prefix(line, "# ") {

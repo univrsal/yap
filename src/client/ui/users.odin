@@ -106,14 +106,14 @@ end_of_row :: proc(row: mu.Rect, slot: i32) -> mu.Rect {
 // of a local mute mark). It is lit while we are watching them. Where the
 // browser can, it is also a button for watching.
 @(private = "file")
-sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu.Rect {
-	ctx := &ui.ctx
+sharing_mark :: proc(env: ^core.Env, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu.Rect {
+	ctx := &env.ctx
 	r := end_of_row(row, slot)
 	color := ctx.style.colors[.TEXT]
 	switch {
-	case ui.view.watching == id:
+	case env.view.watching == id:
 		color = core.theme.speaking
-	case !can_watch_screens(ui) || id == ui.view.my_num:
+	case !can_watch_screens(env) || id == env.view.my_num:
 		color = core.theme.dim
 	}
 	mu.draw_icon(ctx, render.icon_id(.Screen), r, color)

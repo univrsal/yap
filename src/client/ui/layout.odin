@@ -67,8 +67,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 // halfway into the gaps to the cells around it, and to the window's edges where
 // the cell is next to one. It returns the area it painted, for the lines drawn
 // along it once the cell has been laid out (conversation_lines).
-content_surface :: proc(ui: ^UI) -> mu.Rect {
-	ctx := &ui.ctx
+content_surface :: proc(env: ^core.Env) -> mu.Rect {
+	ctx := &env.ctx
 	cell := mu.layout_next(ctx)
 	mu.layout_set_next(ctx, cell, false)
 	win := mu.get_current_container(ctx).rect
@@ -109,9 +109,9 @@ keep_in_window :: proc(ui: ^UI) {
 CONV_HEADER_PAD :: 6
 
 // header_pad is the room above or below a conversation's header: an empty row.
-header_pad :: proc(ui: ^UI) {
-	mu.layout_row(&ui.ctx, {-1}, CONV_HEADER_PAD)
-	mu.layout_next(&ui.ctx)
+header_pad :: proc(env: ^core.Env) {
+	mu.layout_row(&env.ctx, {-1}, CONV_HEADER_PAD)
+	mu.layout_next(&env.ctx)
 }
 
 // header_line_below ends a conversation's header with the room below it, and

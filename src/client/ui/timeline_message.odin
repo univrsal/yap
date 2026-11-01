@@ -268,8 +268,8 @@ cut_to_width :: proc(ctx: ^mu.Context, text: string, width: i32) -> string {
 
 // system_line is what a system message says: a call's line, with a phone in
 // front of it, or what happened in the channel or on the server.
-system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
-	v := ui.view
+system_line :: proc(env: ^core.Env, m: conn.View_Message) -> string {
+	v := env.view
 	name_of :: proc(v: ^conn.View, id: proto.Account_Id) -> string {
 		if acc, ok := v.accounts[id]; ok {
 			return acc.display
@@ -376,8 +376,8 @@ day_line :: proc(ui: ^UI, seconds: proto.Unix_Time) {
 
 // rule is a line across the timeline with `text` in the middle of it, in a row
 // of the usual height.
-rule :: proc(ui: ^UI, text: string, color: mu.Color) {
-	ctx := &ui.ctx
+rule :: proc(env: ^core.Env, text: string, color: mu.Color) {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1})
 	r := mu.layout_next(ctx)
 	font := ctx.style.font

@@ -331,17 +331,17 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 // around the selection or removed from it (richtext.markdown_toggle). Nothing
 // happens if the text would not fit.
 @(private = "file")
-composer_format :: proc(ui: ^UI, c: Composer) {
-	ctx := &ui.ctx
+composer_format :: proc(env: ^core.Env, c: Composer) {
+	ctx := &env.ctx
 	MARKERS :: [?]struct {
 		key:    core.Extra_Key,
 		marker: string,
 	}{{.Bold, "**"}, {.Italic, "*"}, {.Underline, "__"}, {.Strike, "~~"}, {.Code, "`"}}
 	for k in MARKERS {
-		if k.key not_in ui.keys {
+		if k.key not_in env.keys {
 			continue
 		}
-		ui.keys -= {k.key}
+		env.keys -= {k.key}
 		s := &ctx.textbox_state
 		sel := [2]int{c.len^, c.len^}
 		if s.id == u64(mu.get_id(ctx, uintptr(&c.buf[0]))) {

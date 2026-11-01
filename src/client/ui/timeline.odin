@@ -81,8 +81,8 @@ avatar_size :: proc(ctx: ^mu.Context) -> i32 {
 }
 // In the compact chat, which doesn't show the pictures, there is only room for
 // a dot (ui/activity.odin).
-avatar_column :: proc(ui: ^UI) -> i32 {
-	return avatar_size(&ui.ctx) + 8 if ui.settings.chat_pictures else COMPACT_DOT_COLUMN
+avatar_column :: proc(env: ^core.Env) -> i32 {
+	return avatar_size(&env.ctx) + 8 if env.settings.chat_pictures else COMPACT_DOT_COLUMN
 }
 
 // In the compact chat, a message's time (chat_time) comes first, in a column of
@@ -115,8 +115,8 @@ message_time_w :: proc(st: ^UI_Timeline, ms: proto.Unix_Ms) -> i32 {
 
 // message_column is how far in from the timeline's edge (or a reply's
 // indent) a message's header and text start: past its time and the picture.
-message_column :: proc(ui: ^UI, time_w: i32) -> i32 {
-	return time_w + avatar_column(ui)
+message_column :: proc(env: ^core.Env, time_w: i32) -> i32 {
+	return time_w + avatar_column(env)
 }
 
 // local_midnight is when today began in the local time zone, in Unix
@@ -583,17 +583,17 @@ top_line_height :: proc(ctx: ^mu.Context) -> i32 {
 }
 
 @(private = "file")
-top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
-	ctx := &ui.ctx
+top_line :: proc(env: ^core.Env, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
+	ctx := &env.ctx
 	thread := st.key.root != 0
 	text: string
 	switch {
 	case tl == nil || tl.loading:
 		// Messages, or older ones above these, on their way.
-		widgets.spinner_row(ui)
+		widgets.spinner_row(env)
 		return
 	case thread && tl.have_oldest && n > 0:
-		rule(ui, "Replies", core.theme.day_line)
+		rule(env, "Replies", core.theme.day_line)
 		return
 	case tl.have_oldest && n > 0:
 		text = "The start of the conversation."
@@ -609,8 +609,8 @@ timeline_select_panel :: proc(slot: int) -> core.Select_Panel {
 
 // thread_root_message is a thread's root, if it is here: in its conversation's
 // window, or fetched (conn.View_Root). Call with the View locked.
-thread_root_message :: proc(ui: ^UI, key: conn.Timeline_Key) -> (conn.View_Message, bool) {
-	v := ui.view
+thread_root_message :: proc(env: ^core.Env, key: conn.Timeline_Key) -> (conn.View_Message, bool) {
+	v := env.view
 	if key.root == 0 {
 		return {}, false
 	}

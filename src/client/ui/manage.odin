@@ -60,7 +60,7 @@ ui_manage_destroy :: proc(ui: ^UI) {
 // instead, and `action` is its hint. It returns the account whose button was
 // pressed, or 0.
 people_list :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	p: ^widgets.Pager,
 	ids: []proto.Account_Id,
 	action: string,
@@ -70,10 +70,10 @@ people_list :: proc(
 ) -> (
 	pressed: proto.Account_Id,
 ) {
-	ctx := &ui.ctx
-	v := ui.view
+	ctx := &env.ctx
+	v := env.view
 	if !searched && (len(ids) > widgets.PAGE_ROWS || p.find.len > 0) {
-		widgets.pager_search(ui, p, "Find someone")
+		widgets.pager_search(env, p, "Find someone")
 	}
 	query := widgets.pager_query(p)
 	shown := make([dynamic]int, 0, len(ids), context.temp_allocator)
@@ -101,14 +101,14 @@ people_list :: proc(
 		case allowed != nil && !allowed[i]:
 			mu.label(ctx, "")
 		case has_icon:
-			if .SUBMIT in widgets.icon_button(ui, "act", button_icon, action) {
+			if .SUBMIT in widgets.icon_button(env, "act", button_icon, action) {
 				pressed = id
 			}
 		case .SUBMIT in widgets.stable_button(ctx, "act", action, {.ALIGN_CENTER}):
 			pressed = id
 		}
 	}
-	widgets.pager_footer(ui, p, len(shown))
+	widgets.pager_footer(env, p, len(shown))
 	return
 }
 
@@ -117,7 +117,7 @@ people_list :: proc(
 // beside each (or an `icon`, with `action` as its hint, as for people_list).
 // It returns the account whose button was pressed, or 0.
 people_finder :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	p: ^widgets.Pager,
 	ids: []proto.Account_Id,
 	action: string,
@@ -125,17 +125,17 @@ people_finder :: proc(
 ) -> (
 	pressed: proto.Account_Id,
 ) {
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	if len(ids) == 0 {
 		mu.layout_row(ctx, {-1})
 		widgets.dim_label(ctx, "  Everyone is in it already.")
 		return
 	}
-	widgets.pager_search(ui, p, "Type a name")
+	widgets.pager_search(env, p, "Type a name")
 	if widgets.pager_query(p) == "" {
 		return
 	}
-	return people_list(ui, p, ids, action, searched = true, icon = icon)
+	return people_list(env, p, ids, action, searched = true, icon = icon)
 }
 
 // person_label is how an account is listed: its name and its username.

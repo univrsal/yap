@@ -1,6 +1,8 @@
 #+build wasi
 package ui
 
+import "core"
+
 // A page never sees keys pressed in other windows, so a browser has no
 // global hotkeys (see ui/hotkeys_native.odin).
 
@@ -12,6 +14,6 @@ hotkeys_stop :: proc(ui: ^UI) {}
 
 hotkey_settings :: proc(ui: ^UI) {}
 
-hotkey_text :: proc(ui: ^UI, deafen: bool) -> string {
+hotkey_text :: proc(env: ^core.Env, deafen: bool) -> string {
 	return ""
 }

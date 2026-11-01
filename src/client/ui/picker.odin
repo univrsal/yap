@@ -223,8 +223,8 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 // picker_tab is a category's button, drawn pressed while the category is shown.
 @(private = "file")
-picker_tab :: proc(ui: ^UI, id, label: string, active: bool) -> bool {
-	ctx := &ui.ctx
+picker_tab :: proc(env: ^core.Env, id, label: string, active: bool) -> bool {
+	ctx := &env.ctx
 	saved := ctx.style.colors[.BUTTON]
 	if active {
 		ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]

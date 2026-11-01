@@ -55,8 +55,8 @@ SOUND_HEADINGS := #partial [audio.Sound_Event]string {
 // sound_effective returns the sound an event plays now: the user's choice,
 // unless that is a file of their own that isn't loaded (yet), which plays the
 // default instead.
-sound_effective :: proc(ui: ^UI, kind: audio.Sound_Event) -> string {
-	name := settings.sound_name(&ui.settings, kind)
+sound_effective :: proc(env: ^core.Env, kind: audio.Sound_Event) -> string {
+	name := settings.sound_name(&env.settings, kind)
 	if strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX) && !audio.sound_custom_loaded(name) {
 		return audio.DEFAULT_SOUNDS[kind]
 	}
@@ -65,13 +65,13 @@ sound_effective :: proc(ui: ^UI, kind: audio.Sound_Event) -> string {
 
 // sounds_session_init gives a new session's Voice the sounds, before its
 // thread starts.
-sounds_session_init :: proc(ui: ^UI, ns: ^Net_Session) {
+sounds_session_init :: proc(env: ^core.Env, ns: ^Net_Session) {
 	for kind in audio.Sound_Event {
 		if kind != .None && kind not_in audio.APP_SOUNDS {
 			audio.notifications_set(
 				&ns.client.voice.notifications,
 				kind,
-				sound_effective(ui, kind),
+				sound_effective(env, kind),
 			)
 		}
 	}
@@ -284,7 +284,7 @@ sound_settings :: proc(ui: ^UI) {
 // the temp allocator.
 @(private = "file")
 sound_choices :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	kind: audio.Sound_Event,
 ) -> (
 	items: []core.Dropdown_Item,
@@ -294,7 +294,7 @@ sound_choices :: proc(
 ) {
 	its := make([dynamic]core.Dropdown_Item, context.temp_allocator)
 	all := make([dynamic]string, context.temp_allocator)
-	chosen := settings.sound_name(&ui.settings, kind)
+	chosen := settings.sound_name(&env.settings, kind)
 	current = -1
 	add :: proc(
 		its: ^[dynamic]core.Dropdown_Item,

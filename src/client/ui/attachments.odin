@@ -325,8 +325,8 @@ chip_label :: proc(ctx: ^mu.Context, f: Picked_File, name_width: i32) -> string 
 // chip_rows lays a composer's chips out in rows that are `width` wide. It returns
 // each row's widths, allocated in the temp allocator.
 @(private = "file")
-chip_rows :: proc(ui: ^UI, files: []Picked_File, width: i32) -> [][dynamic]i32 {
-	ctx := &ui.ctx
+chip_rows :: proc(env: ^core.Env, files: []Picked_File, width: i32) -> [][dynamic]i32 {
+	ctx := &env.ctx
 	rows := make([dynamic][dynamic]i32, context.temp_allocator)
 	used := width
 	gap := ctx.style.spacing
@@ -345,12 +345,12 @@ chip_rows :: proc(ui: ^UI, files: []Picked_File, width: i32) -> [][dynamic]i32 {
 
 // composer_files_height is how much room a composer's chips take above
 // it, including spacing, or 0 if there are none. `width` is the panel's width.
-composer_files_height :: proc(ui: ^UI, c: Composer, width: i32) -> i32 {
+composer_files_height :: proc(env: ^core.Env, c: Composer, width: i32) -> i32 {
 	if c.files == nil || len(c.files) == 0 {
 		return 0
 	}
-	ctx := &ui.ctx
-	rows := chip_rows(ui, c.files[:], width)
+	ctx := &env.ctx
+	rows := chip_rows(env, c.files[:], width)
 	return i32(len(rows)) * (control_height(ctx) + ctx.style.spacing)
 }
 
@@ -425,7 +425,7 @@ Chip_Preview :: struct {
 // read (see picked_file_read). It is not ready while they are still being read
 // (another frame is requested), or if they can't be read (see preview_failed).
 @(private = "file")
-chip_preview_bytes :: proc(ui: ^UI, f: ^Picked_File) -> (data: []u8, ready: bool) {
+chip_preview_bytes :: proc(env: ^core.Env, f: ^Picked_File) -> (data: []u8, ready: bool) {
 	if f.data != nil {
 		return f.data, true
 	}
@@ -434,7 +434,7 @@ chip_preview_bytes :: proc(ui: ^UI, f: ^Picked_File) -> (data: []u8, ready: bool
 	}
 	if !picked_file_read(f) {
 		if !f.preview_failed {
-			core.redraw_now(ui)
+			core.redraw_now(env)
 		}
 		return nil, false
 	}
@@ -594,8 +594,8 @@ word_button_w :: proc(ctx: ^mu.Context, label: string) -> i32 {
 }
 
 @(private = "file")
-file_save :: proc(ui: ^UI, f: conn.Msg_File) -> (conn.View_Save, bool) {
-	return ui.view.saves[f.blob]
+file_save :: proc(env: ^core.Env, f: conn.Msg_File) -> (conn.View_Save, bool) {
+	return env.view.saves[f.blob]
 }
 
 @(private = "file")
@@ -629,14 +629,14 @@ preview_size :: proc(ctx: ^mu.Context, f: conn.Msg_File, width: i32) -> (w, h: i
 
 // message_files_height is how far a message's files push the layout
 // down, in a message `width` wide. Call with the View locked.
-message_files_height :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> (h: i32) {
+message_files_height :: proc(env: ^core.Env, m: conn.View_Message, width: i32) -> (h: i32) {
 	if .Deleted in m.flags {
 		return
 	}
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	for f in m.files {
 		h += control_height(ctx) + ctx.style.spacing
-		if s, ok := file_save(ui, f); ok && saving(s) {
+		if s, ok := file_save(env, f); ok && saving(s) {
 			h += FILES_BAR + ctx.style.spacing
 		}
 		if previewed(f) {

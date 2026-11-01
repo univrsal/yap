@@ -593,9 +593,9 @@ talking_of :: proc(v: ^conn.View, account: proto.Account_Id) -> string {
 
 // talking_hint shows what the phone icon drawn by name_and_status means while
 // the pointer is on it.
-talking_hint :: proc(ui: ^UI, icon_r: mu.Rect, talking: string) {
-	if talking != "" && mu.mouse_over(&ui.ctx, icon_r) {
-		ui.hint, ui.hint_of = talking, icon_r
+talking_hint :: proc(env: ^core.Env, icon_r: mu.Rect, talking: string) {
+	if talking != "" && mu.mouse_over(&env.ctx, icon_r) {
+		env.hint, env.hint_of = talking, icon_r
 	}
 }
 

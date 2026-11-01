@@ -38,9 +38,9 @@ DRAG_WINDOW :: "voice drag"
 
 // can_drag is whether a left press on `user` starts dragging them rather than
 // opening their menu at once. Call with the View locked.
-can_drag :: proc(ui: ^UI, user: conn.View_User) -> bool {
-	v := ui.view
-	if ui.touched || .Move_Members not_in v.permissions {
+can_drag :: proc(env: ^core.Env, user: conn.View_User) -> bool {
+	v := env.view
+	if env.touched || .Move_Members not_in v.permissions {
 		return false
 	}
 	if user.room == 0 || proto.room_call(user.room) != 0 {
@@ -137,8 +137,8 @@ voice_drag_frame :: proc(ui: ^UI) {
 // window of its own over everything. It is just off the pointer, so that it
 // doesn't take the hover from what is under it.
 @(private = "file")
-drag_label :: proc(ui: ^UI, name: string, over_target: bool) {
-	ctx := &ui.ctx
+drag_label :: proc(env: ^core.Env, name: string, over_target: bool) {
+	ctx := &env.ctx
 	pad := ctx.style.padding
 	font := ctx.style.font
 	icon := i32(render.ICON_SIZE)

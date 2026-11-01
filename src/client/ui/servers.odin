@@ -431,7 +431,7 @@ RAIL_MENU_WIDTH :: 220
 DRAG_START :: 6
 
 // rail_width is how much of the window's left side the rail takes.
-rail_width :: proc(ui: ^UI) -> i32 {
+rail_width :: proc(env: ^core.Env) -> i32 {
 	return RAIL_WIDTH
 }
 

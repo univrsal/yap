@@ -37,27 +37,27 @@ HOTKEY_LABELS := [Hotkey_Action]string {
 }
 
 @(private = "file")
-hotkey_setting :: proc(ui: ^UI, action: Hotkey_Action) -> ^string {
+hotkey_setting :: proc(env: ^core.Env, action: Hotkey_Action) -> ^string {
 	switch action {
 	case .Mute:
-		return &ui.settings.mute_hotkey
+		return &env.settings.mute_hotkey
 	case .Deafen:
-		return &ui.settings.deafen_hotkey
+		return &env.settings.deafen_hotkey
 	}
 	return nil
 }
 
 // bound is an action's hotkey, as the settings have it.
 @(private = "file")
-bound :: proc(ui: ^UI, action: Hotkey_Action) -> hotkeys.Hotkey {
-	h, _ := hotkeys.parse(hotkey_setting(ui, action)^)
+bound :: proc(env: ^core.Env, action: Hotkey_Action) -> hotkeys.Hotkey {
+	h, _ := hotkeys.parse(hotkey_setting(env, action)^)
 	return h
 }
 
 // hotkey_text is the hotkey for muting (deafening, with `deafen`), as
 // "Ctrl+Shift+M", or "" for none. Allocated in the temp allocator.
-hotkey_text :: proc(ui: ^UI, deafen: bool) -> string {
-	return hotkeys.format(bound(ui, .Deafen if deafen else .Mute), context.temp_allocator)
+hotkey_text :: proc(env: ^core.Env, deafen: bool) -> string {
+	return hotkeys.format(bound(env, .Deafen if deafen else .Mute), context.temp_allocator)
 }
 
 // hotkeys_frame acts on the hotkeys pressed since the last frame, takes a

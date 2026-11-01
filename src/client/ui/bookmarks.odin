@@ -153,9 +153,9 @@ bookmark_place :: proc(v: ^conn.View, conv: proto.Conv_Id, m: conn.View_Message)
 // bookmark_text is what a bookmarked message says, on as many lines as it
 // takes.
 @(private = "file")
-bookmark_text :: proc(ui: ^UI, m: conn.View_Message) {
-	ctx := &ui.ctx
-	v := ui.view
+bookmark_text :: proc(env: ^core.Env, m: conn.View_Message) {
+	ctx := &env.ctx
+	v := env.view
 	if .Deleted in m.flags {
 		widgets.dim_label(ctx, "This message was deleted.")
 		return

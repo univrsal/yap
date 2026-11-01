@@ -136,9 +136,6 @@ UI :: struct {
 	password:            widgets.Text_Field(proto.MAX_PASSWORD_SIZE),
 	// The height of the connect screen's card in the last frame (see card_end).
 	connect_card_h:      i32,
-	// What the shown server's connection reports (its session's View), or
-	// `no_view` when nothing is connected.
-	view:                ^conn.View,
 	no_view:             conn.View,
 	session:             ^Net_Session,
 	// Every connection, in the rail's order (see ui/servers.odin). `session`
@@ -230,9 +227,6 @@ UI :: struct {
 	meter_shown:         bool,
 	meter_level:         f32,
 	meter_time:          time.Tick,
-	// Slider drags change the settings every frame, so save at most once a
-	// second, and on exit.
-	settings_dirty:      bool,
 	// People's pictures and servers' emoji that are kept on disk between
 	// sessions (see ui/image_cache.odin), and the settings page's box for
 	// the folder.
@@ -272,7 +266,6 @@ UI :: struct {
 	touch_tap:           bool,
 	settings_saved:      time.Tick,
 	page:                Page,
-	settings:            settings.Settings,
 	known:               UI_Known_Servers, // saved server keys (ui/known_servers.odin)
 	hotkeys:             UI_Hotkeys, // global hotkeys (ui/hotkeys_native.odin)
 	install:             UI_Install, // installing for the user (ui/install_native.odin)

@@ -358,25 +358,25 @@ frame_due :: proc(ui: ^UI) -> bool {
 // typing (which stop by themselves), the network side's notices (which
 // disappear after a while), and times shown to the minute.
 @(private = "file")
-clock_redraws :: proc(ui: ^UI) {
+clock_redraws :: proc(env: ^core.Env) {
 	{
-		v := ui.view
+		v := env.view
 		sync.guard(&v.mutex)
 		if t := conn.speaking_until(v); t != {} {
-			core.redraw_at(ui, t)
+			core.redraw_at(env, t)
 		}
 		if t := conn.typing_until(v); t != {} {
-			core.redraw_at(ui, t)
+			core.redraw_at(env, t)
 		}
 		if t := notice_until(v); t != {} {
-			core.redraw_at(ui, t)
+			core.redraw_at(env, t)
 		}
 	}
 	// Message times, "Today" and "last seen 5 minutes ago" all
 	// change on the minute.
 	MINUTE :: i64(time.Minute)
 	into := time.time_to_unix_nano(time.now()) % MINUTE
-	core.redraw_in(ui, time.Duration(MINUTE - into))
+	core.redraw_in(env, time.Duration(MINUTE - into))
 }
 
 // settle asks for another frame when this frame's draw commands differ

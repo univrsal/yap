@@ -291,11 +291,11 @@ message_rich :: proc(ui: ^UI, text: string) -> Rich {
 // forward_note is what a forwarded message's header says about where it
 // came from: from whom, and where if that is one of our conversations. Call
 // with the View locked.
-forward_note :: proc(ui: ^UI, m: conn.View_Message) -> string {
+forward_note :: proc(env: ^core.Env, m: conn.View_Message) -> string {
 	if .Forwarded not_in m.flags {
 		return ""
 	}
-	v := ui.view
+	v := env.view
 	name := "someone"
 	if acc, ok := v.accounts[m.forward.sender]; ok {
 		name = acc.display

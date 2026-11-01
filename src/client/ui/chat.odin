@@ -166,8 +166,8 @@ read_only_height :: proc(ctx: ^mu.Context) -> i32 {
 
 // read_only_line is what is shown instead of a composer in a channel we may
 // not write in.
-read_only_line :: proc(ui: ^UI) {
-	ctx := &ui.ctx
+read_only_line :: proc(env: ^core.Env) {
+	ctx := &env.ctx
 	mu.layout_row(ctx, {-1}, read_only_height(ctx))
 	widgets.dim_label(ctx, "You can't write in this channel.")
 }
@@ -249,16 +249,16 @@ composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
 // composer_row lays out the row that a composer's box is in, `height` tall.
 // Lay out the box (composer_box), then its buttons (composer_buttons, the
 // buttons, and composer_buttons_end).
-composer_row :: proc(ui: ^UI, height: i32) {
-	mu.layout_row(&ui.ctx, {-1}, height)
+composer_row :: proc(env: ^core.Env, height: i32) {
+	mu.layout_row(&env.ctx, {-1}, height)
 }
 
 // composer_buttons lays out a row of `buttons` icon buttons at the bottom right
 // of a composer's box `box` (from composer_box), over the strip that the box
 // keeps free of text. They are drawn flat, without a frame, except for the
 // send button (composer_send_button). End them with composer_buttons_end.
-composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
-	ctx := &ui.ctx
+composer_buttons :: proc(env: ^core.Env, box: mu.Rect, buttons: int) {
+	ctx := &env.ctx
 	size := composer_button_size(ctx)
 	w := i32(buttons) * size + i32(buttons - 1) * ctx.style.spacing
 	strip := mu.Rect {
@@ -274,19 +274,19 @@ composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
 		bw = size
 	}
 	mu.layout_row(ctx, widths[:buttons], size)
-	ui.flat_buttons = true
+	env.flat_buttons = true
 }
 
-composer_buttons_end :: proc(ui: ^UI) {
-	ui.flat_buttons = false
-	mu.layout_end_column(&ui.ctx)
+composer_buttons_end :: proc(env: ^core.Env) {
+	env.flat_buttons = false
+	mu.layout_end_column(&env.ctx)
 }
 
 // composer_send_button is a composer's send button, the last of its buttons:
 // grey while there is nothing to send, and in the accent color once there is.
 // It returns whether it was pressed.
-composer_send_button :: proc(ui: ^UI, c: Composer, id_name, hint: string) -> bool {
-	ctx := &ui.ctx
+composer_send_button :: proc(env: ^core.Env, c: Composer, id_name, hint: string) -> bool {
+	ctx := &env.ctx
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
@@ -304,7 +304,7 @@ composer_send_button :: proc(ui: ^UI, c: Composer, id_name, hint: string) -> boo
 	render.draw_rounded(ctx, r, back, render.CONTROL_RADIUS)
 	mu.draw_icon(ctx, render.icon_id(.Send), r, fore)
 	if over {
-		ui.hint, ui.hint_of = hint, r
+		env.hint, env.hint_of = hint, r
 	}
 	return pressed
 }
@@ -397,12 +397,12 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 
 // chat_text_area is text_area in the chat's font: the box that a composer's
 // message is written in.
-chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
-	ctx := &ui.ctx
+chat_text_area :: proc(env: ^core.Env, c: Composer) -> mu.Result_Set {
+	ctx := &env.ctx
 	saved := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved
-	return widgets.text_area(ui, c.buf, c.len, c.area)
+	return widgets.text_area(env, c.buf, c.len, c.area)
 }
 
 @(private = "file")
@@ -815,13 +815,13 @@ file_has_buttons :: proc(f: conn.View_File) -> bool {
 // file_block_height is how far file_message moves the layout down at
 // `width`.
 file_block_height :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	f: conn.View_File,
 	width: i32,
 	merged: bool,
 	tight := false,
 ) -> i32 {
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	line := ctx.text_height(ctx.style.font)
 	status, _ := file_status(f)
 	body :=
@@ -984,12 +984,12 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 // clicked_not_dragged returns whether the left button was released in this
 // panel's text without a press that selected something, as for a link
 // (see ui/rich_text.odin).
-clicked_not_dragged :: proc(ui: ^UI) -> bool {
+clicked_not_dragged :: proc(env: ^core.Env) -> bool {
 	return(
-		.LEFT in ui.ctx.mouse_released_bits &&
-		ui.select.dragging &&
-		ui.select.panel == ui.select.drawing &&
-		!core.has_selection(&ui.select, ui.select.drawing) \
+		.LEFT in env.ctx.mouse_released_bits &&
+		env.select.dragging &&
+		env.select.panel == env.select.drawing &&
+		!core.has_selection(&env.select, env.select.drawing) \
 	)
 }
 

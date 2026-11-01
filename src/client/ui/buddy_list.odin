@@ -1,5 +1,6 @@
 package ui
 
+import "core"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
@@ -66,13 +67,13 @@ buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 // from before the server's database was started over, when the same ids
 // meant other DMs and messages. Kept, it would hide the DM while new messages
 // arrive in it. Call with the View locked.
-unhide_stale :: proc(ui: ^UI, ns: ^Net_Session, v: ^conn.View) {
+unhide_stale :: proc(env: ^core.Env, ns: ^Net_Session, v: ^conn.View) {
 	for dm in v.dms {
-		upto, hidden := ui.settings.hidden_dms[settings.server_key(v.server_key, u64(dm.id))]
+		upto, hidden := env.settings.hidden_dms[settings.server_key(v.server_key, u64(dm.id))]
 		if hidden && dm.last != 0 && upto > u64(dm.last) {
-			settings.hide_dm(&ui.settings, v.server_key, dm.id, 0)
+			settings.hide_dm(&env.settings, v.server_key, dm.id, 0)
 			shared_hidden_changed(ns, dm.id, 0)
-			ui.settings_dirty = true
+			env.settings_dirty = true
 		}
 	}
 }

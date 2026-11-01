@@ -21,9 +21,9 @@ BAR_GAP :: 2
 @(private = "file")
 BAR_HEIGHTS := [3]i32{6, 11, 16}
 
-connection_indicator :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	v := ui.view
+connection_indicator :: proc(env: ^core.Env) {
+	ctx := &env.ctx
+	v := env.view
 	r := mu.layout_next(ctx)
 	s := v.connection
 
@@ -49,9 +49,9 @@ connection_indicator :: proc(ui: ^UI) {
 	}
 
 	if mu.mouse_over(ctx, r) {
-		ui.hint, ui.hint_of = connection_hint(v.status, s), r
+		env.hint, env.hint_of = connection_hint(v.status, s), r
 		// The figures change with every ping, and that doesn't wake the UI.
-		core.redraw_in(ui, conn.PING_INTERVAL)
+		core.redraw_in(env, conn.PING_INTERVAL)
 	}
 }
 

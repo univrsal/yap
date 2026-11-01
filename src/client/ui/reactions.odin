@@ -33,8 +33,8 @@ chip_height :: proc(ctx: ^mu.Context) -> i32 {
 
 // reaction_rows lays a message's chips out in rows at `width`.
 @(private = "file")
-reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]Chip {
-	ctx := &ui.ctx
+reaction_rows :: proc(env: ^core.Env, m: conn.View_Message, width: i32) -> [][dynamic]Chip {
+	ctx := &env.ctx
 	rows := make([dynamic][dynamic]Chip, context.temp_allocator)
 	x := width + 1
 	for r in m.reactions {
@@ -44,7 +44,7 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 			map[proto.Account_Id]conn.View_Account{},
 			nil,
 			0,
-			ui.view.emoji.names[:],
+			env.view.emoji.names[:],
 		)
 		w := ctx.text_width(ctx.style.font, shown) + 12
 		if x + w > width && x > 0 {
@@ -57,12 +57,12 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 	return rows[:]
 }
 
-reactions_height :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> i32 {
+reactions_height :: proc(env: ^core.Env, m: conn.View_Message, width: i32) -> i32 {
 	if len(m.reactions) == 0 || .Deleted in m.flags {
 		return 0
 	}
-	ctx := &ui.ctx
-	rows := i32(len(reaction_rows(ui, m, width)))
+	ctx := &env.ctx
+	rows := i32(len(reaction_rows(env, m, width)))
 	return CHIPS_GAP + ctx.style.spacing + rows * (chip_height(ctx) + ctx.style.spacing)
 }
 

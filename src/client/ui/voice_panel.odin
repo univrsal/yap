@@ -461,13 +461,13 @@ deafen_button :: proc(ui: ^UI) {
 // on, and each takes a third. `id_name` tells this set from another.
 @(private = "file")
 answer_buttons :: proc(
-	ui: ^UI,
+	env: ^core.Env,
 	id_name: string,
 	video := false,
 ) -> (
 	accept, with_video, decline: bool,
 ) {
-	ctx := &ui.ctx
+	ctx := &env.ctx
 	w := mu.get_layout(ctx).body.w
 	if video {
 		third := (w - 2 * ctx.style.spacing) / 3
@@ -477,21 +477,21 @@ answer_buttons :: proc(
 	}
 	mu.push_id(ctx, id_name)
 	defer mu.pop_id(ctx)
-	accept = .SUBMIT in widgets.icon_button(ui, "accept", .Phone, "Accept", core.theme.connected)
+	accept = .SUBMIT in widgets.icon_button(env, "accept", .Phone, "Accept", core.theme.connected)
 	if video {
 		with_video =
 			.SUBMIT in
-			widgets.icon_button(ui, "accept video", .Camera, "Answer with video", core.theme.connected)
+			widgets.icon_button(env, "accept video", .Camera, "Answer with video", core.theme.connected)
 	}
-	decline = hang_up_button(ui, "decline", "Decline")
+	decline = hang_up_button(env, "decline", "Decline")
 	return
 }
 
 // hang_up_button is the way out of a call or a voice chat, or of a call that is
 // ringing: a red receiver put down, with `hint` saying what it does.
 @(private = "file")
-hang_up_button :: proc(ui: ^UI, id_name, hint: string) -> bool {
-	return .SUBMIT in widgets.icon_button(ui, id_name, .Hang_Up, hint, core.theme.off)
+hang_up_button :: proc(env: ^core.Env, id_name, hint: string) -> bool {
+	return .SUBMIT in widgets.icon_button(env, id_name, .Hang_Up, hint, core.theme.off)
 }
 
 // voice_elsewhere_part is the panel's part for voice, or a call that is
@@ -558,8 +558,8 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 // call_length_shown is how long it has been since `since`, as a call's length,
 // requesting a frame for when the next second ticks over.
 @(private = "file")
-call_length_shown :: proc(ui: ^UI, since: time.Tick) -> string {
+call_length_shown :: proc(env: ^core.Env, since: time.Tick) -> string {
 	d := time.tick_since(since)
-	core.redraw_in(ui, time.Second - d % time.Second)
+	core.redraw_in(env, time.Second - d % time.Second)
 	return conn.call_length(int(d / time.Second))
 }

@@ -1,6 +1,7 @@
 #+build wasi
 package ui
 
+import "core"
 import "core:time/datetime"
 
 // A browser has no timezone database to read, and core:time/timezone
@@ -13,10 +14,10 @@ foreign _ {
 	yap_utc_offset_minutes :: proc() -> i32 ---
 }
 
-chat_load_timezone :: proc(ui: ^UI) {}
-chat_unload_timezone :: proc(ui: ^UI) {}
+chat_load_timezone :: proc(env: ^core.Env) {}
+chat_unload_timezone :: proc(env: ^core.Env) {}
 
-chat_local_time :: proc(ui: ^UI, dt: datetime.DateTime) -> datetime.DateTime {
+chat_local_time :: proc(env: ^core.Env, dt: datetime.DateTime) -> datetime.DateTime {
 	offset := datetime.Delta {
 		seconds = i64(yap_utc_offset_minutes()) * 60,
 	}

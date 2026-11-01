@@ -95,8 +95,8 @@ ui_video_forget_texture :: proc(ui: ^UI) {
 // can_watch_screens says whether we can watch anybody's screen: that needs the
 // add-on (or a browser that decodes) and the media link. Call with the View
 // locked.
-can_watch_screens :: proc(ui: ^UI) -> bool {
-	return video.can_watch() && ui.view.video_link
+can_watch_screens :: proc(env: ^core.Env) -> bool {
+	return video.can_watch() && env.view.video_link
 }
 
 // share_button starts or stops sharing our screen. It is only shown where

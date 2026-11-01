@@ -256,10 +256,10 @@ Recent_Reaction :: struct {
 
 // bar_recent_reactions are the most used reactions that the bar offers for `m`.
 @(private = "file")
-bar_recent_reactions :: proc(ui: ^UI, m: conn.View_Message) -> []Recent_Reaction {
-	v := ui.view
+bar_recent_reactions :: proc(env: ^core.Env, m: conn.View_Message) -> []Recent_Reaction {
+	v := env.view
 	out := make([dynamic]Recent_Reaction, context.temp_allocator)
-	for use in settings.quick_reactions(&ui.settings, v.server_key) {
+	for use in settings.quick_reactions(&env.settings, v.server_key) {
 		e := use.emoji
 		r := Recent_Reaction {
 			emoji = e,

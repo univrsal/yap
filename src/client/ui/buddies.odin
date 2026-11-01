@@ -810,7 +810,7 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 // aren't online were last seen: when the inbox opens, every LAST_SEEN_REFRESH,
 // and as soon as someone in it leaves. Each server is asked about its own
 // accounts. Call with its View locked.
-ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
+ask_last_seen :: proc(env: ^core.Env, ns: ^Net_Session, list: []Buddy_Entry) {
 	cmd: conn.Last_Seen_Command
 	online := 0
 	for b in list {
@@ -829,12 +829,12 @@ ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 	due := ns.seen_asked == {} || time.tick_since(ns.seen_asked) >= LAST_SEEN_REFRESH
 	if cmd.count == 0 || !(due || someone_left) {
 		if cmd.count != 0 {
-			core.redraw_at(ui, time.tick_add(ns.seen_asked, LAST_SEEN_REFRESH))
+			core.redraw_at(env, time.tick_add(ns.seen_asked, LAST_SEEN_REFRESH))
 		}
 		return
 	}
 	ns.seen_asked = time.tick_now()
-	core.redraw_in(ui, LAST_SEEN_REFRESH)
+	core.redraw_in(env, LAST_SEEN_REFRESH)
 	conn.push_command(&ns.client.commands, cmd)
 }
 
