@@ -44,7 +44,7 @@ Server_UI :: struct {
 	channels:       UI_Channels, // the channel list and the Channels window (ui/channels.odin)
 	timeline:       UI_Timeline, // the messages on screen (ui/timeline.odin)
 	chat:           UI_Chat, // the chat tab (ui/chat.odin)
-	reactors_asked: Reactors_Asked, // who reacted, as last requested (ui/timeline.odin)
+	reactors_asked: Reactors_Asked, // who reacted, as last requested (ui/reactions.odin)
 	forward:        UI_Forward, // forwarding, and links to messages (ui/forward.odin)
 	search:         UI_Search, // searching messages (ui/search.odin)
 	// The user whose menu is open, and its volume slider's value (the slider
