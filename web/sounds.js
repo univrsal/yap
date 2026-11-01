@@ -1,6 +1,6 @@
 /*
 Sound files of the user's own, for the web client (emcc --pre-js, see
-web/build.sh and src/client/ui_sounds_web.odin). The browser decodes any
+web/build.sh and src/client/ui/sounds_web.odin). The browser decodes any
 format it knows (decodeAudioData), at 48 kHz, and the client is handed
 the samples: mono for a file whose channels are all the same (the client
 plays it on both speakers), otherwise stereo. The file itself is kept

@@ -1296,13 +1296,13 @@ Built (2026-10-28), protocol version 21 (proto/convs.odin):
 Mattermost's saved messages, in yap's terms: a person marks messages to
 come back to, and finds them again in one list.
 
-- **Bookmarking**: the message menu (ui_message_menu.odin) gets
+- **Bookmarking**: the message menu (ui/message_menu.odin) gets
   "Bookmark", or "Remove bookmark" on one that is bookmarked. It works on
   any message one can read, in channels, DMs, group DMs and threads. A
   bookmarked message shows a small marker, only to its bookmarker.
 - **The list**: one per account on each server, which nobody else sees.
   It is shown like a conversation: an entry at the top of the channel
-  list (ui_channels.odin), "Bookmarks", which opens a view in the place
+  list (ui/channels.odin), "Bookmarks", which opens a view in the place
   of the messages. It lists the bookmarked messages, newest bookmark
   first, each with where it is (channel, DM or thread), its author, time
   and content, and a button that jumps to it in its conversation (as a

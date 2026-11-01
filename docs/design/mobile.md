@@ -45,7 +45,7 @@ phone needs the same split:
   backend (`render/gpu_metal.odin`).
 - **Touch**: gestures (a tap is a click, a long press a right click, a
   vertical drag scrolls, a sideways one drags) are already worked out in
-  `web/touch.js` and `ui_touch_web.odin`. They'd be ported out of JS, but
+  `web/touch.js` and `ui/touch_web.odin`. They'd be ported out of JS, but
   the design exists. So does the narrow layout.
 - **Libraries**: miniaudio supports CoreAudio, AAudio and OpenSL. opus,
   rnnoise, sqlite, libwebp and stb are plain C. The UDP transport with
@@ -257,7 +257,7 @@ chat apps). See D3.
 `msg_forward` after delivery. Two things differ from the plan:
 
 - **Who is pushed what** follows the desktop's notices
-  (`ui_notices.odin`), not the digest's "missed": a DM to the other
+  (`ui/notices.odin`), not the digest's "missed": a DM to the other
   one, a mention to each mentioned member, unless the conversation is
   set to None. Not every message of a channel set to All: that's what
   every channel starts as, the desktop doesn't notify them either, and
@@ -301,7 +301,7 @@ builds take effect.
   on a tap focuses an open page and posts it `{yapOpen}`, or opens
   `./#open=<id>/<conv>/<msg>`. A server's scope is `push/<its address in
   hex>/`.
-- `src/client/ui_push_web.odin` (stubs in `ui_push_other.odin`):
+- `src/client/ui/push_web.odin` (stubs in `ui/push_other.odin`):
   `push_frame` asks the browser what it has for each server's key once
   logged in (a subscription made with an older key is replaced), hands
   new subscriptions and unsubscriptions to the server

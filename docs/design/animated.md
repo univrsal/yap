@@ -43,7 +43,7 @@ Why this order:
 - A message's attached picture is fetched whole for its preview (up to
   `PREVIEW_MAX`, 8 MB, `conn/attachments.odin`), so an animated file
   already reaches the client as it was sent. It's decoded once on the
-  worker thread (`ui_images_worker_native.odin`, `clipboard.decode`)
+  worker thread (`ui/images_worker_native.odin`, `clipboard.decode`)
   into one texture with mipmaps (`ui_images_frame`), drawn by
   `image_fitted` and `image_viewer`, and textures are kept for the 96
   most recently drawn pictures (`trim_textures`).
@@ -115,7 +115,7 @@ sooner are skipped in time, not slowed), and stop while the window is
 minimised or unfocused (the frame shown stays).
 
 Memory: per animated picture, the encoded file plus about two
-canvases (current and next). `ui_memory.odin` counts them with the
+canvases (current and next). `ui/memory.odin` counts them with the
 other decoded pictures.
 
 Tests: the shim on a small animated WebP made in the test (libwebp's
@@ -129,7 +129,7 @@ timestamps, looping; a still WebP still decodes as before; dropping an
 - The UI holds the frame ahead rather than the worker: a texture keeps
   `next` (the frame the worker handed over) and asks for the one after
   only once `next` has gone into the texture. The worker keeps just the
-  decoder (`Decode_Worker.anims`, `ui_images_anim_native.odin`); jobs
+  decoder (`Decode_Worker.anims`, `ui/images_anim_native.odin`); jobs
   are `Decode`, `Next_Frame` and `Drop`, all carrying the generation,
   so a server switch can't drop or feed the wrong animation.
 - The 30 a second cap is on the worker's side: frames shorter than
@@ -147,7 +147,7 @@ timestamps, looping; a still WebP still decodes as before; dropping an
   ahead is on the heap (memtrack counts it), libwebp's canvases are
   malloc'd (not counted).
 - Tests: `webp_test.odin` (shim: frames, timestamps, reset, stills) and
-  `ui_images_anim_test.odin` (worker: order, times, the 10 ms → 100 ms
+  `ui/images_anim_test.odin` (worker: order, times, the 10 ms → 100 ms
   rule, merging 20 ms frames, a loop count of 1 ending, Drop and stale
   generations). Fixtures in `src/client/webp/testdata`, made with PIL.
 - Checked off-screen: a 320×200 4-frame WebP attached in a message
@@ -261,7 +261,7 @@ timed as on a desktop; how often it plays is the track's
 `repetitionCount` + 1 (Infinity: for ever). New calls through
 `web/shell.c`: `kind` (0 still, 1 WebP, 2 GIF), `shown`, `next` and
 `close`; `poll` says 2 when an animation has no more frames, and `take`
-keeps an animation's handle. `ui_images_worker_web.odin` keeps the
+keeps an animation's handle. `ui/images_worker_web.odin` keeps the
 handles by picture (`Decode_Worker.anims`, with the generation) and
 turns Next_Frame and Drop into `next` and `close`. A focus, blur or
 visibility change on the page wakes the client, so animations stop and
@@ -277,7 +277,7 @@ themselves, and a server switch while one plays.
 ## 5. Animated pastes kept as they are
 
 Today every pasted picture goes through `clipboard.read_image`, which
-decodes it to pixels, and `image_prepare` (`ui_paste.odin`), which
+decodes it to pixels, and `image_prepare` (`ui/paste.odin`), which
 makes a still WebP of them. (Picked and dropped files are attached as
 they are already.)
 
@@ -441,7 +441,7 @@ more than the 96 kept), and draws as many quads as now.
   any picture, under `EMOJI_FRAMES_KEY | blob`; then the frame is the
   one `(now - anim_epoch) mod total` falls in, and a frame is asked for
   when it ends, never sooner than `ANIM_MIN_SHOWN` (now in
-  ui_images.odin, shared with the decoding thread). While the window
+  ui/images.odin, shared with the decoding thread). While the window
   hasn't the focus, and till the frames are here, it's the sheet's cell.
 - Neither the sheet nor a frames grid gets mipmaps any more
   (`is_emoji_atlas`): they're atlases, whose smaller copies would mix

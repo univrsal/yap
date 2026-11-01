@@ -4,7 +4,7 @@ import "core:os"
 import "core:strings"
 import win "core:sys/windows"
 
-// Installing on Windows (see the client's ui_install_native.odin) creates a
+// Installing on Windows (see the client's ui/install_native.odin) creates a
 // shortcut in the user's Start menu, which also makes yap searchable from
 // there. The shortcut takes its icon from the .exe (see build.bat).
 //

@@ -61,7 +61,7 @@ Notification_Volume_Command :: struct {
 	volume: f32,
 }
 
-// How to send a shared application's audio (see ui_app_audio_native.odin): how
+// How to send a shared application's audio (see ui/app_audio_native.odin): how
 // loud it is, and whether muting the microphone mutes it too.
 App_Audio_Command :: struct {
 	volume:        f32,

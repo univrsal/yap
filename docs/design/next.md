@@ -65,7 +65,7 @@ server tests pass with `-vet -strict-style` and none reports a leak.
 ## 2. Away by itself, from anywhere
 
 Polish 11 made "away" follow input in yap's own window only
-(`ui_activity.odin`: no mouse, key, scroll or typing in the window for
+(`ui/activity.odin`: no mouse, key, scroll or typing in the window for
 10 minutes). Someone using another program for an hour shows as away;
 someone who left with yap focused shows as away too, which is right,
 but only by chance.
@@ -235,7 +235,7 @@ CLI refuses the owner and deletes another.
 
 ## 4. The roles UI
 
-Today (`ui_manage.odin`, `roles_settings`): the roles are a treenode in
+Today (`ui/manage.odin`, `roles_settings`): the roles are a treenode in
 the server settings tab, each role a row of permission checkboxes; an
 account's roles are edited from its manage menu
 (`account_roles_editor`).
@@ -256,7 +256,7 @@ it is D4. A proposal to answer against:
 
 Steps decided once D4 is answered.
 
-*As built:* a Roles window (`ui_roles.odin`), opened by "Roles..." in
+*As built:* a Roles window (`ui/roles.odin`), opened by "Roles..." in
 the server's tab of the settings, where the treenode was. No protocol
 change: it uses Role_Set, Role_Delete and Account_Roles_Set as before.
 
@@ -293,7 +293,7 @@ a card in the user menu.
   (`position` was there since step 10). Everyone's role takes no colour
   and is always listed last; a new role goes to the bottom.
 - **Colour of a name:** the highest of the account's roles that has a
-  colour (`name_color`, ui_roles.odin). The order is only for that.
+  colour (`name_color`, ui/roles.odin). The order is only for that.
   Shown in message headers (the timeline, pins, search; the whole header
   line, the time too), the members list (fainter when they aren't
   here), the Roles window's list and the user menu. Headless `/setrole`
@@ -900,7 +900,7 @@ none to give yet; initials until a later item adds one to Server_Info).
   pointer to its `Net_Session.view` (each session owns its View; with
   none, `UI.no_view`, which says nothing is connected). `&ui.view` went
   to `ui.view` in 86 places; nothing else had to change for it.
-- `Server_UI` (`ui_servers.odin`) holds the 30-odd fields that are a
+- `Server_UI` (`ui/servers.odin`) holds the 30-odd fields that are a
   server's: the login/account forms, invites, channels, timeline,
   unread, chat (drafts), reactors, forward, search, the user menu,
   buddies, threads, profiles, manage, roles, calls, voice panel,
@@ -972,7 +972,7 @@ none to give yet; initials until a later item adds one to Server_Info).
   `UI.chat_tz`; and the login form's remembered username went the same
   way, now put into each new session's stash. The message bar is reset
   on switching (its messages are the old server's).
-- The dialog (`ui_join.odin`): address and password, Connect. Its
+- The dialog (`ui/join.odin`): address and password, Connect. Its
   session is in `UI.sessions` from the start, so network turns, slots,
   mute, idle and shutdown reach it like any other, but marked
   `joining`: the rail skips it, the main window shows the start screen
@@ -1009,7 +1009,7 @@ none to give yet; initials until a later item adds one to Server_Info).
 
 *9c as built:*
 
-- `servers_frame` (`ui_servers.odin`), once a frame between frames:
+- `servers_frame` (`ui/servers.odin`), once a frame between frames:
   each rail server's unread count (channels and DMs not muted) and
   what's for us (mentions, a muted channel's too, plus unread DMs) on
   its `Net_Session`; their total in `UI.unread` (out of `Server_UI`)

@@ -59,7 +59,7 @@ FACE_DATA := [Font_Style][]u8 {
 	.Mono        = #load("../assets/JetBrainsMono-Regular.ttf"),
 }
 // face_data is the font file of one face, for a browser to draw the same
-// letters with (the web client's text fields, ui_field_web.odin).
+// letters with (the web client's text fields, ui/field_web.odin).
 face_data :: proc(style: Font_Style) -> []u8 {
 	return FACE_DATA[style]
 }

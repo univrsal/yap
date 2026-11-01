@@ -49,12 +49,12 @@ Sound_Event :: enum {
 	Ringback, // our own outgoing call
 	Call_Declined, // our call ends without being answered
 	Call_Ended, // a call we are in ends
-	// The client itself (ui_app_sounds.odin), not on the web.
+	// The client itself (ui/app_sounds.odin), not on the web.
 	Welcome,
 	Goodbye,
 }
 
-// The events the UI plays itself (ui_app_sounds.odin): a server's Voice
+// The events the UI plays itself (ui/app_sounds.odin): a server's Voice
 // doesn't hold their sounds.
 APP_SOUNDS :: bit_set[Sound_Event]{.Welcome, .Goodbye}
 

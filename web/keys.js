@@ -1,4 +1,4 @@
-// Some of the client's keys (src/client/ui_window.odin, key_callback) are
+// Some of the client's keys (src/client/ui/window.odin, key_callback) are
 // the browser's too. The composer's markdown keys: Ctrl+B bookmarks, Ctrl+I
 // page info, Ctrl+U the page's source, Ctrl+E the search bar. The command
 // palette's: Ctrl+K and Cmd+K the search bar. F6 the address bar. On the page

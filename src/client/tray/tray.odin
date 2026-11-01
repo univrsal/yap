@@ -3,7 +3,7 @@
 //
 // There is one icon, drawn from RGBA pixels, with an optional right-click menu.
 // The callbacks are called from step, on the thread that calls it, so the
-// client can treat them as part of its own loop (see ui_tray.odin).
+// client can treat them as part of its own loop (see ui/tray.odin).
 //
 // On Linux the icon goes to the desktop's StatusNotifierItem service over
 // D-Bus, or to an XEmbed tray on X11. create returns nil if neither is

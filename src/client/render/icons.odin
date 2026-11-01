@@ -60,7 +60,7 @@ Icon :: enum {
 	Back, // a chevron pointing left: back to a list, or the page before
 	Next, // a chevron pointing right: the page after
 	// The window's own controls, for where Windows does not provide them
-	// (ui_titlebar_windows.odin).
+	// (ui/titlebar_windows.odin).
 	Minimize, // a line
 	Maximize, // a box
 	Restore, // two boxes, one behind the other
@@ -140,7 +140,7 @@ icon_atlas_build :: proc(a: ^Icon_Atlas, scale: f32) -> bool {
 
 // icon_rgba draws one icon on its own, in color, for cases that need a
 // picture instead of a piece of the atlas, such as the tray icon
-// (ui_tray.odin). `side` is the picture's size in pixels, and the caller owns
+// (ui/tray.odin). `side` is the picture's size in pixels, and the caller owns
 // the result.
 icon_rgba :: proc(icon: Icon, side: int, color: mu.Color, allocator := context.allocator) -> []u8 {
 	pixels := make([]u8, side * side * 4, allocator)

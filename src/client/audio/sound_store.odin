@@ -15,7 +15,7 @@ import "client:audio/opus"
 // the last one lets go of it (sound_release).
 //
 // A sound of the user's own is named "custom:<file>" (the file is kept in the
-// config folder, see ui_sounds.odin). The UI decodes it and hands the samples
+// config folder, see ui/sounds.odin). The UI decodes it and hands the samples
 // over (sound_custom_add) before any Voice asks for it; the store holds on to
 // it until the UI lets go of it (sound_custom_remove).
 
@@ -112,7 +112,7 @@ sound_release :: proc(clip: ^Sound_Clip) {
 // sound_custom_add makes a sound of the user's own known by `name`
 // ("custom:<file>"), from `samples` (`channels` at SAMPLE_RATE), which are
 // copied. A name that is already known keeps its sound: a file of the user's
-// own gets a name of its own (see ui_sounds.odin).
+// own gets a name of its own (see ui/sounds.odin).
 sound_custom_add :: proc(name: string, samples: []f32, channels: int) {
 	sync.guard(&store.mutex)
 	context.allocator = store_allocator()

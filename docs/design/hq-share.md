@@ -36,7 +36,7 @@ reading before each phase.
   getDisplayMedia and WebCodecs (`web/video.js`, H.264, 15fps, 2 Mbit/s,
   at most 1080p). `video_native.odin` is a set of stubs that say "can't".
   This is exactly where the library plugs in.
-- **The UI is there.** `ui_video.odin` has the share button, the Screen
+- **The UI is there.** `ui/video.odin` has the share button, the Screen
   tab, fullscreen, and draws whatever `video_upload` put into a texture.
 - **Heavy traffic already has its own link** (next, item 5): video goes
   on the bulk link, its own UDP socket and Noise session, so voice isn't
@@ -405,7 +405,7 @@ rather than dragging everyone down.
   both backends: an SRV the D3D11 backend doesn't own, a GL texture name
   the GL backend doesn't delete. `video_upload` becomes "wrap whatever
   `yv_view_present` returned".
-- `ui_video.odin`: a source picker (monitors and windows by name; the OS
+- `ui/video.odin`: a source picker (monitors and windows by name; the OS
   picker on Wayland and newer macOS), the preset, and under "advanced"
   codec, encoder, bitrate and fps. A small stats line (resolution, fps,
   bitrate, loss, decoder) for those who turn it on.
@@ -1123,7 +1123,7 @@ rather than our menu with its one "Screen or window 0x0 (main)" entry.
 
 _As built:_
 
-- **Settings, "Screen sharing"** (`ui_share_settings.odin`, the
+- **Settings, "Screen sharing"** (`ui/share_settings.odin`, the
   desktop only: a browser shares what its picker says).
   - **Size:** 720p, 1080p (the default), 1440p, or "As it is", each with
     a bitrate for 60 fps: 4, 8, 15 and 20 Mbit/s (`conn.SHARE_PRESETS`).

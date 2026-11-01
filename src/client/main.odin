@@ -9,6 +9,7 @@ import "core:os"
 import "client:audio"
 import "client:conn"
 import "client:headless"
+import "client:ui"
 import "client:platform"
 import "common:."
 import "common:memtrack"
@@ -38,7 +39,7 @@ Options :: struct {
 
 main :: proc() {
 	platform.malloc_tune()
-	// This must run before anything allocates so that every allocation is counted (see ui_memory.odin).
+	// This must run before anything allocates so that every allocation is counted (see ui/memory.odin).
 	context.allocator = memtrack.init()
 	// The sounds are shared by threads (audio/sound_store.odin).
 	audio.sounds_allocator = context.allocator
@@ -116,7 +117,7 @@ main :: proc() {
 		return
 	}
 
-	ui_ok := run_ui(
+	ui_ok := ui.run_ui(
 		{
 			key_path = opt.key,
 			known_servers = opt.known_servers,

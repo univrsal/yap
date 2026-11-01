@@ -521,7 +521,7 @@ EM_JS(int, yap_query_param, (const char *name, char *buf, int buf_size), {
 	return lengthBytesUTF8(value);
 });
 
-/* Puts copied text on the clipboard (src/client/ui_paste_web.odin); pasting
+/* Puts copied text on the clipboard (src/client/ui/paste_web.odin); pasting
    is web/paste.js. The browser writes it asynchronously, and only allows
    it shortly after a key press or click, which a copy always follows. */
 EM_JS(int, yap_copy_text, (const char *text), {
@@ -569,7 +569,7 @@ EM_JS(int, yap_locale, (char *buf, int buf_size), {
 	return lengthBytesUTF8(name);
 });
 
-/* A browser notification (see src/client/ui_notices.odin), if the page
+/* A browser notification (see src/client/ui/notices.odin), if the page
    may show them. Browsers only let a page ask while it's handling a
    click or a tap, so the first time one would be shown the page asks on
    the next one - the notice that prompted it has gone by then, but the
@@ -601,7 +601,7 @@ EM_JS(int, yap_notify, (const char *title, const char *body), {
 	return 0;
 });
 
-/* Web Push (web/push.js, src/client/ui_push_web.odin): a server is named
+/* Web Push (web/push.js, src/client/ui/push_web.odin): a server is named
    by its address; its key is the 65 bytes of Server_Info's push_key. */
 EM_JS(int, yap_push_state, (const char *server), {
 	return Module.yapPush.state(UTF8ToString(server));
@@ -662,7 +662,7 @@ EM_JS(void, yap_set_badge, (int n), {
 
 /* Whether the page is out of sight: a hidden tab, a phone's browser in
    the background. Someone who can't see it is as good as idle, so the
-   server pushes to them (src/client/ui_activity.odin). */
+   server pushes to them (src/client/ui/activity.odin). */
 EM_JS(int, yap_page_hidden, (void), {
 	return document.hidden ? 1 : 0;
 });
@@ -675,14 +675,14 @@ EM_JS(void, yap_keyboard_hide, (), {
 });
 
 /* Labels a phone keyboard's Enter key for the text box that has the focus:
-   a new line in a text area (src/client/ui_text_area.odin), else send. */
+   a new line in a text area (src/client/ui/text_area.odin), else send. */
 EM_JS(void, yap_keyboard_multiline, (int on), {
 	const field = document.getElementById("yap-keyboard");
 	if (field) field.enterKeyHint = on ? "enter" : "send";
 });
 
 /* The page's text fields that stand in for the client's text areas
-   (web/field.js, src/client/ui_field_web.odin). */
+   (web/field.js, src/client/ui/field_web.odin). */
 EM_JS(void, yap_field_font, (const unsigned char *data, int n), {
 	Module.yapField.font(HEAPU8.slice(data, data + n));
 });
@@ -770,7 +770,7 @@ int main(void) {
 	return 0;
 }
 
-/* Choosing our picture (web/avatar.js, src/client/ui_avatar_pick_web.odin). */
+/* Choosing our picture (web/avatar.js, src/client/ui/avatar_pick_web.odin). */
 /* Whether the system is dark, as the page sees it (src/client/theme.odin). */
 EM_JS(int, yap_prefers_dark, (void), {
 	return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? 1 : 0;
@@ -813,7 +813,7 @@ EM_JS(void, yap_avatar_pick, (int side, int size), {
 	Module.yapAvatar.pick(side, size);
 });
 
-/* Sound files of the user's own (web/sounds.js, src/client/ui_sounds_web.odin). */
+/* Sound files of the user's own (web/sounds.js, src/client/ui/sounds_web.odin). */
 EM_JS(void, yap_sound_pick, (int kind), {
 	Module.yapSounds.pick(kind);
 });
@@ -906,7 +906,7 @@ EM_JS(void, yap_image_cache_store, (const char *key, const unsigned char *data, 
 	Module.yapImages.store(UTF8ToString(key), data, len);
 });
 
-/* Pictures decoded by the browser (web/decode.js, src/client/ui_images_worker_web.odin). */
+/* Pictures decoded by the browser (web/decode.js, src/client/ui/images_worker_web.odin). */
 EM_JS(int, yap_image_decode_start, (const unsigned char *data, int len, double max_pixels, int max_side), {
 	return Module.yapDecode.start(data, len, max_pixels, max_side);
 });

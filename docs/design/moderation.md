@@ -48,13 +48,13 @@ could be built and tested as two halves.
 - `relay_voice` (server/server.odin) forwards a connection's voice to
   everyone else in its room.
 - Client: clicking (left or right) a person under a channel opens
-  `user_menu` (ui_users.odin) on the *press*: volume, mute for me,
-  buddy, watch screen. `rail_drag` (ui_servers.odin) is the one drag in
+  `user_menu` (ui/users.odin) on the *press*: volume, mute for me,
+  buddy, watch screen. `rail_drag` (ui/servers.odin) is the one drag in
   the UI: the server rail's order, with DRAG_START before it counts as a
   drag.
 - Disabling an account (`Account_Disable`, Manage_Accounts) sets
   Disabled and logs out all its devices; it keeps everything else.
-  Accounts > Disable in the settings (ui_manage.odin).
+  Accounts > Disable in the settings (ui/manage.odin).
 - Purging (proto/purge.odin, server/retention.odin): one conversation or
   all, everything *before* a time, messages or only files, in chunks on
   the retention step machine, one purge at a time. `Msgs_Purged [conv]
@@ -193,7 +193,7 @@ the client is out of scope.
 *Protocol*, backwards compatible (no HELLO_VERSION bump):
 
 - Permissions Move_Members = 11, Mute_Members = 12, Ban_Members = 13;
-  their descriptions in the Roles page (`ui_roles.odin`).
+  their descriptions in the Roles page (`ui/roles.odin`).
 - `Account_Flag.Server_Muted` (bit 6). Older clients ignore it.
 - Requests (free ids next to Voice_Join 0x0039 and Account_Disable 0x0073):
 
@@ -342,7 +342,7 @@ against the target's full set, which includes everyone's Attach_Files.
 Voice_Mute_Command (by id, or by name for the headless client),
 `voice_moved` (the notices, and the guest room) and the mute helpers.
 
-- The menu's "Moderation" part (`moderation_items` in ui_users.odin)
+- The menu's "Moderation" part (`moderation_items` in ui/users.odin)
   comes after the "for me" controls, under a dim heading. **Mute for
   everyone** / **Unmute for everyone** is there for anyone we may mute,
   not only people in a room, since the mute is the account's. **Move
@@ -393,7 +393,7 @@ Check off-screen (headless weston + xdotool, see the testing notes):
 drag to another room, to a text-only channel (nothing), cancel, a plain
 click still opens the menu, right-click too.
 
-*As built:* `ui_voice_drag.odin`. `Voice_Drag` is on `Server_UI` (next to
+*As built:* `ui/voice_drag.odin`. `Voice_Drag` is on `Server_UI` (next to
 the menu's state, so each server keeps its own): the connection pressed
 on, its account and room, where the press was, whether it became a drag,
 and the channel under the pointer this frame.
@@ -477,7 +477,7 @@ Invalid until phase 6, so the client doesn't offer it yet.
 Client: `conn/moderation.odin` has Ban_Command and Bans_Command (the list
 goes to `View.bans`), and `told_banned`, which keeps the reason in the
 auth state (`banned`, `ban_reason`, and `ban_count`, which counts each
-time the server said it) for the login screen. `ui_bans.odin`:
+time the server said it) for the login screen. `ui/bans.odin`:
 
 - The menu's Moderation part ends with **Ban...**, which opens "Reason
   (they will see it)", a text box, Cancel and a red Ban, inside the menu

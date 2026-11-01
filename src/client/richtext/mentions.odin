@@ -27,7 +27,7 @@ import "common:proto"
 // Mentionable (see role_mentionable) can be mentioned. If both a username and a
 // role name match, the longer one is meant. If they are equally long, the
 // account is meant, and the role can then only be written as its token (which
-// the completion in ui_completion.odin does) and stays a token when edited.
+// the completion in ui/completion.odin does) and stays a token when edited.
 //
 // When shown, a mention is the account's current display name, so renaming an
 // account changes how old mentions read. A mention of an unknown account reads

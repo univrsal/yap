@@ -6,14 +6,14 @@ here: it decodes the picture, scales it down to fit MAX_SIDE and
 compresses it to a WebP within MAX_BYTES - the same budget src/client/imaging/image.odin
 keeps on a desktop, and the same order of giving things up: quality
 first, then size - then hands it to the client as a file to attach
-(web/files.js keeps it; web_file_pasted, src/client/ui_paste_web.odin).
+(web/files.js keeps it; web_file_pasted, src/client/ui/paste_web.odin).
 A browser that can't write WebP (Safari, which writes a PNG instead) is
 given the JPEG this made before WebP, at the qualities it had then.
 
 Transparent parts are put on white, as src/client/imaging/image.odin does.
 
 An animated GIF or WebP no bigger than the server takes is sent as it
-is instead, as on a desktop (src/client/ui_paste.odin).
+is instead, as on a desktop (src/client/ui/paste.odin).
 The text of every paste goes to the client as well (web_paste_text),
 which is where its text boxes paste from: emscripten's GLFW has no
 clipboard.
@@ -86,7 +86,7 @@ clipboard.
 	};
 
 	// How many frames a GIF has, counted from its blocks (as gif_info in
-	// src/client/ui_images_anim_native.odin), up to 2: all that matters.
+	// src/client/ui/images_anim_native.odin), up to 2: all that matters.
 	const gifFrames = (b) => {
 		if (b.length < 13 || b[0] !== 0x47 || b[1] !== 0x49 || b[2] !== 0x46) return 0;
 		let pos = 13;
@@ -136,7 +136,7 @@ clipboard.
 	};
 
 	// The text, for the client to paste when it gets to the Ctrl+V (see
-	// src/client/ui_paste_web.odin); empty for a paste without any. The
+	// src/client/ui/paste_web.odin); empty for a paste without any. The
 	// on-screen keyboard's field (web/touch.js) takes its pastes itself.
 	const sendText = (text) => {
 		Module.yapWithString(text, (ptr, n) => Module._web_paste_text(ptr, n));

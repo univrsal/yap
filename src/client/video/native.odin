@@ -545,7 +545,7 @@ yv_log :: proc "c" (user: rawptr, level: i32, msg: cstring) {
 }
 
 // A native share has no audio of its own: an application's is shared on its
-// own (ui_app_audio_native.odin), and owns the voice's app ring.
+// own (ui/app_audio_native.odin), and owns the voice's app ring.
 capture_audio :: proc(v: ^audio.Voice, sharing: bool) {}
 
 capture_live :: proc(stream: proto.Video_Stream) -> bool {
@@ -1339,7 +1339,7 @@ forget_gpu :: proc(g: ^render.Gpu) {
 	nv.gpu_set = false
 }
 
-// Fullscreen on the desktop means the picture fills the window (ui_video.odin),
+// Fullscreen on the desktop means the picture fills the window (ui/video.odin),
 // not that the window fills the screen.
 set_fullscreen :: proc(on: bool) {
 	nv.full = on

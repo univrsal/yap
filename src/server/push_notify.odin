@@ -8,7 +8,7 @@ import "common:proto"
 import "webpush"
 
 // What gets pushed (webpush/webpush.odin), and to whom: the same things a desktop client would show
-// as a desktop notification (src/client/ui_notices.odin), for users who aren't around to
+// as a desktop notification (src/client/ui/notices.odin), for users who aren't around to
 // see them.
 //
 //   - A message in a DM is pushed to the other participant, and a message that mentions

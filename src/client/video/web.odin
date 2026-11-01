@@ -533,7 +533,7 @@ forget_gpu :: proc(g: ^render.Gpu) {
 	web_pictures = {}
 }
 
-// The whole page goes fullscreen, to show the picture (ui_video.odin).
+// The whole page goes fullscreen, to show the picture (ui/video.odin).
 set_fullscreen :: proc(on: bool) {
 	yap_video_set_fullscreen(1 if on else 0)
 }

@@ -44,10 +44,10 @@ Branch `channel-access-plan`, off master (9c7e86a). Sizes as in `docs/design/nex
   excepted).
 - New accounts join the home channel in three places:
   `account_create_finish` (auth.odin), register.odin and bots.odin.
-- Client: `ui_channel_settings.odin` is the Channels category (list on the
+- Client: `ui/channel_settings.odin` is the Channels category (list on the
   left, `channel_editor` on the right, the create form under the list);
-  `ui_channels.odin` has the channel list with its phone icon and the
-  join dialog (`Conv_Browse`); `ui_message_menu.odin` the message menu;
+  `ui/channels.odin` has the channel list with its phone icon and the
+  join dialog (`Conv_Browse`); `ui/message_menu.odin` the message menu;
   `conn/convs.odin` the requests.
 - Clients ignore events they don't know (conn/rpc.odin), and a single
   conversation record (`decode_conv`) ignores bytes after its fields;
@@ -349,14 +349,14 @@ conversation until posted, so Write on the post covers them.
 *As built:* conn/roles.odin: `Conv_Rights_Get_Command` /
 `Conv_Rights_Set_Command`, `View.rights_map` (`View_Rights_Map`),
 `rights_text`, `role_name`. The grid (`channel_rights` in
-ui_channel_settings.odin) keeps its boxes in `UI_Channel_Admin.cells`
+ui/channel_settings.odin) keeps its boxes in `UI_Channel_Admin.cells`
 (a checkbox's id is its address) and has **its own Save** under it,
 rather than sharing the flags' Save: the flags sit above Place/Delete and
 the grid below, and a Save far from what it saves read badly. The
 summary line reads "Those with no other role here: see, react. The owner
 and those who manage channels may do everything." When narrow, each role
 is a heading with labelled boxes, three to a row. `rights_here` /
-`rights_in` (ui_channels.odin) give the viewed (or a thread's) channel's
+`rights_in` (ui/channels.odin) give the viewed (or a thread's) channel's
 rights. Without Write, the chat and a thread show `read_only_line`
 instead of the composer (drops then have nowhere to land, since only a
 drawn attach button takes them). The message bar leaves out React and
@@ -440,7 +440,7 @@ they could do before (checked on a copy of a schema-27 test database:
 63→127, 7→71, 31→95). The server refuses (`Denied`) a post with
 attachments, or a forward of a message with files, into a channel
 without Attach; uploads themselves aren't tied to a conversation, so
-they aren't checked. Client: `attach_allowed` (ui_attachments.odin) is
+they aren't checked. Client: `attach_allowed` (ui/attachments.odin) is
 checked by `attach_button` (no paperclip, so drops don't land either)
 and by `attach_add`, which every way of attaching goes through (dialog,
 paste, drop, web), with the notice "You can't attach files here." The

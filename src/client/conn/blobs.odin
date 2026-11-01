@@ -20,7 +20,7 @@ import "common:proto"
 // restarted the transfer.
 //
 // Pictures are kept in memory as the JPEG they arrived as, and the UI decodes
-// them (see ui_images.odin). The UI reads the same bytes (Shared_Bytes), not a
+// them (see ui/images.odin). The UI reads the same bytes (Shared_Bytes), not a
 // copy of its own. Once BLOB_CACHE_BYTES is exceeded, the pictures
 // that were fetched first are dropped, and they are fetched again if they are
 // shown again.

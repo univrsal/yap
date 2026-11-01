@@ -1,7 +1,7 @@
 package render
 
 // Tracks how much memory the textures take, for the memory page
-// (ui_memory.odin). GPU memory is not part of the heap, so nothing else
+// (ui/memory.odin). GPU memory is not part of the heap, so nothing else
 // counts it, but a driver may keep a copy in the process's own memory, and an
 // integrated GPU shares the same RAM. The numbers are estimated from the
 // texture sizes (a texture with mipmaps takes a third more). They are updated

@@ -4,7 +4,7 @@ package settings
 import "core:os"
 import "core:strings"
 
-// Installing on Linux and the BSDs (see the client's ui_install_native.odin)
+// Installing on Linux and the BSDs (see the client's ui/install_native.odin)
 // follows the freedesktop.org specs. It creates a .desktop entry in
 // $XDG_DATA_HOME/applications, which puts yap in the desktop's application
 // menu, with the icon stored under icons/, and a link to the binary in

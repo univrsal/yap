@@ -91,7 +91,7 @@ Settings :: struct {
 	theme:                   string,
 	// RNNoise on the microphone.
 	noise_suppression:       bool,
-	// Show an icon in the system tray (ui_tray.odin).
+	// Show an icon in the system tray (ui/tray.odin).
 	tray:                    bool,
 	// What the window's own buttons do while that icon is shown: either
 	// hide the client in the tray or do what they usually do. We can only
@@ -106,7 +106,7 @@ Settings :: struct {
 	// How loud the local join, leave and message sound effects are.
 	notification_volume:     f32, // 1 = as encoded, 0..MAX_USER_VOLUME
 	// How loud a shared application's audio is when it is sent
-	// (ui_app_audio_native.odin).
+	// (ui/app_audio_native.odin).
 	app_audio_volume:        f32, // 1 = as it plays, 0..MAX_USER_VOLUME
 	// Whether muting the microphone also mutes a shared application.
 	mute_app_audio_with_mic: bool,
@@ -119,7 +119,7 @@ Settings :: struct {
 	// MIN_UI_SCALE..MAX_UI_SCALE.
 	ui_scale:                f32,
 	// Show people's pictures next to their messages. When off, the chat is
-	// more compact (ui_timeline.odin).
+	// more compact (ui/timeline.odin).
 	chat_pictures:           bool,
 	// Draw the window's buttons in the UI's first row instead of using the
 	// desktop's title bar (ui_titlebar_*.odin). On platforms where this is
@@ -138,10 +138,10 @@ Settings :: struct {
 	image_cache_mb:          f32,
 	image_cache_dir:         string,
 	// Global hotkeys, as written by hotkeys.format ("Ctrl+Shift+M"). ""
-	// means none. See ui_hotkeys_native.odin.
+	// means none. See ui/hotkeys_native.odin.
 	mute_hotkey:             string,
 	deafen_hotkey:           string,
-	// Screen sharing on the desktop (ui_share_settings.odin): the size
+	// Screen sharing on the desktop (ui/share_settings.odin): the size
 	// preset by name (conn.SHARE_PRESETS; unset means 1080p), and the
 	// advanced options: frames per second (0 means 60), the bitrate in
 	// kbit/s (0 means the preset's), the encoder by yap_video's name ("" for
@@ -153,14 +153,14 @@ Settings :: struct {
 	share_encoder:           string,
 	share_cursor:            bool,
 	share_stats:             bool,
-	// The camera (ui_camera_settings.odin): which one, by its id ("" for the
+	// The camera (ui/camera_settings.odin): which one, by its id ("" for the
 	// first there is, or in a browser its choice), the quality
 	// (conn.Camera_Quality by name: "auto", "high" or "low"; unset means
 	// auto), and whether our own view is mirrored.
 	camera_device:           string,
 	camera_quality:          string,
 	camera_mirror:           bool,
-	// What audio a screen share sends on the desktop (ui_app_audio_native.odin):
+	// What audio a screen share sends on the desktop (ui/app_audio_native.odin):
 	// "" for none, "default" for the default playback device, or a
 	// playback device by name (the default if it is gone).
 	share_audio:             string,
@@ -177,7 +177,7 @@ Settings :: struct {
 	// The emoji used for reactions on each server, by its key (key_hex),
 	// with how often: the most used first, and of those used equally often
 	// the latest first. The message bar offers the first few
-	// (ui_message_bar.odin). They are kept per server, because a server's
+	// (ui/message_bar.odin). They are kept per server, because a server's
 	// own emoji (":name:") only exist there.
 	reactions:               map[string][dynamic]Reaction_Use,
 	// Legacy: the last few reactions on each server, latest first. Only read

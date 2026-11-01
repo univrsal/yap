@@ -4,7 +4,7 @@ import "core:encoding/endian"
 import "core:os"
 import "core:strings"
 
-// Installing on macOS (see the client's ui_install_native.odin) creates a
+// Installing on macOS (see the client's ui/install_native.odin) creates a
 // bundle, ~/Applications/Yap.app, which Finder, Launchpad and Spotlight list
 // together with the other apps. Its executable is a link to the binary
 // instead of a copy, and its icon is assets/icon.png wrapped as an .icns.
@@ -12,7 +12,7 @@ import "core:strings"
 // When started from the bundle, macOS asks for microphone access on behalf
 // of the app (NSMicrophoneUsageDescription) instead of the terminal, and
 // likewise for the audio of other applications
-// (NSAudioCaptureUsageDescription, see ui_app_audio_native.odin).
+// (NSAudioCaptureUsageDescription, see ui/app_audio_native.odin).
 
 INSTALL_DESCRIPTION :: "Adds Yap.app to the Applications folder in your home folder, so it can be started from Finder, Launchpad or Spotlight. The app starts this copy of yap; nothing is copied or moved. Uninstall removes it again."
 

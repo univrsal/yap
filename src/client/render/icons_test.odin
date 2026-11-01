@@ -108,7 +108,7 @@ test_icons_tell_states_apart :: proc(t: ^testing.T) {
 
 @(test)
 test_icon_ids_stay_in_their_range :: proc(t: ^testing.T) {
-	// Above microui's own icons and below the chat images (ui_images.odin).
+	// Above microui's own icons and below the chat images (ui/images.odin).
 	for icon in Icon {
 		id := int(icon_id(icon))
 		testing.expectf(t, id > int(max(mu.Icon)), "%v collides with microui's icons", icon)

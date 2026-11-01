@@ -40,7 +40,7 @@ Branch `sound-settings`, off `notifications`. Sizes as in `docs/design/next.md`.
   room), `conn/messages.odin` (Message; Mail for mentions and DMs),
   `conn/convs.odin` (Mail once for DMs unread at login),
   `conn/files.odin` and `conn/attachments.odin` (Done),
-  `conn/calls.odin` (the ring loops), `ui_app_sounds.odin`
+  `conn/calls.odin` (the ring loops), `ui/app_sounds.odin`
   (Welcome/Goodbye, desktop only), `audio/notification.odin`
   (Muted/Unmuted feedback).
 - Each connection's `Voice` decodes its own copy of every sound
@@ -93,7 +93,7 @@ UI: a new client category **Sounds** (D1), one row per event:
   microui has no dropdown, so this is the bulk of the work; it is kept
   generic for later use (theme, quality).
 - `[>]` plays the choice once, through the UI's own Voice
-  (`ui_app_sounds.odin`), so it works without a server too. On the web
+  (`ui/app_sounds.odin`), so it works without a server too. On the web
   it needs no special case, the click being the user gesture.
 - The volume slider moves here from Audio.
 
@@ -101,9 +101,9 @@ UI: a new client category **Sounds** (D1), one row per event:
 (one enum, loops marked in `SOUND_EVENTS`). `audio/sound_store.odin` is
 the shared, refcounted store; `notifications_set` swaps an event's sound
 and first stops it if it is playing. `settings.sounds` holds only what
-differs from the default. The dropdown is `ui_dropdown.odin` (a popup
+differs from the default. The dropdown is `ui/dropdown.odin` (a popup
 drawn at the end of the frame, scrolled to the current choice; closed
-when its page isn't drawn). The page is `ui_sounds.odin`: grouped under
+when its page isn't drawn). The page is `ui/sounds.odin`: grouped under
 Messages, Voice, Calls and The client, a play button beside each row
 (it plays through the UI's own Voice, `app_sound_preview`, which also
 works on the web), and picking a sound plays it. The volume slider moved
@@ -133,8 +133,8 @@ decoded, and a sound that isn't a loop plays at most 10 s of that. The
 copy keeps the file's name (made safe, at most 64 bytes); another file
 of the same name becomes "name-2.ext", the same file again is the same
 copy. A copy no event plays any more is deleted. A file that is gone or
-broken at start gets a note under its row. `ui_sounds_native.odin`;
-tested in `ui_sounds_test.odin`.
+broken at start gets a note under its row. `ui/sounds_native.odin`;
+tested in `ui/sounds_test.odin`.
 
 ## 4. New events
 
@@ -184,7 +184,7 @@ How it is today:
   ends it is in no room, not back in the channel.
 - **In a call or channel on another server:** each server knows only
   itself, so it rings, at full volume over the call, with Accept and
-  Decline in the voice panel (`ui_voice_panel.odin`, "other"). Accepting
+  Decline in the voice panel (`ui/voice_panel.odin`, "other"). Accepting
   leaves the voice elsewhere first (`leave_voice_elsewhere`), hanging up
   the call there.
 
@@ -246,7 +246,7 @@ in IndexedDB (as the image cache is), keyed by the name in the setting.
 Welcome and Goodbye stay off on the web (no sound before the first
 click, nothing to wait for on quitting); their rows are hidden there.
 
-*As built:* `web/sounds.js` and `ui_sounds_web.odin`. The page picks the
+*As built:* `web/sounds.js` and `ui/sounds_web.odin`. The page picks the
 stored name (as on the desktop, "-2" for another file of the same name,
 the same name for the same bytes) and hands the decoded samples to the
 client; at start the stored files are decoded again and the sessions

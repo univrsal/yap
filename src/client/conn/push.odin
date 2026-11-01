@@ -6,7 +6,7 @@ import "common:proto"
 
 // Web Push (src/common/proto/push.odin): sends this browser's push subscription to the
 // server, or withdraws it. The browser itself creates the subscription, started by the UI
-// (src/client/ui_push_web.odin, web/push.js); this file only informs the server. A server
+// (src/client/ui/push_web.odin, web/push.js); this file only informs the server. A server
 // that supports push advertises its VAPID key (Server_Details.push_key, View.server_push_key).
 
 // Sends this device's subscription to the server. The endpoint string is owned.

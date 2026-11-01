@@ -39,7 +39,7 @@ How to check a change on Windows without touching the desktop: build with
 `build.bat`, start `bin\yap.exe` and capture its window with `PrintWindow`
 (not by bringing it to the front, which captures whatever is in front
 instead). Posted mouse messages don't reach it, so interaction is checked
-with tests (as `ui_composer_test.odin` does) or by hand.
+with tests (as `ui/composer_test.odin` does) or by hand.
 
 ## 1. Rounded corners
 
@@ -81,7 +81,7 @@ and decoded it again, and each decode woke the UI. The icon never showed
 either.
 
 *As built:* `Image_Key` (kind, `full` for the viewer's copy, id) in
-`ui_images.odin`, used everywhere textures are kept. Idle is now about 1.4%
+`ui/images.odin`, used everywhere textures are kept. Idle is now about 1.4%
 of a core: the loop's 30 wakes a second without drawing, and the
 connection's.
 
@@ -102,7 +102,7 @@ buttons out over the strip and draws them flat (`ui.flat_buttons`),
 them. The theme has `accent`, `accent_hover` and `accent_text`. The preview
 fills the part above the strip. Same for threads and DMs. The box is about
 108 px tall when empty (`COMPOSER_LINES`, `COMPOSER_BUTTON`,
-`COMPOSER_INSET` in `ui_chat.odin`). Tests in `ui_composer_test.odin`.
+`COMPOSER_INSET` in `ui/chat.odin`). Tests in `ui/composer_test.odin`.
 
 Two fixes after: the box scrolls as if it already had the height it is
 growing to, so a new line no longer shows its scrollbar for a frame
@@ -130,7 +130,7 @@ before `mu.begin`: padding 6, spacing 6, size 80x14 (rows 26 px, from
 20), and on a phone padding 8, spacing 8, size 80x28 (rows 44 px). A
 phone (`ui.compact`) is a window narrower than `NARROW_LAYOUT` beside the
 rail, or a touch screen once it has been used (`ui.touched`, set when
-`ui_touch_web.odin` queues an event), on every screen, not only the
+`ui/touch_web.odin` queues an event), on every screen, not only the
 session's.
 
 - The channel list is in `render.LIST_FONT` (`Font_Kind.List`, the UI's
@@ -217,7 +217,7 @@ there is some left) makes every panel scroll smoothly without changing
 microui. Touchpads already send small steps and stay as they are.
 
 The timeline keeps its own scroll position (a message and how far into it,
-`ui_timeline.odin`, from `cnt.scroll.y - st.scroll`), so jumping to a
+`ui/timeline.odin`, from `cnt.scroll.y - st.scroll`), so jumping to a
 message and keeping to the end must be checked with the spread-out input.
 Scrolling wants 60 frames a second while it moves (`ANIMATION_FRAME` is
 30).
@@ -232,7 +232,7 @@ left. The native loop now wakes for a frame asked for by a time
 (`ui_redraw_at`) instead of at most every 1/30 s, which also keeps the
 spinners on time. The viewer's wheel zoom follows the spread-out input,
 so it zooms smoothly too. The wheel over a message's bar
-(`ui_message_bar.odin`, a window of its own) scrolls the timeline under
+(`ui/message_bar.odin`, a window of its own) scrolls the timeline under
 it: while microui takes the bar as under the pointer, the bar makes that
 timeline's panel the scroll target, which also covers the frames in which
 the bar moves with the message under the pointer.
@@ -270,7 +270,7 @@ as without the change (28-31 ticks in 10 s, measured against a build of
   dark).
 - Thinner scrollbars that fade out when nothing scrolls.
 
-  *As built:* `ui_scrollbars.odin`. `draw_frame_themed` hands microui's
+  *As built:* `ui/scrollbars.odin`. `draw_frame_themed` hands microui's
   scrollbar tracks and thumbs to `scrollbar_frame`, which keeps each
   container's last scroll position (`UI.scrollbar_fades`). The thumb is a
   `SCROLLBAR_THIN` (4) pill at the strip's outer edge, `SCROLLBAR_WIDE`

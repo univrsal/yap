@@ -463,7 +463,7 @@ Account_Flag.Bot is bit 5, with no schema step.
   Voice_Join (a room) and Call_Start (either end a bot) are Denied, and
   digests skip it. `yap-server account list` shows "bot",
   `account passwd` and `account owner` refuse one.
-- Client (`conn/bots.odin`, `ui_bots.odin`): no separate window. In
+- Client (`conn/bots.odin`, `ui/bots.odin`): no separate window. In
   Settings > Server > Accounts, "Make bot" sits beside "Make account"
   and uses the username and name. A bot's row has "Tokens..." in place
   of "New password...", which opens its tokens: each one connected,
@@ -880,7 +880,7 @@ Not planned in detail; written down so v1 leaves room for them.
 
 - **Commands**: a bot registers `/commands` (name, description,
   arguments); clients complete them in the message bar (the completion
-  popup exists, `ui_completion.odin`), and the bot gets a
+  popup exists, `ui/completion.odin`), and the bot gets a
   `COMMAND` event rather than parsing text. Needs protocol and client
   work; the most Discord-like thing worth having.
 - **Outgoing webhooks**: for a bot that can't hold a WebSocket open

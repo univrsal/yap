@@ -509,7 +509,7 @@ Why this order:
 
 *As built:*
 
-- **`ui_camera.odin`** (new):
+- **`ui/camera.odin`** (new):
   - **The Camera button** beside Share, in a voice chat or a call, where
     the platform can send a camera (`video_can_camera`) and the server
     allows cameras (`max_cameras` > 0). Its states:
@@ -540,7 +540,7 @@ Why this order:
   - Offered in a call on the shown server while their camera or ours
     is on. It sits beside Chat (and Screen), beside a channel's chat and
     in the DM screen alike: the tab row is shared (`side_tab_widths`,
-    `side_tab_buttons` in `ui_chat.odin`).
+    `side_tab_buttons` in `ui/chat.odin`).
   - It opens by itself when their camera comes on (from the Chat tab),
     and goes back to the chat when there's nothing to show.
   - Their camera is watched only while the tab shows it
@@ -553,7 +553,7 @@ Why this order:
     fullscreen and pop-out for the Video tab (phase 5 brings them for
     the grid), and a self view on the desktop (no capture yet, so it
     reads "Your camera").
-- `call_peer` (`ui_calls.odin`) finds the other person's user in the
+- `call_peer` (`ui/calls.odin`) finds the other person's user in the
   call's room, for the voice panel's row and the tab.
   `View_User.camera` comes from the snapshot.
 - **Tried** (headless Chromium with the fake camera, the desktop client
@@ -596,7 +596,7 @@ Why this order:
   - The camera is now always asked for at 720p, so that a tier can go
     back up (what is sent is scaled down from it).
   - The desktop has a stub.
-- **The grid** (`ui_camera.odin`):
+- **The grid** (`ui/camera.odin`):
   - The Video tab is offered in a channel's voice chat while anyone's
     camera there is on (ours too). It's labelled "Video (N)" and never
     opens by itself.
@@ -963,7 +963,7 @@ What the owner saw led to this; it isn't one of the plan's phases.
 *As built:*
 
 - **A Camera category** in the client's settings, after Screen sharing
-  (`ui_camera_settings.odin`). Saved as `camera_device`,
+  (`ui/camera_settings.odin`). Saved as `camera_device`,
   `camera_quality` and `camera_mirror`.
 - **Which camera**: a dropdown of the cameras there are, with "The first
   one there is" (in a browser, "The browser's choice", a phone's front
@@ -1042,7 +1042,7 @@ What the owner saw led to this; it isn't one of the plan's phases.
     on, nobody watching included. It's also sent at once when a lease
     starts or its tile changes size, so a new viewer wakes a paused
     camera without waiting.
-- **Viewers** (`ui_camera.odin`, `conn/video.odin`):
+- **Viewers** (`ui/camera.odin`, `conn/video.odin`):
   - Each drawn tile notes its size in the framebuffer's pixels, rounded
     up to 16, the largest if a camera is drawn twice (the call's corner
     and the pop-out).

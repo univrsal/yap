@@ -24,12 +24,12 @@ Branch `screen-audio-share`, off `master`. Sizes as in `docs/design/next.md`.
 
 ## Where things are today
 
-- `ui_video.odin`: `share_button` / `share_menu` show the monitors and
+- `ui/video.odin`: `share_button` / `share_menu` show the monitors and
   windows from `conn.video_sources`. Picking one calls
   `conn.video_share_source`. Where the system has its own picker
   (`conn.video_system_picker`), the button skips our menu and opens the
   system's picker directly.
-- `ui_app_audio_native.odin` + `audio/app_audio_native.odin`: the app
+- `ui/app_audio_native.odin` + `audio/app_audio_native.odin`: the app
   audio button captures **one application** through tinyaac
   (`audio/aac`, `deps/thirdparty/tinyaac/tinyaac.h`) into
   `Voice.app`. The network thread mixes that into every frame sent
@@ -72,7 +72,7 @@ Branch `screen-audio-share`, off `master`. Sizes as in `docs/design/next.md`.
     device stays as it is for apps, without subdevices, so that a device
     with its own microphone can't add it. Nothing reports the device
     going away.
-- **D2** is decided in yap (`plays_on` in `ui_app_audio_native.odin`):
+- **D2** is decided in yap (`plays_on` in `ui/app_audio_native.odin`):
   on Windows it passes our PID only when the picked device is the
   settings' output device, or the default one when that is unset or
   gone. Linux and macOS always pass it.
@@ -160,7 +160,7 @@ can stop it, and the volume slider applies to both.
 ## 3. The share menu
 
 The audio choice goes at the top of `share_menu`, as a dropdown
-(`ui_dropdown.odin`). Picking a monitor or a window below then starts
+(`ui/dropdown.odin`). Picking a monitor or a window below then starts
 both.
 
 	Audio: [ Speakers (default)  v ]

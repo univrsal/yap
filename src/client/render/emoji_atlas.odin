@@ -15,7 +15,7 @@ import "core:slice"
 // (such as a button frame in the picker) can be drawn from this texture too
 // without switching to a font's atlas and back.
 //
-// The client decodes the sheet (a WebP, see ui_images.odin) and passes the
+// The client decodes the sheet (a WebP, see ui/images.odin) and passes the
 // pixels to emoji_sheet_upload. Until then, emoji take up their space in a
 // line but are not drawn.
 

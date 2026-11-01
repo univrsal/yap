@@ -54,7 +54,7 @@ holds a mutex while it runs Lua.
 | `http_native.odin`, `yap_requests.c` | web requests over tinyrequests; `http_web.odin` and `web/http.js` do the same with `fetch` |
 | `runtime_native.odin`, `runtime_web.odin` | finding scripts: the folder, or the browser's storage with an index |
 | `conn/events.odin`, `conn/filter.odin` | the hooks in `conn` |
-| `ui_scripts.odin`, `ui_script_settings.odin`, `headless/scripts.odin` | starting it, the Scripts page, `/script` |
+| `ui/scripts.odin`, `ui/script_settings.odin`, `headless/scripts.odin` | starting it, the Scripts page, `/script` |
 
 ## Architecture
 

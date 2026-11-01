@@ -27,40 +27,40 @@ the two halves can be built side by side.
 - The UI is microui (`vendor:microui`). `mu.update_control` sets
   `ctx.focus_id` on a press over a control, and drops it again in the next
   frame without the mouse button down unless the control passes
-  `HOLD_FOCUS`. Only text boxes ([ui_text_area.odin](../../src/client/ui_text_area.odin),
+  `HOLD_FOCUS`. Only text boxes ([ui/text_area.odin](../../src/client/ui/text_area.odin),
   `mu.textbox_raw` behind `text_box`) hold it. So `focus_id` is "the control
   being clicked" for buttons and "the text box being typed in" for boxes; it
   can't carry a keyboard focus for a button.
 - Buttons submit on `ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id`
   (`icon_button`, `stable_button`, `checkbox`, the dropdown) or on
   `hover_id == id` (`list_row`), right after `update_control`.
-- Shared widgets in [ui_widgets.odin](../../src/client/ui_widgets.odin):
+- Shared widgets in [ui/widgets.odin](../../src/client/ui/widgets.odin):
   `icon_button`, `stable_button`(`_hint`), `list_row`, `checkbox`,
   `tab_button`, `choice_button`, `confirm_button`; `dropdown` in
-  [ui_dropdown.odin](../../src/client/ui_dropdown.odin); `text_box` and
-  `password_box` in [ui_text_box.odin](../../src/client/ui_text_box.odin);
+  [ui/dropdown.odin](../../src/client/ui/dropdown.odin); `text_box` and
+  `password_box` in [ui/text_box.odin](../../src/client/ui/text_box.odin);
   `text_area` for composers. Besides these there are 29 plain `mu.button`
-  calls (9 in ui_account.odin, 4 in ui_manage.odin, …) and about 15 custom
+  calls (9 in ui/account.odin, 4 in ui/manage.odin, …) and about 15 custom
   `mu.update_control` sites (chat rows, the voice panel, the roles grid,
   user rows, the title bar's buttons, …).
-- `key_callback` ([ui_window.odin](../../src/client/ui_window.odin)) turns
+- `key_callback` ([ui/window.odin](../../src/client/ui/window.odin)) turns
   keys microui has no name for into `UI.keys: bit_set[Extra_Key]` (Up, Down,
   Tab, Escape, Newline, and the composer's markdown keys), cleared after each
   frame. Tab drops its modifiers, so Shift+Tab is Tab. Space reaches microui
   only as text, through `char_callback`.
 - Whoever uses a key first takes it out of the set:
-  `completion_keys` ([ui_completion.odin](../../src/client/ui_completion.odin))
+  `completion_keys` ([ui/completion.odin](../../src/client/ui/completion.odin))
   takes Up, Down, Escape, Tab and Enter while its list is open, before the
   composer sees them. The message menu, the image viewer, the camera
   preview and voice dragging look at Escape.
-- Overlays: `search_window` ([ui_search.odin](../../src/client/ui_search.odin))
+- Overlays: `search_window` ([ui/search.odin](../../src/client/ui/search.odin))
   is a `mu.begin_window` placed once when it opens (`placed`), brought to
   the front, with `hover_root` set to it. The completion list, the forward
   dialog and dropdown popups are similar. Work that would change the layout
   mid-frame is put off until after the frame (`attach_pick`).
-- Global hotkeys ([ui_hotkeys_native.odin](../../src/client/ui_hotkeys_native.odin))
+- Global hotkeys ([ui/hotkeys_native.odin](../../src/client/ui/hotkeys_native.odin))
   have two actions, Mute and Deafen; `set_muted` is in
-  [ui_sessions.odin](../../src/client/ui_sessions.odin). Pages are
+  [ui/sessions.odin](../../src/client/ui/sessions.odin). Pages are
   `UI.page` (Main, Settings, Buddies).
 - The headless client's slash commands
   ([headless/commands.odin](../../src/client/headless/commands.odin))
@@ -156,7 +156,7 @@ The widgets treat `activated` as a press: `icon_button`, `stable_button`,
 opens its popup. `text_box`, `password_box` and `text_area` register with
 `text = true` and don't use `activated`.
 
-After `mu.end` in `draw_frame` ([ui_frame.odin](../../src/client/ui_frame.odin)),
+After `mu.end` in `draw_frame` ([ui/frame.odin](../../src/client/ui/frame.odin)),
 before `ui.keys = {}`, `nav_after_frame`:
 
 - If `.Tab` or `.Back_Tab` is still in `ui.keys`: find `focus` in `items`
@@ -225,7 +225,7 @@ UI_Palette :: struct {
 }
 ```
 
-`palette_window` (new ui_palette.odin), modeled on `search_window`: centred
+`palette_window` (new ui/palette.odin), modeled on `search_window`: centred
 near the top, about 480 wide, at most 10 rows. Placed once on open, brought
 to the front, `hover_root` set, `nav_trap` (3). The query box gets the focus
 on open (`focus_at`). Keys before the box sees them, as in
@@ -255,7 +255,7 @@ Mute and Deafen show their global hotkey as the detail
 Where a command calls what a button does, the button's code moves into a
 proc both use, so they can't drift apart.
 
-As built ([ui_palette.odin](../../src/client/ui_palette.odin)):
+As built ([ui/palette.odin](../../src/client/ui/palette.odin)):
 
 - `COMMANDS` is a static table of `Command{name, enabled, run, detail}`;
   `enabled` gets the View, which is locked while the palette is drawn and
@@ -306,7 +306,7 @@ As built:
   would need that server shown first (`switch_now`), and their names would
   crowd the shown server's.
 - Running goes through the same procs as the clicks: `view_channel` and
-  `join_voice` (split out of ui_channels.odin for this), `open_conversation`,
+  `join_voice` (split out of ui/channels.odin for this), `open_conversation`,
   and `ui.switch_to` for the rail.
 - Matching is the best alignment of the query's letters (a small dynamic
   program over query × name), not the first one: with first-fit, "gen"
@@ -320,8 +320,8 @@ As built:
 - Move the 29 `mu.button` calls to `stable_button` (or a `button` wrapper
   with the label as id), so they become stops.
 - Add `nav_control` to the custom controls that should be stops: user rows
-  and the voice panel's own row (ui_users.odin, ui_voice_panel.odin), the
-  roles grid (ui_roles.odin), the profile picker, the title bar's buttons.
+  and the voice panel's own row (ui/users.odin, ui/voice_panel.odin), the
+  roles grid (ui/roles.odin), the profile picker, the title bar's buttons.
   Chat messages are not stops; the message bar's buttons may become
   reachable through a "message actions" key later.
 - Arrow keys inside lists: Tab enters a list (channels, users, settings
@@ -361,8 +361,8 @@ As built:
 ## Testing
 
 - `nav_after_frame`'s stepping on a hand-made item list: forward, back,
-  wrapping, a trapped root, a focus that disappeared (ui_nav_test.odin).
-- Matching scores and order (ui_palette_test.odin).
+  wrapping, a trapped root, a focus that disappeared (ui/nav_test.odin).
+- Matching scores and order (ui/palette_test.odin).
 - By hand: settings and the connect screen with only the keyboard; Tab
   inside a dropdown and the search window; the composer with the
   completion list open; the palette on Windows, Linux, macOS and the web.

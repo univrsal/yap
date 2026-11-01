@@ -1,0 +1,207 @@
+#+build !wasi
+package ui
+
+import log "common:wlog"
+import "core:sync"
+import "core:thread"
+import mu "vendor:microui"
+
+import "client:clipboard"
+import "client:conn"
+import "client:imaging"
+import "common:gif"
+import "common:webp"
+
+// A pasted image is attached to the message being written in the composer it
+// was pasted in (ui.paste_to). It is attached as a WebP named after the time
+// it was pasted (pasted_image_name) and is sent with that message like any
+// other file. An animated GIF or WebP is attached unchanged if the server
+// accepts a file that big, otherwise a WebP of its first frame is made like
+// for any other image.
+//
+// Pasting an image runs on a thread of its own: the program that owns the
+// clipboard may take a moment to hand the data over, and a large image then
+// takes a while to scale and compress (about a second for a 4K screenshot).
+// The UI keeps drawing in the meantime.
+//
+// Only one paste runs at a time. The clipboard is read on this thread (Wayland
+// events for our data device are queued by GLFW's loop and handled here, and
+// the X11 connection is ours alone), while the window, the microui state and
+// the View stay with the UI thread.
+
+Paste_Job :: struct {
+	thread:             ^thread.Thread,
+	done:               bool, // atomic: set by the thread, read by the UI thread
+	err:                clipboard.Error,
+	image:              conn.Chat_Image,
+	ok:                 bool, // the image was scaled and compressed
+	target:             Attach_Target, // where the image is attached
+	source_w, source_h: int, // size before scaling, for the log
+	// An animated GIF or WebP that fits max_size (what the server accepts)
+	// is attached unchanged (owned) and `ext` says which one it is. Anything
+	// else is decoded and compressed into `image`.
+	max_size:           u64,
+	animated:           []u8,
+	ext:                string,
+}
+
+// paste_start reads the clipboard in the background, unless a paste is already
+// running.
+paste_start :: proc(ui: ^UI) {
+	if ui.paste != nil {
+		log.debug("ui: the last paste is still being read")
+		return
+	}
+	job := new(Paste_Job)
+	job.target = ui.paste_to
+	{
+		sync.guard(&ui.view.mutex)
+		job.max_size = ui.view.max_attachment
+	}
+	job.thread = thread.create_and_start_with_poly_data(job, paste_work, init_context = context)
+	if job.thread == nil {
+		log.error("could not start the paste thread")
+		free(job)
+		return
+	}
+	ui.paste = job
+}
+
+@(private = "file")
+paste_work :: proc(job: ^Paste_Job) {
+	defer {
+		sync.atomic_store(&job.done, true)
+		// The UI may be waiting for input, so make it pick up the result now.
+		ui_wake()
+	}
+	data, err := clipboard.read_encoded()
+	job.err = err
+	if err != .None {
+		return
+	}
+	if ext, is_anim := animation_ext(data); is_anim && u64(len(data)) <= job.max_size {
+		job.animated, job.ext, job.ok = data, ext, true
+		return
+	}
+	defer delete(data)
+	img, decode_err := clipboard.decode(data)
+	defer clipboard.image_destroy(&img)
+	job.err = decode_err
+	if decode_err == .None {
+		job.source_w, job.source_h = img.width, img.height
+		job.image, job.ok = imaging.prepare(img)
+	}
+}
+
+// animation_ext is "gif" or "webp" for an animation in either format, which a
+// paste keeps unchanged because compressing it would leave only its first frame.
+animation_ext :: proc(data: []u8) -> (ext: string, ok: bool) {
+	if webp.is_webp(data) && webp.is_animation(data) {
+		return "webp", true
+	}
+	if info, read := gif.info(data); read && info.frames > 1 {
+		return "gif", true
+	}
+	return
+}
+
+// paste_poll finishes a paste once its thread is done. It is called on the UI
+// thread, outside the View lock.
+paste_poll :: proc(ui: ^UI) {
+	job := ui.paste
+	if job == nil || !sync.atomic_load(&job.done) {
+		return
+	}
+	thread.join(job.thread)
+	thread.destroy(job.thread)
+	ui.paste = nil
+	defer {
+		conn.chat_image_destroy(&job.image)
+		delete(job.animated)
+		free(job)
+	}
+
+	switch job.err {
+	case .None:
+		if job.animated != nil {
+			log.infof(
+				"pasted an animated %s, %d KB, as it is",
+				"GIF" if job.ext == "gif" else "WebP",
+				len(job.animated) / 1024,
+			)
+			// The composer takes over the bytes.
+			picked := Picked_File {
+				data = job.animated,
+				name = pasted_image_name(ui, job.ext),
+				size = u64(len(job.animated)),
+			}
+			job.animated = nil
+			attach_add(ui, job.target, {picked})
+			return
+		}
+		if !job.ok {
+			log.warn("the pasted image could not be prepared for sending")
+			return
+		}
+		if job.image.width != job.source_w || job.image.height != job.source_h {
+			log.infof(
+				"pasted a %dx%d image, scaled to %dx%d, %d KB as WebP",
+				job.source_w,
+				job.source_h,
+				job.image.width,
+				job.image.height,
+				len(job.image.jpeg) / 1024,
+			)
+		} else {
+			log.infof(
+				"pasted a %dx%d image, %d KB as WebP",
+				job.image.width,
+				job.image.height,
+				len(job.image.jpeg) / 1024,
+			)
+		}
+		// The composer takes over the WebP, so it isn't freed here.
+		picked := Picked_File {
+			data = job.image.jpeg,
+			name = pasted_image_name(ui),
+			size = u64(len(job.image.jpeg)),
+		}
+		job.image = {}
+		attach_add(ui, job.target, {picked})
+		return
+	case .Too_Large:
+		log.warnf(
+			"the image on the clipboard is too large (at most %d MB of data and %d megapixels)",
+			clipboard.MAX_DATA_SIZE / (1024 * 1024),
+			clipboard.MAX_PIXELS / 1_000_000,
+		)
+		return
+	case .Decode_Failed:
+		log.warn("the image on the clipboard is in a format that can't be read")
+		return
+	case .Timeout:
+		log.warn("the program holding the clipboard didn't hand it over")
+	case .No_Image, .Unavailable:
+	}
+	// No image: the chat box takes the clipboard's text on the next frame, as
+	// if it had been typed.
+	if text, ok := ui.ctx.textbox_state.get_clipboard(ui.ctx.textbox_state.clipboard_user_data);
+	   ok {
+		mu.input_text(&ui.ctx, text)
+	}
+}
+
+// paste_wait lets a running paste finish and discards its result, so that
+// nothing is still using the clipboard when it is shut down.
+paste_wait :: proc(ui: ^UI) {
+	job := ui.paste
+	if job == nil {
+		return
+	}
+	thread.join(job.thread)
+	thread.destroy(job.thread)
+	conn.chat_image_destroy(&job.image)
+	delete(job.animated)
+	free(job)
+	ui.paste = nil
+}

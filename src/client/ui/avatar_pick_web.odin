@@ -1,0 +1,101 @@
+#+build wasi
+package ui
+
+import "client:conn"
+import "client:platform"
+import "common:proto"
+import log "common:wlog"
+
+// Choosing our picture in a browser: a file input that the page opens
+// (see web/avatar.js). It has to be opened from something the person just did,
+// which the click on the button is. The page makes the picture itself, as
+// imaging.avatar_prepare does on a desktop (see ui/avatar_pick_native.odin), and hands
+// over the finished JPEG (see web_avatar_picked). Pasting isn't offered, because a
+// page can only read the clipboard inside a paste event (see ui/paste_web.odin).
+//
+// ui.profiles.pick is only a mark that a chosen file is being read, so that the
+// settings can say so. Closing the dialog without choosing never sets it.
+
+Avatar_Pick :: struct {}
+
+@(default_calling_convention = "c")
+foreign _ {
+	// Opens the page's file input (see web/shell.c), for a picture of at
+	// most `side` pixels square and `size` bytes.
+	yap_avatar_pick :: proc(side, size: i32) ---
+}
+
+avatar_pick_start :: proc(ui: ^UI, paste: bool, use := Pick_For.Avatar) {
+	if paste || ui.profiles.pick != nil {
+		return
+	}
+	ui.profiles.pick_for = use
+	ui.profiles.pick_notice = ""
+	if use == .Server_Icon {
+		yap_avatar_pick(proto.MAX_SERVER_ICON_SIDE, proto.MAX_SERVER_ICON_SIZE)
+	} else {
+		yap_avatar_pick(proto.MAX_AVATAR_SIDE, proto.MAX_AVATAR_SIZE)
+	}
+}
+
+avatar_pick_poll :: proc(ui: ^UI) {}
+
+avatar_pick_wait :: proc(ui: ^UI) {
+	if g_ui != nil {
+		avatar_pick_finish(g_ui)
+	}
+}
+
+@(private = "file")
+avatar_pick_finish :: proc(ui: ^UI) {
+	if ui.profiles.pick != nil {
+		free(ui.profiles.pick)
+		ui.profiles.pick = nil
+	}
+}
+
+// A file was chosen and the page is making a picture of it.
+@(export)
+web_avatar_reading :: proc "c" () {
+	context = platform.callback_context()
+	if g_ui == nil || g_ui.profiles.pick != nil {
+		return
+	}
+	g_ui.profiles.pick = new(Avatar_Pick)
+	ui_wake()
+}
+
+// The page's finished JPEG, uploaded as our picture. The bytes are
+// copied, because the page's buffer is only valid for this call.
+@(export)
+web_avatar_picked :: proc "c" (data: [^]u8, size: i32, side: i32) {
+	context = platform.callback_context()
+	if g_ui == nil {
+		return
+	}
+	avatar_pick_finish(g_ui)
+	defer ui_wake()
+	if size <= 0 {
+		return
+	}
+	img := conn.Chat_Image {
+		jpeg   = make([]u8, size),
+		width  = int(side),
+		height = int(side),
+	}
+	copy(img.jpeg, data[:size])
+	log.infof("chose a %dx%d picture, %d KB as JPEG", img.width, img.height, len(img.jpeg) / 1024)
+	picture_picked(g_ui, g_ui.profiles.pick_for, img)
+}
+
+// The page could not make a picture of the file.
+@(export)
+web_avatar_failed :: proc "c" () {
+	context = platform.callback_context()
+	if g_ui == nil {
+		return
+	}
+	avatar_pick_finish(g_ui)
+	g_ui.profiles.pick_notice = "that isn't a picture that can be read"
+	ui_wake()
+}

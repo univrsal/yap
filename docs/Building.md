@@ -21,7 +21,7 @@ libopus, ...) when their sources or version files change.
 
 | Folder | Holds |
 | --- | --- |
-| `src/client` | The client. `conn` is the connection to a server (no UI), `ui_*.odin` the UI, and `richtext`, `video`, `imaging`, `headless` are the pieces that need neither. Platform and audio code have folders of their own. |
+| `src/client` | The client's entry point (`main.odin`). `ui` is the UI (and the web entry points), `conn` is the connection to a server (no UI), and `richtext`, `video`, `imaging`, `headless` are the pieces that need neither. Platform and audio code have folders of their own. |
 | `src/server` | The server: one package with the state (`Server`, `Conn`, the database), and `gate`, `mail`, `webpush` and `curl` for the parts that stand alone. |
 | `src/common` | What the client and the server share: the protocol (`proto`), logging, key handling, WebP and GIF. |
 | `src/lib` | Libraries only the server side uses: `http`, `gateway` (the bot API) and `lite` (a client without a UI, for bots and the stress tool). |
@@ -35,7 +35,7 @@ libopus, ...) when their sources or version files change.
 
 Imports use three collections: `common:`, `client:` and `lib:`
 (`scripts/build/collections.sh` has the flags). Odin makes a package of a folder, so
-`src/client/ui_*.odin` stay together, and the sub-packages next to
+the files in `src/client/ui` stay together (they all share the `UI` state), and the sub-packages next to
 `src/server/*.odin` are imported by relative path (`import "gate"`).
 
 ## Tests
@@ -47,5 +47,5 @@ odin test src/server $collections -vet -strict-style
 ```
 
 Other packages with tests: `src/client/conn`, `src/client/richtext`,
-`src/client/imaging`, `src/client` (the UI), `src/server/mail`. CI runs the
+`src/client/imaging`, `src/client/ui`, `src/server/mail`. CI runs the
 ones that need no libraries.

@@ -71,7 +71,7 @@ while it is open, and lets go of it when closed. Give the texture cache a
 byte budget (say 256 MB) as well as the count. Saves ~90% of picture
 textures; 10 photos: ~40 MB instead of 390-480 MB.
 
-*As built:* `PREVIEW_MAX_SIDE` (1024) in `ui_images.odin`: the decode job
+*As built:* `PREVIEW_MAX_SIDE` (1024) in `ui/images.odin`: the decode job
 carries a longest side, the desktop worker scales still pictures down with
 stb's resize (`shrink`), the web page on its canvas (`web/decode.js`), and
 the texture keeps the picture's own size for the layout and the viewer's
@@ -170,7 +170,7 @@ less RSS (GTK's libraries) and 5 threads fewer. Under Weston, which like
 GNOME draws no title bars, GLFW's own decorations are a bare grey strip with
 no title and no buttons, so libdecor can't simply go. Now the client asks
 the compositor before GLFW starts (`wayland_server_decorations` in
-`ui_wayland_decorations.odin`: libwayland-client loaded for a moment, a
+`ui/wayland_decorations.odin`: libwayland-client loaded for a moment, a
 connection of its own, a look at the registry for
 `zxdg_decoration_manager_v1`) and turns libdecor off only where it is
 offered. Checked: under Sway no GTK is loaded and the title bar is Sway's;

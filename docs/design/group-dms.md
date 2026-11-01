@@ -175,7 +175,7 @@ two places that turn a DM into its other person.
   DM, `mentions`. `publish_channels` puts groups into `v.dms`, so unread
   totals, `may_pin_here`, `go_to_message` and search find them without
   changes of their own.
-- `rights_in` (ui_channels.odin) already gives anything that isn't a
+- `rights_in` (ui/channels.odin) already gives anything that isn't a
   channel DM rights, which is right for groups.
 
 ### The inbox
@@ -211,7 +211,7 @@ uses `typing_text` as channels do, so it names whoever types.
 There is no picker today. Two ways in:
 
 - **"New group..." in the inbox**, a button over the list: a window
-  (ui_groups.odin) with the people picked so far and a search field over
+  (ui/groups.odin) with the people picked so far and a search field over
   the server's accounts (`people_finder`, as a channel's settings have),
   up to seven people, and "Start". Start sends `Group_Open` at once,
   and the inbox opens the group as soon as the server has told us about

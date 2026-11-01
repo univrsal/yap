@@ -1,6 +1,6 @@
 /*
 Decoding pictures, for the web client (emcc --pre-js, see web/build.sh
-and src/client/ui_images_worker_web.odin). The browser does it, off the
+and src/client/ui/images_worker_web.odin). The browser does it, off the
 page's one thread (createImageBitmap), and reads every format it knows:
 WebP, which stb_image doesn't, as well as PNG, JPEG, GIF and BMP. The
 pixels come out of a canvas as straight (not premultiplied) RGBA.
@@ -15,7 +15,7 @@ ImageDecoder (elsewhere it's its first frame, as a still picture): its
 first frame is taken as any picture's, and the request is kept, the
 decoder with it, for the client to ask for the next frame (next) while
 the picture plays, and to let go of it (close). As on a desktop
-(src/client/ui_images_anim_native.odin), frames under 33 ms are merged
+(src/client/ui/images_anim_native.odin), frames under 33 ms are merged
 with the next, and one that says 10 ms or less is shown for 100.
 */
 (() => {
@@ -34,7 +34,7 @@ with the next, and one that says 10 ms or less is shown for 100.
 	};
 
 	// Pictures are kept no bigger than this on their longer side, as in the
-	// native client (MAX_SHOWN_SIDE in ui_images.odin): a small file can be a
+	// native client (MAX_SHOWN_SIDE in ui/images.odin): a small file can be a
 	// huge picture, and nothing is shown that big.
 	const MAX_SIDE = 2560;
 

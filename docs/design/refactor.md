@@ -110,7 +110,7 @@ ack-then-send-while-tokens loop, are in:
 | `jpeg_size` | `common/gateway/files.odin:988`, `server/transfers.odin:308` | **drifted**: gateway treats `0xD8` as a length-less marker, server doesn't (spot-checked) |
 | image sniffing | `gateway/files.odin:1028` re-inlines the WebP/GIF magic | a pure `common/imagekind` (magic bytes + `jpeg_size`) for gateway, server and `clipboard_decode.odin:22` |
 | endpoint resolve | `gateway/main.odin:131`, `stress/stress.odin:226`, `client/conn/transport_native.odin:25` | |
-| `format_bytes` | `client/conn/files.odin:604`, `client/ui_image_cache.odin:104` | slightly different output |
+| `format_bytes` | `client/conn/files.odin:604`, `client/ui/image_cache.odin:104` | slightly different output |
 | `fit()` | `video/src/share.cpp:78`, `capture_mac.mm:197` | the comment says they must stay the same, so move it to `internal.h` |
 | status lines | `gateway/serve.odin:307`, hard-coded in `server/relay.odin` | move to `common/http` |
 | address classing | `gateway.address_private` (used by `server/relay.odin`), and a stricter one in `server/push.odin:330-380` | one `netaddr` package; also misses IPv4-mapped IPv6 |
@@ -296,28 +296,28 @@ it last or not at all.
 
 The same file-private 5-liner is at:
 
-- `ui_account.odin:135`
-- `ui_bots.odin:18`
-- `ui_channel_settings.odin:83`
-- `ui_channels.odin:66`
-- `ui_memory.odin:156`
-- `ui_manage.odin:54`
-- `ui_roles.odin:188`
+- `ui/account.odin:135`
+- `ui/bots.odin:18`
+- `ui/channel_settings.odin:83`
+- `ui/channels.odin:66`
+- `ui/memory.odin:156`
+- `ui/manage.odin:54`
+- `ui/roles.odin:188`
 
 About 19 more places spell out `conn.push_command(&ui.session.client...)`
 by hand. **Proposal:** one shared proc (spot-checked).
 
 ### D2. The composer row is written out three times
 
-The copies are in `ui_chat.odin:423-450`, `ui_threads.odin:249-275` and
-`ui_buddies.odin:530-571`.
+The copies are in `ui/chat.odin:423-450`, `ui/threads.odin:249-275` and
+`ui/buddies.odin:530-571`.
 
 - **Visible difference:** the channel's send hint says "Send"; DMs and
   threads say "Enter: Send / Ctrl+Enter: New line".
 - `NOTICE_SHOW` is defined twice.
 - The header status line (clipboard, editing, notice, typing) is built
-  twice with different colours: `ui_buddies.odin:438-458` and
-  `ui_chat.odin:460`.
+  twice with different colours: `ui/buddies.odin:438-458` and
+  `ui/chat.odin:460`.
 
 **Proposal:** a `composer_bar` helper. Saves ~50 lines.
 
@@ -326,9 +326,9 @@ The copies are in `ui_chat.odin:423-450`, `ui_threads.odin:249-275` and
 The narrow-versus-wide list/detail layout is written three times, each
 with its own `LIST_WIDTH` / `EDITOR_MIN`:
 
-- channels: `ui_channel_settings.odin:134`
-- roles: `ui_roles.odin:214`
-- accounts: `ui_account.odin:891`
+- channels: `ui/channel_settings.odin:134`
+- roles: `ui/roles.odin:214`
+- accounts: `ui/account.odin:891`
 
 The same three files also share:
 
@@ -336,7 +336,7 @@ The same three files also share:
   `notice_label`, `channel_admin_notice` and `roles_notice`. They
   mark notices seen in two ways (a reset flag, or a `-1` sentinel).
 - **The two-step delete button,** written twice:
-  `ui_channel_settings.odin:410` and `ui_roles.odin:433`.
+  `ui/channel_settings.odin:410` and `ui/roles.odin:433`.
 
 **Proposal:** `list_detail`, a `Notice_Mark` type and `confirm_button`.
 Saves ~100 lines.
@@ -357,24 +357,24 @@ settings dirty, and a `release_slider` helper.
 
 | Widget | Lives in |
 | --- | --- |
-| `field_row`, `row_fits`, `wrap_text` | `ui_settings.odin` |
-| `choice_button` | `ui_invites.odin` |
-| `section_label` | `ui_buddies.odin` |
-| `card_*` | `ui_account.odin` |
-| `tab_button`, `header_line` | `ui_chat.odin` |
+| `field_row`, `row_fits`, `wrap_text` | `ui/settings.odin` |
+| `choice_button` | `ui/invites.odin` |
+| `section_label` | `ui/buddies.odin` |
+| `card_*` | `ui/account.odin` |
+| `tab_button`, `header_line` | `ui/chat.odin` |
 | `text_proc` | defined twice |
 | `stable_button_hint` | a copy of `stable_button` |
 
 `with_text_color(ctx, theme.dim, …)` is called 94 times, 57 of them right
 after a `{-1}` row.
 
-**Proposal:** move these into a `ui_widgets.odin`, together with
+**Proposal:** move these into a `ui/widgets.odin`, together with
 `dim_note` / `warn_note`.
 
 ### D6. Text buffers as buf/len pairs
 
 There are ~35 `*_buf: [N]u8` + `*_len: int` field pairs (18 in
-`ui_account.odin`).
+`ui/account.odin`).
 
 **Proposal:** a parametric `Text_Field($N)` with `field_text` /
 `field_set`.
@@ -382,14 +382,14 @@ There are ~35 `*_buf: [N]u8` + `*_len: int` field pairs (18 in
 ### D7. File splits
 
 - **`ui.odin` (2575 lines):**
-  - `ui_frame.odin`: 395-860
-  - `ui_window.odin`: 861-1100 and 2245-2575
-  - `ui_sessions.odin`: 1103-1500
-  - `ui_widgets.odin`: 1882-2245
-- **`ui_account.odin` (1170 lines):**
+  - `ui/frame.odin`: 395-860
+  - `ui/window.odin`: 861-1100 and 2245-2575
+  - `ui/sessions.odin`: 1103-1500
+  - `ui/widgets.odin`: 1882-2245
+- **`ui/account.odin` (1170 lines):**
   - the login screens stay
-  - `Server_Category` (510-616) → `ui_settings.odin`
-  - account admin (883-1170) → `ui_manage.odin`
+  - `Server_Category` (510-616) → `ui/settings.odin`
+  - account admin (883-1170) → `ui/manage.odin`
 
 ### D8. Big procs and the UI struct
 
@@ -398,7 +398,7 @@ There are ~35 `*_buf: [N]u8` + `*_len: int` field pairs (18 in
   which would also generate the help text.
 - **`run_headless`** takes 13 positional parameters; give it an options
   struct.
-- **`timeline`** (`ui_timeline.odin:285`) and **`text_area`** (280 lines
+- **`timeline`** (`ui/timeline.odin:285`) and **`text_area`** (280 lines
   each) can be split into measure, scroll target and draw.
 - **`render.render`** (`render/render.odin:557`, nested 8 levels) scans
   `roots` linearly for every command.
@@ -674,10 +674,10 @@ Proposed, from the least to the most disruptive:
    | `client:video` | C4 |
    | `client:richtext` | C5 |
    | `client/headless` | `client_cli.odin` + `channels_cli.odin`, ~870 lines, need only conn/settings/proto and `avatar_load` |
-   | `client/image` | `image.odin`, `ui_window_icon.odin`, `ui_wayland_decorations.odin` (no `UI` references) |
+   | `client/image` | `image.odin`, `ui/window_icon.odin`, `ui/wayland_decorations.odin` (no `UI` references) |
    | `server/mail`, `webpush`, `gate` | E8 |
 
-   The ~100 `ui_*.odin` files should **stay one package**. In Odin a
+   The ~100 UI files (now in `client/ui`) should **stay one package**. In Odin a
    folder is a package, and they all take `^UI`, so a sub-folder would
    mean exporting nearly everything. Fewer, better-split files (D5, D7)
    is the better tidy-up there.

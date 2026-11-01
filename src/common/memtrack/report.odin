@@ -6,7 +6,7 @@ import "core:strings"
 // A report is plain text, so that the server's can be sent to a client
 // unchanged. A line starting with "# " is a heading. Any other line has
 // three tab-separated columns: an amount, a detail and a description. The
-// client shows it in columns (ui_memory.odin), and log_text aligns the
+// client shows it in columns (ui/memory.odin), and log_text aligns the
 // columns for a log.
 
 // Extra is memory that is counted elsewhere, for a report's "Elsewhere"

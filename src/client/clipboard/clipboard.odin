@@ -46,7 +46,7 @@ READ_TIMEOUT_MS :: 2000
 // Supported image formats as MIME types, most preferred first. Linux uses
 // these directly, while the other platforms map them to their own names.
 // GIF and WebP come first because either may be an animation, which a pasted
-// picture keeps (see ui_paste.odin), and a still one is as good as the PNG
+// picture keeps (see ui/paste.odin), and a still one is as good as the PNG
 // version of it.
 MIME_TYPES :: [?]string {
 	"image/gif",
