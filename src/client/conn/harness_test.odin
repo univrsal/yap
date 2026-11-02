@@ -145,6 +145,26 @@ tc_event :: proc(tc: ^Test_Conn, op: proto.Event_Op, body: []u8 = nil) {
 	rpc_handle(&tc.c, proto.encode_event(op, body))
 }
 
+// tc_view gives the connection a View, as the UI has, so that the notices the
+// user is shown (View.notice) can be checked.
+tc_view :: proc(tc: ^Test_Conn) -> ^View {
+	v := new(View, context.temp_allocator)
+	tc.c.view = v
+	return v
+}
+
+// tc_one returns the only request the client has sent, and fails if it sent
+// another number.
+tc_one :: proc(t: ^testing.T, tc: ^Test_Conn, op: proto.Request_Op) -> (r: Test_Request, ok: bool) {
+	sent := tc_sent(t, tc)
+	if len(sent) != 1 {
+		testing.expectf(t, false, "expected one %v request, got %d", op, len(sent))
+		return
+	}
+	testing.expect_value(t, sent[0].op, op)
+	return sent[0], sent[0].op == op
+}
+
 // tc_events takes the events scripts have been told of.
 tc_events :: proc(tc: ^Test_Conn) -> []Event {
 	return sink_take(&tc.sink, context.temp_allocator)
