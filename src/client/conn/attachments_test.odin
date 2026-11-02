@@ -71,11 +71,21 @@ slice_clone :: proc(data: []u8) -> []u8 {
 	return out
 }
 
+// attach_path sends a message with the one file at `path`.
+@(private = "file")
+attach_path :: proc(c: ^Server_Conn, path: string) {
+	files := make([]Attach_File, 1)
+	files[0] = {path = strings.clone(path)}
+	tc_run(attach_send, c, {files = files})
+}
+
 @(private = "file")
 send :: proc(c: ^Server_Conn, text: string, files: ..Attach_File) {
 	list := make([]Attach_File, len(files))
 	copy(list, files)
-	attach_send(c, {text = strings.clone(text), files = list})
+	cmd := Attach_Send_Command{text = strings.clone(text), files = list}
+	attach_send(c, cmd)
+	command_destroy(cmd)
 }
 
 @(private = "file")
@@ -114,13 +124,17 @@ test_attach_refusals :: proc(t: ^testing.T) {
 		text:  string,
 	}
 	// No files, or too many.
-	attach_send(c, {text = strings.clone("x")})
+	few := Attach_Send_Command{text = strings.clone("x")}
+	attach_send(c, few)
+	command_destroy(few)
 	testing.expect_value(t, v.notice.text, "A message can have at most 10 files attached.")
 	many := make([]Attach_File, proto.MAX_ATTACHMENTS + 1)
 	for &f in many {
 		f = pasted("a.png", content(10))
 	}
-	attach_send(c, {files = many})
+	too_many := Attach_Send_Command{files = many}
+	attach_send(c, too_many)
+	command_destroy(too_many)
 	testing.expect_value(t, v.notice.count, 2)
 
 	// A server that takes none.
@@ -135,7 +149,7 @@ test_attach_refusals :: proc(t: ^testing.T) {
 	// A file with nothing in it (on disk: an empty slice in memory reads as none).
 	empty, _ := os.join_path({r.dir, "empty.png"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(empty, nil) == nil)
-	attach_send(c, {files = {{path = strings.clone(empty)}}})
+	attach_path(c, empty)
 	testing.expect_value(t, v.notice.text, "Empty files cannot be sent.")
 	send(c, "x", pasted("big.png", content(101)))
 	testing.expect_value(t, v.notice.text, "A file is larger than the maximum size this server allows.")
@@ -263,7 +277,7 @@ test_files_from_disk :: proc(t: ^testing.T) {
 	path, _ := os.join_path({r.dir, "from disk.png"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(path, data) == nil)
 
-	attach_send(c, {files = {{path = strings.clone(path)}}})
+	attach_path(c, path)
 	testing.expect_value(t, len(c.attach.posts), 1)
 	_ = put_ok(t, &r.tc, 5)
 	c.files.upload_limit = 1
@@ -692,8 +706,12 @@ test_saving_twice_and_again :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(c.attach.saves), 1)
 
 	// Once it is over, saving it again starts a new file next to the first.
+	// The first one is dropped for the second without being finished, so its
+	// file is closed here.
+	unfinished := first.sink
 	first.state = .Done
 	attach_save(c, {msg = 40, index = 0})
+	file_sink_abort(&unfinished)
 	second := c.attach.saves[700]
 	testing.expect_value(t, second.state, Save_State.Asking)
 	testing.expect(t, strings.has_suffix(second.path, "report (1).zip"))

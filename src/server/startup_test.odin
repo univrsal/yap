@@ -91,6 +91,10 @@ test_login_sync_order :: proc(t: ^testing.T) {
 
 @(test)
 test_account_changes_are_announced :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)
@@ -230,6 +234,10 @@ test_progress_is_not_printed_too_often :: proc(t: ^testing.T) {
 // shared by the tests that run at once.
 @(test)
 test_environment_for_a_new_server :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	context.logger = expected_errors() // a bad value is logged as an error
 	names := []string {
 		"YAP_RELAY_ENABLED",

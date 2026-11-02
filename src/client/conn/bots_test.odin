@@ -81,7 +81,9 @@ test_bot_name_is_checked :: proc(t: ^testing.T) {
 	v := open_bots(&tc)
 	defer tc_close(&tc)
 	for bad in ([]string{"", "has space", "UPPER CASE", "bad/slash", "x\x00y"}) {
-		auth_bot_create(&tc.c, {username = strings.clone(bad), display = "d"})
+		create := Bot_Create_Command{username = strings.clone(bad), display = strings.clone("d")}
+		auth_bot_create(&tc.c, create)
+		command_destroy(create)
 		testing.expectf(t, len(tc_sent(t, &tc)) == 0, "%q was sent", bad)
 		testing.expect_value(t, v.notice.text, username_rule())
 		testing.expect_value(t, tc.c.auth.bot_token, "")
