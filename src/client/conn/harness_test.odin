@@ -244,6 +244,45 @@ tc_datagrams :: proc(t: ^testing.T, tc: ^Test_Conn) -> [][]u8 {
 	return got[:]
 }
 
+// tc_snapshot gives the client a snapshot of who is here (State messages, in as
+// many pieces as it takes, in the order `order` says, or in order if empty). It
+// returns how many pieces the snapshot needed. The login must be done.
+tc_snapshot :: proc(
+	tc: ^Test_Conn,
+	version: u32,
+	me: proto.User_Num,
+	users: []proto.User_Info,
+	order: []int = nil,
+) -> int {
+	body_buf := make([]u8, proto.MAX_STATE_SIZE, context.temp_allocator)
+	body, ok := proto.encode_state({your_user = me, users = users}, body_buf)
+	if !ok {
+		return 0
+	}
+	count := proto.state_chunk_count(len(body))
+	chunk := make([]u8, proto.MAX_PAYLOAD_SIZE, context.temp_allocator)
+	if len(order) == 0 {
+		for i in 0 ..< count {
+			handle_state_message(&tc.c, proto.encode_state_chunk(chunk, version, body, i))
+		}
+	} else {
+		for i in order {
+			handle_state_message(&tc.c, proto.encode_state_chunk(chunk, version, body, i))
+		}
+	}
+	return count
+}
+
+// tc_dm_with adds a DM between two accounts.
+tc_dm_with :: proc(tc: ^Test_Conn, id: proto.Conv_Id, a, b: proto.Account_Id) {
+	info := Conv_Info {
+		kind          = .DM,
+		account_count = 2,
+	}
+	info.accounts[0], info.accounts[1] = a, b
+	tc.c.convs.convs[id] = info
+}
+
 // tc_events takes the events scripts have been told of.
 tc_events :: proc(tc: ^Test_Conn) -> []Event {
 	return sink_take(&tc.sink, context.temp_allocator)

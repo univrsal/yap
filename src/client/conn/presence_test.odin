@@ -23,27 +23,15 @@ open_voice :: proc(t: ^testing.T, tc: ^Test_Conn) {
 	tc_conv(tc, 5, "Gaming")
 }
 
-// deliver gives the client a snapshot, in as many State messages as it takes,
-// in the order `order` says (the chunks in order if it is empty).
 @(private = "file")
-deliver :: proc(tc: ^Test_Conn, version: u32, me: proto.User_Num, users: []proto.User_Info, order: []int = nil) -> int {
-	body_buf := make([]u8, proto.MAX_STATE_SIZE, context.temp_allocator)
-	body, ok := proto.encode_state({your_user = me, users = users}, body_buf)
-	if !ok {
-		return 0
-	}
-	count := proto.state_chunk_count(len(body))
-	chunk := make([]u8, proto.MAX_PAYLOAD_SIZE, context.temp_allocator)
-	if len(order) == 0 {
-		for i in 0 ..< count {
-			handle_state_message(&tc.c, proto.encode_state_chunk(chunk, version, body, i))
-		}
-	} else {
-		for i in order {
-			handle_state_message(&tc.c, proto.encode_state_chunk(chunk, version, body, i))
-		}
-	}
-	return count
+deliver :: proc(
+	tc: ^Test_Conn,
+	version: u32,
+	me: proto.User_Num,
+	users: []proto.User_Info,
+	order: []int = nil,
+) -> int {
+	return tc_snapshot(tc, version, me, users, order)
 }
 
 // acks returns the versions of the State_Acks among the datagrams sent.
