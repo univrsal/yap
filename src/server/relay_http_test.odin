@@ -232,7 +232,7 @@ test_relay_carries_packets_both_ways :: proc(t: ^testing.T) {
 	r.server = {net.IP4_Loopback, server_ep.port}
 
 	p := peer_open(t)
-	defer peer_close(p)
+	defer net.close(p.listener) // the browser's end is closed before the join below
 	request := "GET /yap/server HTTP/1.1\r\nHost: relay.example.org\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
 	testing.expect(t, http.send_all(p.client, transmute([]u8)request))
 	run := Run{r, p.conn}
@@ -298,7 +298,11 @@ test_relay_carries_packets_both_ways :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, op, http.Opcode.Close)
 
-	// Once the relay is done with the browser, the server is told it left.
+	// Once the relay is done with the browser, the server is told it left. The
+	// browser's end is closed first, so that if a check above failed and the
+	// relay is still waiting for the browser, it ends now rather than when the
+	// WebSocket has been idle for WEBSOCKET_IDLE.
+	net.close(p.client)
 	thread.join(worker)
 	sync.guard(&departed_mutex)
 	testing.expect_value(t, len(departed), 1)
