@@ -1024,7 +1024,7 @@ publish_browse :: proc(c: ^Server_Conn) {
 		return
 	}
 	view_write(v)
-	view_clear_browse(v)
+	entries_clear(&v.browse) // not view_clear_browse: the channels being managed are not the ones browsed
 	entries_copy(&v.browse, c.convs.browse[:])
 	v.browse_offset = c.convs.browse_offset
 	v.browse_more = c.convs.browse_more
