@@ -2,6 +2,9 @@
 package conn
 
 import "core:log"
+import "core:crypto/ecdh"
+import "core:fmt"
+import "core:net"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -47,11 +50,18 @@ Test_Request :: struct {
 }
 
 Test_Conn :: struct {
-	c:    Server_Conn,
+	c:          Server_Conn,
 	// The server's end of the client's stream.
-	peer: proto.Stream,
+	peer:       proto.Stream,
 	// Where the scripts' events go.
-	sink: Event_Sink,
+	sink:       Event_Sink,
+	// With tc_connect: the server's end of the client's session, and the UDP
+	// socket that the client's datagrams arrive on.
+	connected:  bool,
+	udp:        net.UDP_Socket,
+	server:     proto.Session,
+	client_key: ecdh.Private_Key,
+	server_key: ecdh.Private_Key,
 }
 
 // tc_open prepares a connection that has been established and has synced.
@@ -73,6 +83,14 @@ tc_restart :: proc(tc: ^Test_Conn) {
 
 tc_close :: proc(tc: ^Test_Conn) {
 	c := &tc.c
+	if tc.connected {
+		transport_close(&c.transport)
+		net.close(tc.udp)
+		proto.session_reset(&tc.server)
+		proto.link_reset(&c.link)
+		ecdh.private_key_clear(&tc.client_key)
+		ecdh.private_key_clear(&tc.server_key)
+	}
 	messages_destroy(c)
 	stream_destroy(c)
 	rpc_destroy(c)
@@ -163,6 +181,67 @@ tc_one :: proc(t: ^testing.T, tc: ^Test_Conn, op: proto.Request_Op) -> (r: Test_
 	}
 	testing.expect_value(t, sent[0].op, op)
 	return sent[0], sent[0].op == op
+}
+
+// tc_connect gives the connection a real session with a server of the test's
+// own, whose UDP socket is on the loopback interface, so that the datagrams
+// the client sends (state acknowledgements, sound flags, typing) can be read
+// (tc_datagrams). It also makes the connection `has_current`.
+tc_connect :: proc(t: ^testing.T, tc: ^Test_Conn) {
+	c := &tc.c
+	err: net.Network_Error
+	tc.udp, err = net.make_bound_udp_socket(net.IP4_Loopback, 0)
+	testing.expect(t, err == nil)
+	ep, ep_err := net.bound_endpoint(tc.udp)
+	testing.expect(t, ep_err == nil)
+	net.set_option(tc.udp, .Receive_Timeout, 30 * time.Millisecond)
+	testing.expect(t, transport_open(&c.transport, fmt.tprintf("127.0.0.1:%d", ep.port), 0))
+	tc.connected = true
+
+	testing.expect(t, ecdh.private_key_generate(&tc.client_key, .X25519))
+	testing.expect(t, ecdh.private_key_generate(&tc.server_key, .X25519))
+	step := proto.link_step(&c.link, &tc.client_key, time.tick_now())
+	testing.expect(t, step.started)
+	r: proto.Responder
+	defer proto.responder_reset(&r)
+	resp, ok := proto.responder_start(&r, &tc.server_key, step.packet, 4242)
+	testing.expect(t, ok)
+	_, ok = proto.link_resp(&c.link, resp)
+	testing.expect(t, ok)
+	finish: []u8
+	finish, ok = proto.link_finish(&c.link, []u8{1})
+	testing.expect(t, ok)
+	_, ok = proto.responder_finish(&r, finish, &tc.server)
+	testing.expect(t, ok)
+	// The server's first packet confirms the session.
+	buf, out: [proto.MAX_PACKET_SIZE]u8
+	confirm, sealed := proto.seal(&tc.server, nil, buf[:])
+	testing.expect(t, sealed)
+	_, pending, open_ok := proto.link_open(&c.link, confirm, out[:])
+	testing.expect(t, open_ok && pending)
+	proto.link_promote(&c.link)
+	testing.expect(t, c.has_current)
+}
+
+// tc_datagrams returns the datagrams the client has sent over its main link
+// since this was last called, decrypted, in the order they arrived.
+tc_datagrams :: proc(t: ^testing.T, tc: ^Test_Conn) -> [][]u8 {
+	got := make([dynamic][]u8, context.temp_allocator)
+	buf, out: [proto.MAX_PACKET_SIZE]u8
+	for {
+		n, _, err := net.recv_udp(tc.udp, buf[:])
+		if err != nil || n == 0 {
+			break
+		}
+		pt, ok := proto.open(&tc.server, buf[:n], out[:])
+		testing.expect(t, ok, "a datagram could not be opened")
+		if ok {
+			copied := make([]u8, len(pt), context.temp_allocator)
+			copy(copied, pt)
+			append(&got, copied)
+		}
+	}
+	return got[:]
 }
 
 // tc_events takes the events scripts have been told of.
