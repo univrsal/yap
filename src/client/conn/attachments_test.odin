@@ -76,7 +76,7 @@ slice_clone :: proc(data: []u8) -> []u8 {
 attach_path :: proc(c: ^Server_Conn, path: string) {
 	files := make([]Attach_File, 1)
 	files[0] = {path = strings.clone(path)}
-	tc_run(attach_send, c, {files = files})
+	tc_run(attach_send, c, Attach_Send_Command{files = files})
 }
 
 @(private = "file")

@@ -322,7 +322,7 @@ test_view_commands :: proc(t: ^testing.T) {
 	c := &tc.c
 
 	// Before the sync a name is kept for later.
-	tc_run(conv_view_command, c, {name = strings.clone("Gaming")})
+	tc_run(conv_view_command, c, View_Command{name = strings.clone("Gaming")})
 	testing.expect_value(t, c.convs.want_view, "Gaming")
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(0))
 
@@ -336,21 +336,21 @@ test_view_commands :: proc(t: ^testing.T) {
 	synced(&tc, channel(3, "Lobby", {.Home}), channel(4, "Gaming"), dm)
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(4))
 
-	tc_run(conv_view_command, c, {name = strings.clone("lobby")})
+	tc_run(conv_view_command, c, View_Command{name = strings.clone("lobby")})
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(3))
-	tc_run(conv_view_command, c, {conv = 5})
+	tc_run(conv_view_command, c, View_Command{conv = 5})
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(5))
 	// Back from a DM goes to the channel before it, or home if there is none.
-	tc_run(conv_view_command, c, {back = true})
+	tc_run(conv_view_command, c, View_Command{back = true})
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(3))
-	tc_run(conv_view_command, c, {conv = 4})
-	tc_run(conv_view_command, c, {conv = 5})
-	tc_run(conv_view_command, c, {back = true})
+	tc_run(conv_view_command, c, View_Command{conv = 4})
+	tc_run(conv_view_command, c, View_Command{conv = 5})
+	tc_run(conv_view_command, c, View_Command{back = true})
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(4))
 	// Neither id nor name: nothing is shown. An unknown name changes nothing.
-	tc_run(conv_view_command, c, {name = strings.clone("nowhere")})
+	tc_run(conv_view_command, c, View_Command{name = strings.clone("nowhere")})
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(4))
-	tc_run(conv_view_command, c, {})
+	tc_run(conv_view_command, c, View_Command{})
 	testing.expect_value(t, c.convs.viewing, proto.Conv_Id(0))
 }
 
@@ -369,7 +369,7 @@ test_joining_voice :: proc(t: ^testing.T) {
 	synced(&tc, channel(3, "Lobby", {.Home}), channel(4, "Gaming"), text_only, muted)
 	_ = tc_sent(t, &tc)
 
-	tc_run(voice_command, c, {name = strings.clone("gaming")})
+	tc_run(voice_command, c, Voice_Command{name = strings.clone("gaming")})
 	joins := requests_of(t, &tc, .Voice_Join)
 	testing.expect_value(t, len(joins), 1)
 	testing.expect(t, c.convs.voice_pending)
@@ -381,20 +381,20 @@ test_joining_voice :: proc(t: ^testing.T) {
 
 	// A channel with no voice room, or none we may use, says so.
 	v := tc_view(&tc)
-	tc_run(voice_command, c, {conv = 5})
+	tc_run(voice_command, c, Voice_Command{conv = 5})
 	testing.expect_value(t, v.notice.text, "That channel has no voice room.")
-	tc_run(voice_command, c, {conv = 3})
+	tc_run(voice_command, c, Voice_Command{conv = 3})
 	_ = tc_sent(t, &tc)
 	info := c.convs.convs[3]
 	info.rights -= {.Voice}
 	c.convs.convs[3] = info
-	tc_run(voice_command, c, {conv = 3})
+	tc_run(voice_command, c, Voice_Command{conv = 3})
 	testing.expect_value(t, v.notice.text, "You can't talk in that channel.")
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
-	tc_run(voice_command, c, {name = strings.clone("nowhere")})
+	tc_run(voice_command, c, Voice_Command{name = strings.clone("nowhere")})
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 	// A channel that isn't ours is left to the server to judge.
-	tc_run(voice_command, c, {conv = 99})
+	tc_run(voice_command, c, Voice_Command{conv = 99})
 	testing.expect_value(t, len(requests_of(t, &tc, .Voice_Join)), 1)
 }
 
@@ -411,7 +411,7 @@ test_leaving_voice_and_the_room_we_are_in :: proc(t: ^testing.T) {
 	// Already there: nothing to ask for. Leaving is room 0.
 	voice_join(c, 4)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
-	tc_run(voice_command, c, {})
+	tc_run(voice_command, c, Voice_Command{})
 	req, ok := tc_one(t, &tc, .Voice_Join)
 	testing.expect(t, ok)
 	room, _ := proto.decode_room(req.body)
@@ -426,7 +426,7 @@ test_leaving_voice_and_the_room_we_are_in :: proc(t: ^testing.T) {
 
 	// Before the sync a name is kept for the end of it.
 	c.convs.synced = false
-	tc_run(voice_command, c, {name = strings.clone("Gaming")})
+	tc_run(voice_command, c, Voice_Command{name = strings.clone("Gaming")})
 	testing.expect_value(t, c.convs.want_voice, "Gaming")
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 }
@@ -450,7 +450,7 @@ test_browsing_channels :: proc(t: ^testing.T) {
 	one.member = false
 	two := channel(11, "Cooking")
 	two.member = true
-	tc_run(conv_browse, c, {query = strings.clone("o"), limit = 2})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("o"), limit = 2})
 	req, ok := tc_one(t, &tc, .Conv_Browse)
 	testing.expect(t, ok)
 	b, dec := proto.decode_conv_browse(req.body)
@@ -466,7 +466,7 @@ test_browsing_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.browse_more, true)
 
 	// More continues after what is shown, with the same query and page size.
-	tc_run(conv_browse, c, {more = true})
+	tc_run(conv_browse, c, Browse_Command{more = true})
 	req, _ = tc_one(t, &tc, .Conv_Browse)
 	b, _ = proto.decode_conv_browse(req.body)
 	testing.expect_value(t, b.query, "o")
@@ -478,7 +478,7 @@ test_browsing_channels :: proc(t: ^testing.T) {
 	testing.expect(t, !c.convs.browse_more)
 
 	// A new query replaces them, from where it says; the default page size is used for 0.
-	tc_run(conv_browse, c, {query = strings.clone("x"), offset = 4})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("x"), offset = 4})
 	req, _ = tc_one(t, &tc, .Conv_Browse)
 	b, _ = proto.decode_conv_browse(req.body)
 	testing.expect_value(t, b.offset, 4)
@@ -495,9 +495,9 @@ test_old_browse_answers_are_dropped :: proc(t: ^testing.T) {
 	defer close_convs(&tc)
 	c := &tc.c
 
-	tc_run(conv_browse, c, {query = strings.clone("a")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("a")})
 	old, _ := tc_one(t, &tc, .Conv_Browse)
-	tc_run(conv_browse, c, {query = strings.clone("b")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("b")})
 	newer, _ := tc_one(t, &tc, .Conv_Browse)
 	tc_answer(&tc, old.id, .Ok, browse_page(false, channel(10, "Old")))
 	testing.expect_value(t, len(c.convs.browse), 0)
@@ -506,10 +506,10 @@ test_old_browse_answers_are_dropped :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.convs.browse[0].name, "New")
 
 	// A refusal, a lost connection and an unreadable page leave what is there.
-	tc_run(conv_browse, c, {query = strings.clone("b")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("b")})
 	r, _ := tc_one(t, &tc, .Conv_Browse)
 	tc_answer(&tc, r.id, .Denied)
-	tc_run(conv_browse, c, {query = strings.clone("b")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("b")})
 	r, _ = tc_one(t, &tc, .Conv_Browse)
 	tc_answer(&tc, r.id, .Ok, []u8{9})
 	testing.expect_value(t, len(c.convs.browse), 1)
@@ -579,7 +579,7 @@ test_browsing_does_not_clear_the_managed_list :: proc(t: ^testing.T) {
 
 	// A browse answer (of channels to subscribe to) says nothing about the list
 	// the channel manager shows.
-	tc_run(conv_browse, c, {query = strings.clone("a")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("a")})
 	req, _ = tc_one(t, &tc, .Conv_Browse)
 	tc_answer(&tc, req.id, .Ok, browse_page(false, channel(20, "Alpha")))
 	testing.expect_value(t, len(v.browse), 1)
@@ -597,7 +597,7 @@ test_channels_changed_asks_for_the_lists_again :: proc(t: ^testing.T) {
 	channels_changed(c)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 
-	tc_run(conv_browse, c, {query = strings.clone("q"), offset = 3, limit = 5})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("q"), offset = 3, limit = 5})
 	_ = tc_sent(t, &tc)
 	channels_changed(c)
 	req, ok := tc_one(t, &tc, .Conv_Browse)
@@ -624,27 +624,27 @@ test_subscribing :: proc(t: ^testing.T) {
 	_ = tc_sent(t, &tc)
 
 	// Leaving one of ours, by id or by name.
-	tc_run(conv_subscribe_command, c, {conv = 4, on = false})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{conv = 4, on = false})
 	req, ok := tc_one(t, &tc, .Conv_Subscribe)
 	testing.expect(t, ok)
 	conv, on, dec := proto.decode_conv_subscribe(req.body)
 	testing.expect(t, dec && !on)
 	testing.expect_value(t, conv, proto.Conv_Id(4))
-	tc_run(conv_subscribe_command, c, {name = strings.clone("GAMING"), on = false})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("GAMING"), on = false})
 	req, _ = tc_one(t, &tc, .Conv_Subscribe)
 	conv, _, _ = proto.decode_conv_subscribe(req.body)
 	testing.expect_value(t, conv, proto.Conv_Id(4))
 
 	// One that was shown by a browse is subscribed to by name.
 	append(&c.convs.browse, Browse_Entry{id = 30, name = strings.clone("Books")})
-	tc_run(conv_subscribe_command, c, {name = strings.clone("books"), on = true})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("books"), on = true})
 	req, _ = tc_one(t, &tc, .Conv_Subscribe)
 	conv, on, _ = proto.decode_conv_subscribe(req.body)
 	testing.expect_value(t, conv, proto.Conv_Id(30))
 	testing.expect(t, on)
 
 	// Leaving one we are not in is nothing.
-	tc_run(conv_subscribe_command, c, {name = strings.clone("nowhere"), on = false})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("nowhere"), on = false})
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 }
 
@@ -656,7 +656,7 @@ test_subscribing_to_a_channel_not_yet_shown :: proc(t: ^testing.T) {
 	c := &tc.c
 
 	// The channel is looked for by name, and subscribed to when it is there.
-	tc_run(conv_subscribe_command, c, {name = strings.clone("Books"), on = true})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("Books"), on = true})
 	search, ok := tc_one(t, &tc, .Conv_Browse)
 	testing.expect(t, ok)
 	b, _ := proto.decode_conv_browse(search.body)
@@ -668,7 +668,7 @@ test_subscribing_to_a_channel_not_yet_shown :: proc(t: ^testing.T) {
 	testing.expect_value(t, conv, proto.Conv_Id(32)) // the one with that name, not one that contains it
 
 	// If no channel has that name, nothing is subscribed to.
-	tc_run(conv_subscribe_command, c, {name = strings.clone("Missing"), on = true})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("Missing"), on = true})
 	search, _ = tc_one(t, &tc, .Conv_Browse)
 	tc_answer(&tc, search.id, .Ok, browse_page(false, channel(31, "Bookshelf")))
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
@@ -681,11 +681,11 @@ test_subscription_answers :: proc(t: ^testing.T) {
 	defer close_convs(&tc)
 	c := &tc.c
 	synced(&tc, channel(3, "Lobby", {.Home}), channel(4, "Gaming"))
-	tc_run(conv_browse, c, {query = strings.clone("x")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("x")})
 	_ = tc_sent(t, &tc)
 
 	// A change that went through changes what can be subscribed to.
-	tc_run(conv_subscribe_command, c, {conv = 4, on = false})
+	tc_run(conv_subscribe_command, c, Subscribe_Command{conv = 4, on = false})
 	req, _ := tc_one(t, &tc, .Conv_Subscribe)
 	tc_answer(&tc, req.id, .Ok)
 	_, browsed := tc_one(t, &tc, .Conv_Browse)
@@ -693,7 +693,7 @@ test_subscription_answers :: proc(t: ^testing.T) {
 
 	// A refusal or a lost connection doesn't.
 	for status in ([]proto.Status{.Denied, .Reset, .Internal}) {
-		tc_run(conv_subscribe_command, c, {conv = 4, on = false})
+		tc_run(conv_subscribe_command, c, Subscribe_Command{conv = 4, on = false})
 		req, _ = tc_one(t, &tc, .Conv_Subscribe)
 		tc_answer(&tc, req.id, status)
 		testing.expectf(t, len(tc_sent(t, &tc)) == 0, "%v asked for the list again", status)
@@ -723,7 +723,7 @@ test_creating_a_channel :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0) // no list was ever asked for
 
 	// With a list of channels to subscribe to, the new one may belong in it.
-	tc_run(conv_browse, c, {query = strings.clone("m")})
+	tc_run(conv_browse, c, Browse_Command{query = strings.clone("m")})
 	_ = tc_sent(t, &tc)
 	conv_create(c, "Music", "", false)
 	req, _ = tc_one(t, &tc, .Conv_Create)
@@ -832,19 +832,19 @@ test_changing_how_much_a_channel_notifies :: proc(t: ^testing.T) {
 	synced(&tc, channel(3, "Lobby", {.Home}), channel(4, "Gaming"))
 	_ = tc_sent(t, &tc)
 
-	tc_run(conv_notify, c, {name = strings.clone("gaming"), notify = .Mentions})
+	tc_run(conv_notify, c, Notify_Command{name = strings.clone("gaming"), notify = .Mentions})
 	req, ok := tc_one(t, &tc, .Conv_Notify)
 	testing.expect(t, ok)
 	conv, level, dec := proto.decode_conv_notify(req.body)
 	testing.expect(t, dec)
 	testing.expect_value(t, conv, proto.Conv_Id(4))
 	testing.expect_value(t, level, proto.Notify_Level.Mentions)
-	tc_run(conv_notify, c, {conv = 3, notify = .None})
+	tc_run(conv_notify, c, Notify_Command{conv = 3, notify = .None})
 	req, _ = tc_one(t, &tc, .Conv_Notify)
 	conv, level, _ = proto.decode_conv_notify(req.body)
 	testing.expect_value(t, conv, proto.Conv_Id(3))
 	testing.expect_value(t, level, proto.Notify_Level.None)
-	tc_run(conv_notify, c, {name = strings.clone("nowhere"), notify = .None})
+	tc_run(conv_notify, c, Notify_Command{name = strings.clone("nowhere"), notify = .None})
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 }
 
