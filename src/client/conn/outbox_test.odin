@@ -1,7 +1,6 @@
 #+build !wasi
 package conn
 
-import "core:log"
 import "core:testing"
 
 import "common:proto"
@@ -175,7 +174,7 @@ test_outbox_text_is_cleaned :: proc(t: ^testing.T) {
 
 @(test)
 test_outbox_gives_up_on_refusals :: proc(t: ^testing.T) {
-	context.logger = log.nil_logger() // the warnings are expected
+	context.logger = expected_errors() // the warnings are expected
 
 	for status in ([]proto.Status{.Denied, .Invalid, .Not_Found, .Internal, .Rate_Limited}) {
 		tc: Test_Conn
@@ -201,7 +200,7 @@ test_outbox_gives_up_on_refusals :: proc(t: ^testing.T) {
 
 @(test)
 test_outbox_drops_posts_to_channels_we_left :: proc(t: ^testing.T) {
-	context.logger = log.nil_logger() // the warning is expected
+	context.logger = expected_errors() // the warning is expected
 	tc: Test_Conn
 	open_lobby(&tc)
 	defer tc_close(&tc)
@@ -264,7 +263,7 @@ test_outbox_opens_a_dm_first :: proc(t: ^testing.T) {
 
 @(test)
 test_outbox_dm_that_cannot_be_opened :: proc(t: ^testing.T) {
-	context.logger = log.nil_logger() // the warning is expected
+	context.logger = expected_errors() // the warning is expected
 	tc: Test_Conn
 	open_lobby(&tc)
 	defer tc_close(&tc)

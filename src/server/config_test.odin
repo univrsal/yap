@@ -1,7 +1,6 @@
 package server
 
 import "core:fmt"
-import "core:log"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -29,7 +28,7 @@ load_cfg :: proc(
 	path := file_in(dir, "config.json")
 	testing.expect(t, os.write_entire_file(path, body) == nil)
 	context.allocator = context.temp_allocator
-	context.logger = log.nil_logger() // the errors are expected
+	context.logger = expected_errors() // the errors are expected
 	return load_config(path, {}, ports)
 }
 
@@ -410,7 +409,7 @@ test_config_ports_from_environment :: proc(t: ^testing.T) {
 	testing.expect_value(t, other.port, 9000)
 
 	// The environment's ports are checked like the rest.
-	context.logger = log.nil_logger() // the errors are expected
+	context.logger = expected_errors() // the errors are expected
 	_, bad := load_config(file_in(dir, "config.json"), {}, {port = 70000})
 	testing.expect(t, !bad)
 	_, clash := load_config(

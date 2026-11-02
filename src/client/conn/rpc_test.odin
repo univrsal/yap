@@ -1,7 +1,6 @@
 #+build !wasi
 package conn
 
-import "core:log"
 import "core:testing"
 
 import "common:proto"
@@ -111,7 +110,7 @@ test_request_too_large :: proc(t: ^testing.T) {
 	defer tc_close(&tc)
 
 	a: Answer
-	context.logger = log.nil_logger() // the error is expected
+	context.logger = expected_errors() // the error is expected
 	ask(&tc, .Msg_Post, &a, make([]u8, proto.MAX_BODY_SIZE + 1, context.temp_allocator))
 	testing.expect_value(t, a.calls, 1)
 	testing.expect_value(t, a.status, proto.Status.Too_Large)

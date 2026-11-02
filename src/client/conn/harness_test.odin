@@ -1,11 +1,38 @@
 #+build !wasi
 package conn
 
+import "core:log"
 import "core:strings"
 import "core:testing"
 import "core:time"
 
 import "common:proto"
+
+// expected_errors returns the logger for a test of code that logs errors it is
+// meant to log. Setting context.logger to log.nil_logger() instead would hide
+// the test's own failed expectations too, because testing.expect reports a
+// failure by logging an error. This drops only what is logged from outside the
+// test files.
+expected_errors :: proc() -> log.Logger {
+	inner := new(log.Logger, context.temp_allocator)
+	inner^ = context.logger
+	return {procedure = expected_errors_log, data = inner, lowest_level = .Debug}
+}
+
+@(private = "file")
+expected_errors_log :: proc(
+	data: rawptr,
+	level: log.Level,
+	text: string,
+	options: log.Options,
+	location := #caller_location,
+) {
+	inner := (^log.Logger)(data)
+	if strings.has_suffix(location.file_path, "_test.odin") && inner.procedure != nil {
+		inner.procedure(inner.data, level, text, options, location)
+	}
+}
+
 
 // The conn tests' harness. A Test_Conn is a Server_Conn without a socket: what
 // the client sends goes onto its stream as usual, and the harness reads it from
