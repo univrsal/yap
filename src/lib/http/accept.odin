@@ -79,7 +79,6 @@ conn_close :: proc(c: ^Conn) {
 	free(c)
 }
 
-@(private = "file")
 conn_count :: proc(l: ^Conn_Limit, from: net.Endpoint) -> bool {
 	sync.guard(&l.mutex)
 	if l.open >= l.max {
@@ -96,7 +95,6 @@ conn_count :: proc(l: ^Conn_Limit, from: net.Endpoint) -> bool {
 	return true
 }
 
-@(private = "file")
 conn_uncount :: proc(l: ^Conn_Limit, from: net.Endpoint) {
 	sync.guard(&l.mutex)
 	l.open -= 1
