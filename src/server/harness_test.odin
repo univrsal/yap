@@ -1,5 +1,7 @@
 package server
 
+import "core:log"
+import "core:strings"
 import "core:crypto/ecdh"
 import "core:net"
 import "core:os"
@@ -10,6 +12,32 @@ import "common:proto"
 import "gate"
 import "mail"
 import "webpush"
+
+// expected_errors returns the logger for a test of code that logs errors it is
+// meant to log. Setting context.logger to log.nil_logger() instead would hide
+// the test's own failed expectations too, because testing.expect reports a
+// failure by logging an error. This drops only what is logged from outside the
+// test files.
+expected_errors :: proc() -> log.Logger {
+	inner := new(log.Logger, context.temp_allocator)
+	inner^ = context.logger
+	return {procedure = expected_errors_log, data = inner, lowest_level = .Debug}
+}
+
+@(private = "file")
+expected_errors_log :: proc(
+	data: rawptr,
+	level: log.Level,
+	text: string,
+	options: log.Options,
+	location := #caller_location,
+) {
+	inner := (^log.Logger)(data)
+	if strings.has_suffix(location.file_path, "_test.odin") && inner.procedure != nil {
+		inner.procedure(inner.data, level, text, options, location)
+	}
+}
+
 
 // The server tests' harness. A Test_Server is a Server without its socket.
 // Connections are created by hand, requests are passed to rpc_handle as if

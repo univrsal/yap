@@ -219,7 +219,6 @@ purge_target :: proc(convs: ^Convs, a: ^Accounts, name: string) -> ^Conv {
 
 // parse_before reads either a day (such as 2026-09-01, meaning midnight UTC) or
 // a number of days ago (such as 30d) and returns it as Unix milliseconds.
-@(private = "file")
 parse_before :: proc(text: string) -> (ms: i64, ok: bool) {
 	if strings.has_suffix(text, "d") {
 		days := strconv.parse_int(text[:len(text) - 1], 10) or_return
@@ -239,7 +238,6 @@ parse_before :: proc(text: string) -> (ms: i64, ok: bool) {
 	return time.time_to_unix_nano(t) / 1_000_000, true
 }
 
-@(private = "file")
 format_day :: proc(ms: i64) -> string {
 	t := time.unix(ms / 1000, 0)
 	y, mon, d := time.date(t)
@@ -262,7 +260,6 @@ confirm :: proc(question: string) -> bool {
 
 // db_files_size returns the disk space used by the database file and its
 // write-ahead log.
-@(private = "file")
 db_files_size :: proc(path: string) -> i64 {
 	total: i64
 	for p in ([]string{path, strings.concatenate({path, "-wal"}, context.temp_allocator)}) {
@@ -273,7 +270,6 @@ db_files_size :: proc(path: string) -> i64 {
 	return total
 }
 
-@(private = "file")
 megabytes :: proc(n: i64) -> string {
 	return fmt.tprintf("%.1f MB", f64(n) / (1024 * 1024))
 }

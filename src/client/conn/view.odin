@@ -512,6 +512,7 @@ view_take_mentions :: proc(v: ^View) -> []View_Mention {
 			conv  = m.conv,
 			msg   = m.msg,
 			dm    = m.dm,
+			group = m.group,
 		}
 		delete(m.name)
 		delete(m.place)

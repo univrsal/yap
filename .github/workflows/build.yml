@@ -241,9 +241,24 @@ jobs:
           odin test src/client/hotkeys $collections -vet -strict-style
           odin test src/client/richtext $collections -vet -strict-style
           odin test src/client/script $collections -vet -strict-style
+          odin test src/server/webpush $collections -vet -strict-style
+          odin test src/lib/http $collections -vet -strict-style
+          odin test src/lib/gateway $collections -vet -strict-style
           odin test src/server/mail $collections -vet -strict-style
           odin test src/server/mattermost $collections -vet -strict-style
           odin test src/common/avatar $collections -vet -strict-style
+          odin test src/common/imagekind $collections -vet -strict-style
+          odin test src/common/memtrack $collections -vet -strict-style
+          odin test src/client/imaging $collections -vet -strict-style
+          odin test src/client/settings $collections -vet -strict-style
+          odin test src/client/platform $collections -vet -strict-style
+          odin test src/client/clipboard $collections -vet -strict-style
+          odin test src/client/audio $collections -vet -strict-style
+          odin test src/client/audio/opus $collections -vet -strict-style
+          odin test src/client/audio/rnn $collections -vet -strict-style
+          odin test src/client/render $collections -vet -strict-style
+          odin test src/client/conn $collections -vet -strict-style
+          odin test src/client $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 
       - uses: actions/download-artifact@v8

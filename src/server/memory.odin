@@ -57,7 +57,6 @@ memory_request :: proc(s: ^Server, u: ^Conn, id: u32) {
 }
 
 // memory_extras returns the memory used by SQLite, allocated with the temp allocator.
-@(private = "file")
 memory_extras :: proc(s: ^Server) -> []memtrack.Extra {
 	if s.db.conn == nil {
 		return nil

@@ -253,7 +253,6 @@ job_destroy :: proc(job: ^Job) {
 	delete(job.body)
 }
 
-@(private = "file")
 config_clone :: proc(c: Config) -> Config {
 	out := c
 	out.address = strings.clone(c.address)
@@ -265,7 +264,6 @@ config_clone :: proc(c: Config) -> Config {
 	return out
 }
 
-@(private = "file")
 config_destroy :: proc(c: ^Config) {
 	delete(c.address)
 	delete(c.imap)
@@ -511,7 +509,6 @@ url_base :: proc(url: string) -> string {
 // tls_wanted returns the CURLOPT_USE_SSL value for a URL. It requires TLS from
 // the start for imaps:// and smtps:// and STARTTLS otherwise. Only a server
 // on this machine may go without STARTTLS.
-@(private = "file")
 tls_wanted :: proc(url: string) -> int {
 	rest := url[strings.index(url, "://") + 3:] if strings.contains(url, "://") else url
 	host := rest
