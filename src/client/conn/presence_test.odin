@@ -3,6 +3,7 @@ package conn
 
 import "core:strings"
 import "core:testing"
+import "core:time"
 
 import "common:proto"
 
@@ -287,6 +288,7 @@ test_sound_is_sent_until_the_server_shows_it :: proc(t: ^testing.T) {
 	}
 
 	// It is not repeated at once, but is after a while, until the server shows it.
+	c.channels.last_sound_sent = time.tick_now() // (not left to how long the test took)
 	drive_sound(c)
 	testing.expect_value(t, len(sounds_sent(t, &tc)), 0)
 	c.channels.last_sound_sent = {}

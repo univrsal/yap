@@ -270,16 +270,18 @@ test_sending_a_file :: proc(t: ^testing.T) {
 	accept(&r.tc, 500, 2)
 	testing.expect_value(t, offer.state, File_State.Transferring)
 
-	// Sending is paced and starts with nothing to spend, so the first turn sends
-	// one chunk. A few chunks' worth is then given, as time would.
-	files_step(c)
+	// Sending is paced. With a limit this low a turn sends one chunk however long
+	// it has been (the bucket holds one chunk at most), and what is in it is set
+	// here so that the test does not depend on how long it takes to run.
+	c.files.upload_limit = 1
 	chunks := make([dynamic][]u8, context.temp_allocator)
-	append(&chunks, ..of_kind(t, &r.tc, .File_Chunk))
-	testing.expect_value(t, len(chunks), 1)
-	offer.send.pace.tokens = FILE_BURST
-	files_step(c)
-	append(&chunks, ..of_kind(t, &r.tc, .File_Chunk))
-	testing.expect_value(t, len(chunks), 3)
+	for _ in 0 ..< 3 {
+		offer.send.pace.tokens = 1
+		files_step(c)
+		got := of_kind(t, &r.tc, .File_Chunk)
+		testing.expect_value(t, len(got), 1)
+		append(&chunks, ..got)
+	}
 
 	// Together the chunks are the file.
 	rebuilt := make([]u8, len(data), context.temp_allocator)

@@ -287,3 +287,32 @@ tc_dm_with :: proc(tc: ^Test_Conn, id: proto.Conv_Id, a, b: proto.Account_Id) {
 tc_events :: proc(tc: ^Test_Conn) -> []Event {
 	return sink_take(&tc.sink, context.temp_allocator)
 }
+
+// tc_message_with_files puts a message that carries files in the window of a
+// conversation, where acting on it (saving a file, previewing a picture) finds it.
+tc_message_with_files :: proc(
+	tc: ^Test_Conn,
+	conv: proto.Conv_Id,
+	id: proto.Msg_Id,
+	files: []Msg_File,
+) {
+	key := Timeline_Key{conv, 0}
+	cache := tc.c.msgs.caches[key] or_else nil
+	if cache == nil {
+		cache = new(Conv_Cache)
+		tc.c.msgs.caches[key] = cache
+	}
+	m := Msg {
+		id    = id,
+		sender = 2,
+		kind  = .Text,
+		flags = {.Has_Attachments},
+		text  = strings.clone("files"),
+		files = make([]Msg_File, len(files)),
+	}
+	for f, i in files {
+		m.files[i] = f
+		m.files[i].name = strings.clone(f.name)
+	}
+	append(&cache.messages, m)
+}
