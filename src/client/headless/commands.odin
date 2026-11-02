@@ -925,6 +925,13 @@ read_commands :: proc(reader: ^Reader) {
 			script_command(reader.scripts, line)
 		case reader.scripts != nil && strings.has_prefix(line, "/"):
 			script.runtime_queue_command(reader.scripts, reader.c, line)
+		case strings.has_prefix(line, "/") && len(line) > 1:
+			// A command of a bot, if one has it; if not, the help follows.
+			conn.push_command(
+				q,
+				conn.Bot_Run_Command{line = strings.clone(line), silent = true},
+			)
+			fallthrough
 		case:
 			log.warn(
 				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /admin <name>, /unadmin <name>, /pin <id>, /unpin <id>, /pins, /bookmark <id>, /unbookmark <id>, /bookmarks [more], /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",

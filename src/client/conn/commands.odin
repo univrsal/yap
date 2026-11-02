@@ -129,7 +129,8 @@ Command :: union {
 	Revoke_Command,
 	Account_Create_Command,
 	Account_Password_Command,
-	// Bot accounts, see bots.odin.
+	// Bot accounts, see bots.odin, and their slash commands, bot_commands.odin.
+	Bot_Run_Command,
 	Bot_Create_Command,
 	Bot_Token_Command,
 	Bot_Token_Forget_Command,
@@ -327,6 +328,8 @@ command_destroy :: proc(cmd: Command) {
 	case Account_Password_Command:
 		delete(v.username)
 		delete(v.password)
+	case Bot_Run_Command:
+		delete(v.line)
 	case Bot_Create_Command:
 		delete(v.username)
 		delete(v.display)
@@ -627,6 +630,8 @@ process_commands :: proc(c: ^Server_Conn) {
 			auth_account_create(c, v)
 		case Account_Password_Command:
 			auth_account_password(c, v)
+		case Bot_Run_Command:
+			bot_run(c, v)
 		case Bot_Create_Command:
 			auth_bot_create(c, v)
 		case Bot_Token_Command:

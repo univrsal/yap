@@ -2119,3 +2119,154 @@ test_gateway_moderation :: proc(t: ^testing.T) {
 		testing.expect_value(t, purged.d.conv_id, fmt.tprint(home))
 	}
 }
+
+@(private = "file")
+Event_Commands :: struct {
+	t: string,
+	s: int,
+	d: gateway.Bot_Commands_JSON,
+}
+
+@(private = "file")
+Event_Command :: struct {
+	t: string,
+	s: int,
+	d: gateway.Command_Event_JSON,
+}
+
+@(test)
+test_gateway_commands :: proc(t: ^testing.T) {
+	ts: Test_Server
+	lt_open(t, &ts)
+	defer lt_close(&ts)
+	admin := gt_admin(t, &ts)
+	token, pub := gt_token(t, &ts, admin, "helper")
+	defer delete(token)
+	bot := device_of(&ts.s.accounts, pub).account
+	conv_member_add(&ts.s.convs, ts.s.convs.home, bot)
+	home := ts.s.convs.home.id
+	h: Harness
+	gt_open(t, &ts, &h)
+	defer gt_close(&ts, &h)
+
+	// A bad list is refused: not a list, a bad or repeated name, a command that
+	// is not an object, too many.
+	many := strings.builder_make()
+	defer strings.builder_destroy(&many)
+	strings.write_byte(&many, '[')
+	for i in 0 ..< proto.MAX_BOT_COMMANDS + 1 {
+		fmt.sbprintf(&many, `%s{{"name": "c%d"}}`, "," if i > 0 else "", i)
+	}
+	strings.write_byte(&many, ']')
+	r := gt_run(
+		t,
+		&ts,
+		&h,
+		token,
+		{
+			{"PUT", "/api/v1/commands", `{"name": "roll"}`, 400},
+			{"PUT", "/api/v1/commands", `[{"name": "Roll"}]`, 400},
+			{"PUT", "/api/v1/commands", `[{"description": "no name"}]`, 400},
+			{"PUT", "/api/v1/commands", `[{"name": "a"}, {"name": "a"}]`, 400},
+			{"PUT", "/api/v1/commands", `["roll"]`, 400},
+			{"PUT", "/api/v1/commands", `[{"name": "roll", "usage": 4}]`, 400},
+			{"PUT", "/api/v1/commands", strings.to_string(many), 400},
+			{"GET", "/api/v1/commands", "", 200},
+		},
+	)
+	if r == nil {
+		return
+	}
+	nothing: []gateway.Bot_Commands_JSON
+	if gt_json(t, r[7], &nothing) {
+		testing.expect_value(t, len(nothing), 0)
+	}
+
+	// A good list is stored, with its text cleaned, and returned.
+	r = gt_run(
+		t,
+		&ts,
+		&h,
+		token,
+		{
+			{
+				"PUT",
+				"/api/v1/commands",
+				`[{"name": "roll", "description": "Roll\ndice", "usage": "<n>d<s>"}, {"name": "ping"}]`,
+				200,
+			},
+			{"GET", "/api/v1/commands", "", 200},
+		},
+	)
+	if r == nil {
+		return
+	}
+	for text in r {
+		list: gateway.Bot_Commands_JSON
+		if strings.has_prefix(text, "[") {
+			all: []gateway.Bot_Commands_JSON
+			if !gt_json(t, text, &all) || !testing.expect_value(t, len(all), 1) {
+				continue
+			}
+			list = all[0]
+		} else if !gt_json(t, text, &list) {
+			continue
+		}
+		testing.expect_value(t, list.bot.username, "helper")
+		testing.expect(t, list.bot.bot)
+		if testing.expect_value(t, len(list.commands), 2) {
+			testing.expect_value(t, list.commands[0].name, "roll")
+			testing.expect_value(t, list.commands[0].description, "Roll dice")
+			testing.expect_value(t, list.commands[0].usage, "<n>d<s>")
+			testing.expect_value(t, list.commands[1].name, "ping")
+		}
+	}
+
+	// READY has them, and a run of one reaches the socket as a COMMAND.
+	w := ws_open(t, &ts, &h, "/api/v1/events", token)
+	defer ws_close(&ts, w)
+	if !testing.expect_value(t, ws_status(w), 101) || !ws_wait(&ts, w, 1) {
+		return
+	}
+	ready: struct {
+		t: string,
+		d: struct {
+			commands: []gateway.Bot_Commands_JSON,
+		},
+	}
+	if ws_event(t, w, 0, &ready) && testing.expect_value(t, len(ready.d.commands), 1) {
+		testing.expect_value(t, ready.d.commands[0].bot.username, "helper")
+		testing.expect_value(t, len(ready.d.commands[0].commands), 2)
+	}
+	run_buf: [proto.COMMAND_RUN_MAX_SIZE]u8
+	status, _ := ts_ask(
+		t,
+		&ts,
+		admin,
+		.Command_Run,
+		proto.encode_command_run(run_buf[:], {conv = home, account = bot, name = "roll", args = "2d6"}),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	ws_wait_for(t, &ts, w, "COMMAND", "")
+	ran: Event_Command
+	if ws_event(t, w, ws_find(t, w, "COMMAND"), &ran) {
+		testing.expect_value(t, ran.d.name, "roll")
+		testing.expect_value(t, ran.d.args, "2d6")
+		testing.expect_value(t, ran.d.conv_id, fmt.tprint(home))
+		testing.expect_value(t, ran.d.user.username, "admin")
+		testing.expect(t, ran.d.thread == nil)
+		testing.expect(t, ran.d.id != "")
+	}
+
+	// Setting them again tells the socket, and no commands is a list too.
+	r = gt_run(t, &ts, &h, token, {{"PUT", "/api/v1/commands", `[]`, 200}})
+	if r == nil {
+		return
+	}
+	ws_wait_for(t, &ts, w, "COMMANDS_UPDATE", "")
+	update: Event_Commands
+	if ws_event(t, w, ws_find(t, w, "COMMANDS_UPDATE"), &update) {
+		testing.expect_value(t, update.d.bot.username, "helper")
+		testing.expect_value(t, len(update.d.commands), 0)
+	}
+}

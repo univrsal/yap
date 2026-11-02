@@ -159,6 +159,7 @@ Ready_JSON :: struct {
 	accounts: []Account_JSON,
 	convs:    []Conv_JSON,
 	online:   []string, // ids of the accounts that are online
+	commands: []Bot_Commands_JSON, // of the bots that have some
 }
 
 @(private)
@@ -169,6 +170,7 @@ ready_json :: proc(c: ^Conn) -> Ready_JSON {
 		roles    = roles_json(m),
 		accounts = accounts_json(m),
 		convs    = convs_json(m),
+		commands = all_commands_json(m),
 	}
 	if m.server_known {
 		r.server = server_json(&m.server)
@@ -314,6 +316,8 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 		if ok {
 			emit(c, "ROLE_DELETE", Id_JSON{id_string(id)})
 		}
+	case .Commands_Changed, .Command_Invoked:
+		events_commands(c, op, body)
 	case .Self:
 		emit(c, "SELF_UPDATE", me_json(m))
 	case .Server_Info:

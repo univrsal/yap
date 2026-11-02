@@ -12,6 +12,7 @@ import "common:proto"
 //	Sync_Begin
 //	Role_Changed      for every role (see roles.odin)
 //	Account_Changed   for every account, whether it is online or not
+//	Commands_Changed  for every bot that has registered commands (bot_commands.odin)
 //	Conv_Changed      for every conversation the account is told about
 //	Buddy_Changed     for every one of the account's buddies
 //	Emoji_Sheet       the server's own emoji
@@ -39,6 +40,7 @@ directory_sync :: proc(s: ^Server, u: ^Conn) {
 	for id in ids {
 		send_account(u, s.accounts.by_id[id])
 	}
+	send_bot_commands(s, u)
 	send_convs(s, u)
 	send_buddies(u)
 	send_emoji_sheet(s, u)

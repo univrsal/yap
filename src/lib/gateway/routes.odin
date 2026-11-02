@@ -29,6 +29,7 @@ ROUTES := [?]Route {
 	{method = "GET", pattern = "convs/{}/messages", kind = .Call, run = history_run},
 	{method = "GET", pattern = "convs/{}/pins", kind = .Call, run = pins_run},
 	{method = "GET", pattern = "search", kind = .Call, run = search_run},
+	{method = "GET", pattern = "commands", kind = .Call, run = commands_run},
 	{method = "GET", pattern = "messages/{}/reactions/{}", kind = .Call, run = reactors_run},
 	// Writing is in writing.odin.
 	{method = "PATCH", pattern = "me", kind = .Call, run = profile_run},
@@ -47,6 +48,7 @@ ROUTES := [?]Route {
 	{method = "PUT", pattern = "messages/{}/reactions/{}", kind = .Call, run = react_run},
 	{method = "DELETE", pattern = "messages/{}/reactions/{}", kind = .Call, run = unreact_run},
 	{method = "POST", pattern = "messages/{}/forward", kind = .Call, run = forward_run},
+	{method = "PUT", pattern = "commands", kind = .Call, run = commands_set_run},
 	// Moderation is in moderation.odin.
 	{method = "PUT", pattern = "accounts/{}/voice", kind = .Call, run = voice_move_run},
 	{method = "DELETE", pattern = "accounts/{}/voice", kind = .Call, run = voice_kick_run},

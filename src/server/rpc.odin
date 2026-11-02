@@ -27,6 +27,8 @@ request_cost :: proc(op: proto.Request_Op) -> f32 {
 		return 10 // up to SEARCH_BUDGET of the loop's time
 	case .Server_Icon:
 		return 4 // up to MAX_SERVER_ICON_SIZE to send
+	case .Bot_Commands_Set:
+		return 3 // sent to every connection
 	case .Msg_Post, .Msg_Forward:
 		return 3 // stored, sent to every member, maybe pushed
 	case .Msg_History:

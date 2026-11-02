@@ -168,6 +168,7 @@ Palette_Entry :: struct {
 	conv:    proto.Conv_Id, // .Channel, .Voice: the channel; .Message: a group; on the shown server
 	account: proto.Account_Id, // .Message: whom, on the shown server (0 for a group)
 	script:  string, // .Script: the command's name, in the temp allocator
+	bot:     bool, // .Script: it is a bot's command (the name may name the bot)
 	ns:      ^Net_Session, // .Server
 }
 
@@ -177,7 +178,7 @@ Palette_Kind :: enum {
 	Voice, // join its voice room
 	Server, // show the server
 	Message, // open the DM or the group
-	Script, // run a script's /command
+	Script, // run a script's /command, or a bot's
 }
 
 // palette_window opens and closes the palette with its key, and draws it
@@ -321,6 +322,22 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 			)
 		}
 	}
+	if ui.session != nil {
+		here := conn.view_bot_commands(v, v.viewing)
+		for e in here {
+			word := conn.bot_command_typed(e) if conn.bot_command_ambiguous(here, e) else e.name
+			append(
+				&list,
+				Palette_Entry {
+					kind = .Script,
+					name = fmt.tprintf("Run /%s", word),
+					detail = fmt.tprintf("%s · %s", e.description, e.bot) if e.description != "" else e.bot,
+					script = word,
+					bot = true,
+				},
+			)
+		}
+	}
 	if palette_connected(ui, v) {
 		for ch in v.channels {
 			if ch.id == v.viewing && ui.page == .Main {
@@ -422,7 +439,15 @@ palette_run :: proc(ui: ^UI, v: ^conn.View, e: Palette_Entry) {
 			ui.switch_to, ui.switching = e.ns, true
 		}
 	case .Script:
-		scripts_command(ui, fmt.tprintf("/%s", e.script))
+		line := fmt.tprintf("/%s", e.script)
+		if e.bot && ui.session != nil {
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Bot_Run_Command{line = strings.clone(line)},
+			)
+		} else {
+			scripts_command(ui, line)
+		}
 	}
 }
 

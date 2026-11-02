@@ -732,8 +732,9 @@ run_queued :: proc(rt: ^Runtime) {
 				)
 			}
 		case !run_command(rt, q.c, q.line, channel):
-			word, _, _ := strings.partition(q.line, " ")
-			log.warnf("no command %s (no script has registered it)", word)
+			// No script has it. It may be a bot's command, which the connection
+			// works out (and says if there is no such command either).
+			conn.push_command(&q.c.commands, conn.Bot_Run_Command{line = strings.clone(q.line)})
 		}
 		delete(q.line)
 	}

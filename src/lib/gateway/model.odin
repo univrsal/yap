@@ -36,6 +36,9 @@ Model :: struct {
 	// kept up to date with Server_Info events. Its strings are owned.
 	server:       proto.Server_Info,
 	server_known: bool,
+	// The slash commands of the bots that have some, by bot (commands.odin).
+	// Owned.
+	commands:     map[proto.Account_Id][]proto.Bot_Command,
 }
 
 // The records as the model stores them. They own their strings (and roles).
@@ -58,6 +61,7 @@ model_destroy :: proc(m: ^Model) {
 	delete(m.accounts)
 	delete(m.convs)
 	delete(m.online)
+	delete(m.commands)
 	m^ = {}
 }
 
@@ -77,6 +81,7 @@ model_clear :: proc(m: ^Model) {
 	clear(&m.accounts)
 	clear(&m.roles)
 	clear(&m.convs)
+	commands_clear(m)
 }
 
 model_event :: proc(m: ^Model, op: proto.Event_Op, body: []u8) {
@@ -150,6 +155,8 @@ model_event :: proc(m: ^Model, op: proto.Event_Op, body: []u8) {
 		}
 	case .Server_Info:
 		model_server(m, body)
+	case .Commands_Changed:
+		model_commands(m, body)
 	case .Msg_New:
 		msg, ok := proto.decode_message(body)
 		if !ok {
