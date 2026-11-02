@@ -429,7 +429,7 @@ messages_view :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 			}
 			count += 1
 			if k != key &&
-			   (oldest == {} || time.tick_diff(other.used, c.msgs.caches[oldest].used) < 0) {
+			   (oldest == {} || time.tick_diff(other.used, c.msgs.caches[oldest].used) > 0) {
 				oldest = k
 			}
 		}
