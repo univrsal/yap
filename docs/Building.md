@@ -47,5 +47,6 @@ odin test src/server $collections -vet -strict-style
 ```
 
 Other packages with tests: `src/client/conn`, `src/client/richtext`,
-`src/client/imaging`, `src/client` (the UI), `src/server/mail`. CI runs the
-ones that need no libraries.
+`src/client/imaging`, `src/client` (the UI), `src/server/mail`. CI runs all
+of them after the native libraries are built, so build those first
+(`build.sh`) before running the ones that link against them.
