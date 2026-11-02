@@ -83,6 +83,10 @@ seed :: proc(t: ^testing.T, c: Cli, name: string, flags := proto.Account_Flags{}
 
 @(test)
 test_account_usage :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 
@@ -103,6 +107,10 @@ test_account_usage :: proc(t: ^testing.T) {
 
 @(test)
 test_account_add :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 
@@ -131,6 +139,10 @@ test_account_add :: proc(t: ^testing.T) {
 
 @(test)
 test_account_passwd :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	seed(t, c, "alice")
@@ -162,6 +174,10 @@ test_account_passwd :: proc(t: ^testing.T) {
 
 @(test)
 test_account_owner :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	seed(t, c, "alice", {.Owner})
@@ -186,6 +202,10 @@ test_account_owner :: proc(t: ^testing.T) {
 
 @(test)
 test_account_verify :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	seed(t, c, "alice", {.Unverified})
@@ -201,6 +221,10 @@ test_account_verify :: proc(t: ^testing.T) {
 
 @(test)
 test_cli_account_delete :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	seed(t, c, "alice", {.Owner})
@@ -220,6 +244,10 @@ test_cli_account_delete :: proc(t: ^testing.T) {
 
 @(test)
 test_account_ban_and_unban :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 
@@ -265,6 +293,10 @@ test_account_ban_and_unban :: proc(t: ^testing.T) {
 
 @(test)
 test_account_roles :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	seed(t, c, "alice")
@@ -304,6 +336,10 @@ test_account_roles :: proc(t: ^testing.T) {
 
 @(test)
 test_listing_with_no_accounts :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	testing.expect_value(t, run(c, "list"), 0)
@@ -313,6 +349,10 @@ test_listing_with_no_accounts :: proc(t: ^testing.T) {
 
 @(test)
 test_creating_bot_accounts :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	c := cli_rig(t)
 	defer cli_done(c)
 	run3 :: proc(c: Cli, args: ..string) -> int {

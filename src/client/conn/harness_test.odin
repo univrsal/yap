@@ -55,6 +55,8 @@ Test_Conn :: struct {
 	peer:       proto.Stream,
 	// Where the scripts' events go.
 	sink:       Event_Sink,
+	// The View of tc_view, which tc_close destroys.
+	view:       ^View,
 	// With tc_connect: the server's end of the client's session, and the UDP
 	// socket that the client's datagrams arrive on.
 	connected:  bool,
@@ -91,7 +93,13 @@ tc_close :: proc(tc: ^Test_Conn) {
 		ecdh.private_key_clear(&tc.client_key)
 		ecdh.private_key_clear(&tc.server_key)
 	}
+	if tc.view != nil {
+		view_destroy(tc.view)
+	}
 	messages_destroy(c)
+	profiles_destroy(c)
+	delete(c.voice.user_accounts) // the rest of c.voice is not set up here
+	c.voice.user_accounts = nil
 	stream_destroy(c)
 	rpc_destroy(c)
 	auth_destroy(c)
@@ -166,9 +174,11 @@ tc_event :: proc(tc: ^Test_Conn, op: proto.Event_Op, body: []u8 = nil) {
 // tc_view gives the connection a View, as the UI has, so that the notices the
 // user is shown (View.notice) can be checked.
 tc_view :: proc(tc: ^Test_Conn) -> ^View {
-	v := new(View, context.temp_allocator)
-	tc.c.view = v
-	return v
+	if tc.view == nil {
+		tc.view = new(View, context.temp_allocator)
+	}
+	tc.c.view = tc.view
+	return tc.view
 }
 
 // tc_one returns the only request the client has sent, and fails if it sent
@@ -315,4 +325,11 @@ tc_message_with_files :: proc(
 		m.files[i].name = strings.clone(f.name)
 	}
 	append(&cache.messages, m)
+}
+
+// tc_run runs a command's handler directly and then frees the command, which
+// process_commands does for those it handles.
+tc_run :: proc(handler: proc(c: ^Server_Conn, cmd: $T), c: ^Server_Conn, cmd: T) {
+	handler(c, cmd)
+	command_destroy(cmd)
 }

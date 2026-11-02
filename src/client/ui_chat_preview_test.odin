@@ -30,6 +30,7 @@ test_composer_preview_fits :: proc(t: ^testing.T) {
 		editing: proto.Msg_Id
 		conv: proto.Conv_Id
 		area: Text_Area
+		defer history_clear(&area.history)
 		c := Composer {
 			buf     = buf[:],
 			len     = &n,

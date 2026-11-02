@@ -221,7 +221,7 @@ commands_destroy :: proc(q: ^Command_Queue) {
 	q.commands = nil
 }
 
-@(private = "file")
+// command_destroy frees what a command owns, which is up to whoever handled it.
 command_destroy :: proc(cmd: Command) {
 	#partial switch v in cmd {
 	case View_Command:

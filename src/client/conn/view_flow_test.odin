@@ -211,6 +211,7 @@ test_status_is_shown :: proc(t: ^testing.T) {
 	publish_status(c, .Connecting)
 	testing.expect_value(t, v.error, "")
 	// The address is taken once.
+	delete(c.server_addr)
 	c.server_addr = "elsewhere"
 	publish_status(c, .Connected)
 	testing.expect_value(t, v.server, "chat.example.org:7777")
@@ -327,9 +328,6 @@ test_the_servers_details_are_copied :: proc(t: ^testing.T) {
 	publish_server(c)
 	testing.expect_value(t, len(v.icon_jpeg), 0)
 	testing.expect_value(t, v.server_icon, proto.Blob_Id(0))
-	delete(s.name)
-	delete(s.description)
-	delete(s.email)
 }
 
 @(test)

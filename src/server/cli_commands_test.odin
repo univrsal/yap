@@ -89,6 +89,10 @@ fmt_sql :: proc(conv: proto.Conv_Id) -> string {
 
 @(test)
 test_purge_arguments :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	r := purge_rig(t)
 	defer os.remove_all(r.dir)
 
@@ -106,6 +110,10 @@ test_purge_arguments :: proc(t: ^testing.T) {
 
 @(test)
 test_purge_unknown_targets :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	r := purge_rig(t)
 	defer os.remove_all(r.dir)
 	seed_messages(t, r)
@@ -119,6 +127,10 @@ test_purge_unknown_targets :: proc(t: ^testing.T) {
 
 @(test)
 test_purge_everything :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	r := purge_rig(t)
 	defer os.remove_all(r.dir)
 	seed_messages(t, r)
@@ -136,6 +148,10 @@ test_purge_everything :: proc(t: ^testing.T) {
 
 @(test)
 test_purge_one_conversation :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	r := purge_rig(t)
 	defer os.remove_all(r.dir)
 	seed_messages(t, r)
@@ -236,6 +252,10 @@ test_import_arguments_that_are_wrong :: proc(t: ^testing.T) {
 
 @(test)
 test_email_command_checks :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	dir := test_dir(t)
 	defer os.remove_all(dir)
 	config := file_in(dir, "config.json")
@@ -253,6 +273,10 @@ test_email_command_checks :: proc(t: ^testing.T) {
 
 @(test)
 test_push_command_checks :: proc(t: ^testing.T) {
+	// The commands load the config the way the server does, and keep it until
+	// the process ends. Nothing here outlives the test, so its memory goes away
+	// with the temp allocator instead of being reported as leaked.
+	context.allocator = context.temp_allocator
 	dir := test_dir(t)
 	defer os.remove_all(dir)
 	config := file_in(dir, "config.json")

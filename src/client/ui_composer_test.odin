@@ -35,6 +35,7 @@ composer_test_start :: proc(text: string) -> ^Composer_Test {
 
 @(private = "file")
 composer_test_end :: proc(ct: ^Composer_Test) {
+	history_clear(&ct.area.history)
 	ui_select_destroy(ct.ui)
 	free(ct.ui)
 	free(ct)

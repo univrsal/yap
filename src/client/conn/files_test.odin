@@ -147,18 +147,18 @@ test_offer_refusals :: proc(t: ^testing.T) {
 	noext := write_file(t, &r, "README", content(100))
 
 	// Nobody, ourselves, a stranger.
-	send_file(c, {path = strings.clone(good), name = "nobody"})
-	send_file(c, {path = strings.clone(good), to = 1})
-	send_file(c, {path = strings.clone(good), name = "bob"})
+	offer_file(c, {path = strings.clone(good), name = strings.clone("nobody")})
+	offer_file(c, {path = strings.clone(good), to = 1})
+	offer_file(c, {path = strings.clone(good), name = strings.clone("bob")})
 	// Somebody who isn't here: the file would have nowhere to go.
 	tc_snapshot(&r.tc, 2, 11, {{num = 11, account = 1}})
-	send_file(c, {path = strings.clone(good), to = 2})
+	offer_file(c, {path = strings.clone(good), to = 2})
 	tc_snapshot(&r.tc, 3, 11, {{num = 11, account = 1}, {num = 12, account = 2}})
 	// Files of a kind that is not allowed, empty, or that isn't there.
-	send_file(c, {path = strings.clone(exe), to = 2})
-	send_file(c, {path = strings.clone(noext), to = 2})
-	send_file(c, {path = strings.clone(empty), to = 2})
-	send_file(c, {path = strings.clone("/nonexistent/missing.png"), to = 2})
+	offer_file(c, {path = strings.clone(exe), to = 2})
+	offer_file(c, {path = strings.clone(noext), to = 2})
+	offer_file(c, {path = strings.clone(empty), to = 2})
+	offer_file(c, {path = strings.clone("/nonexistent/missing.png"), to = 2})
 	testing.expect_value(t, len(c.files.posting), 0)
 	testing.expect_value(t, len(c.msgs.outbox), 0)
 	testing.expect_value(t, len(c.files.transfers), 0)
@@ -173,7 +173,7 @@ test_offer_is_posted_like_a_message :: proc(t: ^testing.T) {
 	data := content(proto.FILE_CHUNK_DATA * 2 + 100)
 	path := write_file(t, &r, "My Photo.png", data)
 
-	send_file(c, {path = strings.clone(path), name = "alice"})
+	offer_file(c, {path = strings.clone(path), name = strings.clone("alice")})
 	testing.expect_value(t, len(c.files.posting), 1)
 	testing.expect_value(t, len(c.msgs.outbox), 1)
 	nonce := c.msgs.outbox[0].nonce
@@ -212,7 +212,7 @@ test_offer_that_cannot_be_posted :: proc(t: ^testing.T) {
 	c := &r.tc.c
 	path := write_file(t, &r, "photo.png", content(100))
 
-	send_file(c, {path = strings.clone(path), to = 2})
+	offer_file(c, {path = strings.clone(path), to = 2})
 	drive_outbox(c)
 	req, _ := tc_one(t, &r.tc, .Msg_Post)
 	// Refused: there is nothing to send the file for, and it is let go.
@@ -224,12 +224,19 @@ test_offer_that_cannot_be_posted :: proc(t: ^testing.T) {
 
 // ---- sending ----
 
+// offer_file makes an offer and frees the command, as process_commands does.
+@(private = "file")
+offer_file :: proc(c: ^Server_Conn, cmd: Send_File_Command) {
+	send_file(c, cmd)
+	command_destroy(cmd)
+}
+
 // offered makes an offer and gets it posted as message `id`.
 @(private = "file")
 offered :: proc(t: ^testing.T, r: ^Rig, name: string, data: []u8, id: proto.Msg_Id) -> ^File_Transfer {
 	c := &r.tc.c
 	path := write_file(t, r, name, data)
-	send_file(c, {path = strings.clone(path), to = 2})
+	offer_file(c, {path = strings.clone(path), to = 2})
 	drive_outbox(c)
 	req, _ := tc_one(t, &r.tc, .Msg_Post)
 	buf: [proto.MSG_POSTED_SIZE]u8
