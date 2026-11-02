@@ -74,7 +74,6 @@ WEBSOCKET_IDLE :: 5 * time.Minute
 
 // A file that a browser may ask for. The files are read once when the relay
 // starts, so after rebuilding the web client the server has to be restarted.
-@(private = "file")
 Web_File :: struct {
 	name:         string,
 	content_type: string,
@@ -82,7 +81,6 @@ Web_File :: struct {
 	loaded:       bool, // false if the file couldn't be read
 }
 
-@(private = "file")
 Relay :: struct {
 	listener:    net.TCP_Socket,
 	server:      net.Endpoint, // the only destination that packets are relayed to
@@ -204,13 +202,11 @@ CONNECTION_TEMP :: 16 * 1024
 // is zeroed and therefore fully resident in memory. core:thread doesn't
 // free it for a thread that was started with an init_context, and malloc
 // keeps the memory around even after it is freed.
-@(private = "file")
 connection_temp_allocator :: proc(temp: ^runtime.Arena) -> runtime.Allocator {
 	_ = runtime.arena_init(temp, CONNECTION_TEMP, context.allocator)
 	return runtime.arena_allocator(temp)
 }
 
-@(private = "file")
 handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
@@ -487,15 +483,12 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 // tab closes, but the relay sees the WebSocket close. The port is the
 // relay's own UDP port for that browser, which is how the server knows the
 // browser. This is shared by the relay's threads and the server's loop.
-@(private = "file")
 Departed :: struct {
 	port: int,
 	at:   time.Tick,
 }
 
-@(private = "file")
 departed_mutex: sync.Mutex
-@(private = "file")
 departed: [dynamic]Departed
 
 @(private = "file")
