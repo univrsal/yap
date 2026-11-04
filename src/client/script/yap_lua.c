@@ -85,6 +85,18 @@ static const char bootstrap[] =
     "local MAX_STRING, MAX_PATTERN = 1 << 20, 200\n"
     /* No binary chunks (string.dump), no files, no output on the console. */
     "string.dump, dofile, loadfile, print = nil, nil, nil, nil\n"
+    /* No finalizers. They run when the state is closed, and while the
+       collector runs the instruction hook is off, so a loop in one can't be
+       stopped. Lua marks an object for finalization when the metatable has a
+       __gc field at the moment of setmetatable (whatever its value), and not
+       later, so this is the one place to check. */
+    "local setmt, rawget, type = setmetatable, rawget, type\n"
+    "function setmetatable(t, mt)\n"
+    "  if type(mt) == 'table' and rawget(mt, '__gc') ~= nil then\n"
+    "    error('setmetatable: __gc is not allowed', 2)\n"
+    "  end\n"
+    "  return setmt(t, mt)\n"
+    "end\n"
     /* Text only, whatever the script asks for. */
     "function load(chunk, name, mode, ...) return load0(chunk, name, 't', ...) end\n"
     /* Counting and a full collection; the rest changes how the collector

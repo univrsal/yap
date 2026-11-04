@@ -113,6 +113,10 @@ Script :: struct {
 	// Being read for its get_info only: every yap.* function does nothing, so that
 	// what it does when it loads (registering commands, say) is harmless.
 	meta:           bool,
+	// Being destroyed: closing the Lua state runs the script's finalizers, which
+	// must not reach the host state that destroy is freeing. Every yap.*
+	// function does nothing from then on.
+	closing:        bool,
 	timers:         [dynamic]Timer,
 	// The /commands it registered (api.odin).
 	commands:       [dynamic]Command,
@@ -270,6 +274,11 @@ destroy :: proc(s: ^Script) {
 	if s == nil {
 		return
 	}
+	// First: closing the state runs whatever finalizers the script managed to
+	// set up (the bootstrap refuses __gc, this is the second line), and they
+	// must find nothing of the host state left to touch.
+	s.closing = true
+	state_close(s.state)
 	for &t in s.tasks {
 		delete(t.name, s.allocator)
 	}
@@ -292,7 +301,6 @@ destroy :: proc(s: ^Script) {
 	delete(s.store)
 	settings_clear(s)
 	delete(s.settings)
-	state_close(s.state)
 	runtime.arena_destroy(&s.scratch)
 	allocator := s.allocator
 	delete(s.name, allocator)

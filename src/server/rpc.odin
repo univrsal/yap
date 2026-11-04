@@ -130,8 +130,26 @@ respond :: proc(u: ^Conn, id: u32, status: proto.Status, body: []byte = nil) {
 	stream_send(u, msg)
 }
 
+// unverified_hears says whether a connection of an Unverified account is
+// told about an event (verify.odin): only its own account, the server's
+// description, and that it is logged out. Everything else (messages,
+// reactions, conversations, calls) is what the account joined by registering
+// but may not see before it has verified its address, and it all arrives with
+// the sync when it is verified (conn_seen).
+@(private = "file")
+unverified_hears :: proc(op: proto.Event_Op) -> bool {
+	#partial switch op {
+	case .Sync_Begin, .Sync_End, .Self, .Server_Info, .Logged_Out:
+		return true
+	}
+	return false
+}
+
 // send_event notifies a user that something happened.
 send_event :: proc(u: ^Conn, op: proto.Event_Op, body: []byte = nil) {
+	if u.account != nil && .Unverified in u.account.flags && !unverified_hears(op) {
+		return
+	}
 	msg := proto.encode_event(op, body)
 	if msg == nil {
 		log.errorf("an event of %d bytes doesn't fit in a message", len(body))

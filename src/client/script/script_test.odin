@@ -366,6 +366,42 @@ test_huge_strings_are_refused :: proc(t: ^testing.T) {
 	)
 }
 
+// A finalizer runs when the state is closed, and not under the instruction
+// limit, so scripts may not have any.
+@(test)
+test_finalizers_are_refused :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		assert(not pcall(setmetatable, {}, { __gc = function() end }))
+		assert(not pcall(setmetatable, {}, { __gc = true }))
+		assert(not pcall(setmetatable, {}, { __gc = false }))
+		-- Other metatables still work.
+		local obj = setmetatable({}, { __index = function(_, k) return k .. "!" end })
+		assert(obj.x == "x!")
+		assert(getmetatable(obj) ~= nil)
+		assert(setmetatable({}, nil) ~= nil)
+		`,
+	)
+}
+
+// destroy closes the Lua state while the host's state is still there, and
+// whatever runs while it closes can't use yap.* any more.
+@(test)
+test_destroy_stops_the_api :: proc(t: ^testing.T) {
+	s := new_script(t)
+	load(t, s, `yap.timer("x", 1)`)
+	testing.expect_value(t, len(s.timers), 1)
+	s.closing = true
+	load(t, s, `yap.timer("y", 1)`)
+	testing.expect_value(t, len(s.timers), 1)
+	s.closing = false
+	destroy(s)
+}
+
 @(test)
 test_nothing_leaks_when_destroyed_midway :: proc(t: ^testing.T) {
 	// The test runner reports memory still allocated at the end.
