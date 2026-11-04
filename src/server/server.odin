@@ -423,6 +423,9 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		}
 		return
 	}
+	if !session_finish_from_ok(c, from) {
+		return
+	}
 
 	conn_id, link, result := session_finish(c, &s.gate, s.password, packet, from)
 	switch result {
@@ -440,6 +443,13 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 
 	u := conn_of(s, c.peer_key)
+	if (u == nil || u.account == nil) && !unlogged_room(s, from) {
+		// Too many sessions that haven't logged in, from this address or in
+		// all. The client will try again.
+		log.debugf("no room for another session that hasn't logged in, from %v", net.to_string(from))
+		drop_session(s, idx)
+		return
+	}
 	if link == .Bulk {
 		bind_bulk(s, c, u, conn_id, from)
 		return
@@ -494,6 +504,33 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// The client waits for the Welcome on a new session. Anything that
 	// logging in queued for it is sent after this, later in this iteration.
 	send_welcome(s, c)
+}
+
+// How many sessions that have finished their handshake but whose connection
+// hasn't logged in there may be, from one address (the web relay's browsers
+// all come from this machine, so it is exempt) and in all (as a part of
+// max_sessions). A session that never logs in is kept alive by Pings until
+// REJECT_AFTER, and a host that makes handshakes with random keys could
+// otherwise fill the whole table with them, and keep new clients and every
+// rekey out. Logged in connections, and the sessions they make for rekeying
+// or a bulk link, aren't counted.
+UNLOGGED_PER_ADDRESS :: 16
+
+// unlogged_room says whether another session that hasn't logged in may be
+// kept for `from`.
+unlogged_room :: proc(s: ^Server, from: net.Endpoint) -> bool {
+	addr := gate.key_of(from)
+	total, mine := 0, 0
+	for _, c in s.sessions {
+		if !c.keyed || (c.conn != nil && c.conn.account != nil) {
+			continue
+		}
+		total += 1
+		if gate.key_of(c.endpoint) == addr {
+			mine += 1
+		}
+	}
+	return total < max(s.max_sessions / 2, 1) && (gate.local(from) || mine < UNLOGGED_PER_ADDRESS)
 }
 
 // bind_bulk makes a session that has just finished its handshake the bulk

@@ -359,6 +359,9 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 		}
 		return
 	}
+	if !session_finish_from_ok(ms, from) {
+		return
+	}
 	conn_id, link, result := session_finish(ms, &m.gate, m.password, packet, from)
 	switch {
 	case result == .Invalid:

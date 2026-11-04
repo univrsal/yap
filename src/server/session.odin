@@ -108,6 +108,18 @@ Finish_Result :: enum {
 	Wrong_Password, // refuse
 }
 
+// session_finish_from_ok says whether a Handshake_Finish for an unkeyed
+// session comes from the address that its Init came from. The Resp went
+// there, and only whoever got it can make a Finish that holds up, so that is
+// the one address that is known to have taken part. The source of the Finish
+// itself is only a claim: the packet is easy to forge, and if it were
+// believed, wrong passwords could be counted against somebody else's address
+// (and have them shut out), and the session's answers be sent to it. A
+// Finish from anywhere else is ignored, and changes nothing.
+session_finish_from_ok :: proc(b: ^Session_Base, from: net.Endpoint) -> bool {
+	return from == b.endpoint
+}
+
 // session_finish checks a Handshake_Finish and reads the hello in it (which of
 // the client's connections this is, and which of the connection's links the
 // session is for), and the server password. The caller then refuses, or goes

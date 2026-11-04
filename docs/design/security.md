@@ -104,8 +104,9 @@ also checks the password).
   ignored.
 - **Who can be blocked.** ~~Only an address that has finished a handshake
   can have a password refused, so a forged address can't get somebody
-  else blocked.~~ **Wrong** (second review, S2): the address counted is
-  the source of the Handshake_Finish, which isn't authenticated.
+  else blocked.~~ **Wrong** (second review, S2): the address counted was
+  the source of the Handshake_Finish, which isn't authenticated. Fixed
+  with S2.
 - **Loopback.** It isn't exempt, so guessing through the relay or the
   API is slowed down too. The price is that the relay's browsers and the
   built-in API wait together while somebody guesses through them.
@@ -438,6 +439,8 @@ exempt only for the relay), an idle limit of about 30 s for sessions
 that haven't logged in, and room kept for known devices
 (`auth_known_device`).
 
+*Fixed (2026-11-04), differently from the suggestion:* a cap of 8 to 16 keyed sessions per address would lock out an office behind one NAT, so what is limited is sessions that have finished their handshake but whose connection hasn't logged in (`unlogged_room`, `server.odin`): `UNLOGGED_PER_ADDRESS` (16) per address, this machine exempt (the relay's browsers), and at most `max_sessions / 2` in all. Logged in connections and the sessions they make for rekeying or a bulk link aren't counted, so the table can't be filled with sessions that never log in, and rekeys have room. The Finish that would go over is dropped, and the client tries again. Not done: an idle limit for sessions that haven't logged in (a user may take a while to type a password), and room kept for known devices (they are in the table already, and their rekeys aren't counted). Test: `test_unlogged_room`. Still open: many addresses (a botnet) can fill the half of the table that unlogged sessions may take, but not more.
+
 **S3. A script's `__gc` finalizer runs after its host state is freed.**
 (Client, *verified*.) `destroy` (`script/script.odin:269`) frees the
 timers, commands, requests, store and settings, and calls `state_close`
@@ -495,6 +498,8 @@ the Resp has to reach whoever finishes the handshake. The Finish's isn't.
   (`Server_Icon`, downloads, Nack resends) go to the victim, limited by
   stream pacing (256 KiB/s) and `resend_budget`. Roaming after login
   has the same property for an account.
+
+*Fixed (2026-11-04), the Finish part:* a Finish for an unkeyed session is ignored unless it comes from the address its Init came from (`session_finish_from_ok`, main and media port). Only whoever got the Resp can make a valid Finish, so failures are counted against, and the session is bound to, an address that took part. Test: `test_finish_source` (it failed without the change). Still open: *roaming after login.* `session_receive` follows an authenticated session to the source of its Data packets, so an account holder can have the server send paced answers (Server_Icon, downloads, Nack resends) to a forged address, limited by stream pacing and `resend_budget`. Fix: validate the new address before using it for more than a few packets (a challenge that has to come back from there), which needs a protocol change.
 
 Fix: count failures against the Init source and keep it as the endpoint,
 requiring `from == endpoint` on Finish. Validate a new address before
@@ -787,8 +792,8 @@ actions pinned by commit, `permissions:` per job.
 ### Order to fix
 
 1. ~~S5, S3, S6, S7~~ (fixed 2026-11-04).
-2. S2 and S1: both need protocol changes (a stricter endpoint rule, a
-   cap on keyed sessions), and S1 is the one that takes a server down.
+2. ~~S2 and S1~~ (fixed 2026-11-04; roaming after login is still open,
+   see S2).
 3. S4, S8, S9, S10, S11.
 4. S12 to S16, then the Low items as they come.
 
