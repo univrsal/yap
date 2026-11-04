@@ -1,7 +1,9 @@
 #+build !wasi
 package platform
 
+import "core:strings"
 import "core:testing"
+import "core:time"
 
 @(test)
 test_find_links :: proc(t: ^testing.T) {
@@ -77,4 +79,31 @@ test_file_openable :: proc(t: ^testing.T) {
 		}) {
 		testing.expectf(t, !file_openable(path), "%q should not be openable", path)
 	}
+}
+
+// A message is up to 64 KB, and its links are found every time it's drawn, so
+// what it takes has to be in proportion to its size.
+@(test)
+test_find_links_long_input :: proc(t: ^testing.T) {
+	cases := [?]string {
+		// Closing brackets cut off one at a time used to be counted again each time.
+		strings.concatenate({"https://a", strings.repeat(")", 60000, context.temp_allocator)}, context.temp_allocator),
+		strings.concatenate({"https://a(", strings.repeat("]", 60000, context.temp_allocator)}, context.temp_allocator),
+		strings.concatenate({"www.a", strings.repeat(".", 60000, context.temp_allocator)}, context.temp_allocator),
+		strings.repeat("www.a ", 10000, context.temp_allocator),
+		strings.repeat("http://", 8000, context.temp_allocator),
+	}
+	for text in cases {
+		started := time.tick_now()
+		links := find_links(text)
+		took := time.tick_since(started)
+		testing.expectf(t, took < 300 * time.Millisecond, "%d bytes took %v", len(text), took)
+		testing.expect(t, len(links) > 0)
+	}
+	// What is cut off stays the same: the brackets that have no partner.
+	sentence := "see (https://a.org/x_(y)) and https://b.org/c)."
+	links := find_links(sentence)
+	testing.expect_value(t, len(links), 2)
+	testing.expect_value(t, sentence[links[0].start:links[0].end], "https://a.org/x_(y)")
+	testing.expect_value(t, sentence[links[1].start:links[1].end], "https://b.org/c")
 }

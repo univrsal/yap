@@ -84,6 +84,7 @@ Conn :: struct {
 	last_typing:     time.Tick, // see handle_typing
 	// How many requests it may still make (request_take in rpc.odin).
 	requests:        proto.Bucket, // see request_take
+	voice:           proto.Bucket, // see voice_take
 	request_warned:  bool, // that it's over the limit, until it's not
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
@@ -760,7 +761,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 	switch kind {
 	case .Voice:
-		if len(pt) >= proto.VOICE_UP_HEADER_SIZE {
+		if len(pt) >= proto.VOICE_UP_HEADER_SIZE && voice_take(c.conn, len(pt)) {
 			relay_voice(s, c, pt)
 		}
 	case .State_Ack:
@@ -1027,6 +1028,25 @@ bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 		}
 	}
 	return nil
+}
+
+// A connection may send voice at VOICE_RATE a second, and VOICE_BURST at
+// once, where each packet costs VOICE_PACKET_COST and its length. Every
+// packet is sent again to everyone else in the room (and costs a pass over all
+// the sessions), so without a limit one account sending packets as fast as
+// the link goes would multiply its traffic by the size of the room and use up
+// the main loop. A client sends one packet every 20 ms of at most about 500
+// bytes (Music, 192 kbit/s), which is 45 000 of these a second.
+VOICE_RATE :: 60_000
+VOICE_BURST :: 30_000
+VOICE_PACKET_COST :: 400
+
+// voice_take takes what a voice packet of `size` bytes costs, if the
+// connection has that much left. A packet that doesn't is dropped, like one
+// lost on the way.
+voice_take :: proc(u: ^Conn, size: int) -> bool {
+	proto.bucket_refill(&u.voice, time.tick_now(), VOICE_RATE, VOICE_BURST)
+	return proto.bucket_take(&u.voice, f64(VOICE_PACKET_COST + size))
 }
 
 // relay_voice forwards a voice frame to everyone else in the speaker's

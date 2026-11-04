@@ -1,6 +1,7 @@
 package server
 
 import "core:testing"
+import "core:time"
 
 import "common:proto"
 
@@ -127,4 +128,43 @@ test_talking_elsewhere :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&room_buf, 0))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{})
+}
+
+// A connection's voice is limited: what a client sends (a packet of up to
+// about 500 bytes every 20 ms) gets through, and a flood of packets, big or
+// tiny, is dropped after a burst.
+@(test)
+test_voice_limit :: proc(t: ^testing.T) {
+	u := new(Conn)
+	defer free(u)
+
+	// 10 seconds of the Music preset, at the right pace.
+	for _ in 0 ..< 500 {
+		u.voice.last = time.tick_add(time.tick_now(), -20 * time.Millisecond)
+		if !voice_take(u, 500) {
+			testing.fail_now(t, "voice at the pace of a client was dropped")
+		}
+	}
+
+	// Tiny packets as fast as they come cost as much as their number says.
+	flood := new(Conn)
+	defer free(flood)
+	passed := 0
+	for _ in 0 ..< 10_000 {
+		if voice_take(flood, 6) {
+			passed += 1
+		}
+	}
+	testing.expect(t, passed > 0 && passed <= VOICE_BURST / VOICE_PACKET_COST + 3)
+
+	// And so do big ones.
+	big := new(Conn)
+	defer free(big)
+	passed = 0
+	for _ in 0 ..< 10_000 {
+		if voice_take(big, 1100) {
+			passed += 1
+		}
+	}
+	testing.expect(t, passed > 0 && passed <= VOICE_BURST / 1500 + 3)
 }

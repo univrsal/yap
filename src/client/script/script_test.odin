@@ -388,6 +388,49 @@ test_finalizers_are_refused :: proc(t: ^testing.T) {
 	)
 }
 
+// A call of a C function can't be interrupted by the time limit, so what could
+// take very long is bounded in itself: patterns by a budget of steps, and
+// table.move by how many elements it moves.
+@(test)
+test_long_calls_are_bounded :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		-- 2^35 steps without the budget.
+		local ok, err = pcall(string.find, ("a"):rep(35), ("a?"):rep(35) .. "b")
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		-- A power of the length: a*b on a string of a's is quadratic.
+		local ok, err = pcall(string.find, ("a"):rep(1 << 16), "a*a*a*b")
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		ok, err = pcall(string.gsub, ("a"):rep(1 << 16), "a-b", "")
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		ok, err = pcall(function() for _ in (("a"):rep(1 << 16)):gmatch(".-b") do end end)
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		-- The budget is for one call: the next one starts anew.
+		assert(("hello world"):find("o w") == 5)
+		assert(("hello world"):match("(%w+) (%w+)") == "hello")
+		-- And what is ordinary on big strings still works: a megabyte with
+		-- a simple pattern takes about two million steps.
+		local big = ("abc "):rep(1 << 18)
+		local n = 0
+		for _ in big:gmatch("%a+") do n = n + 1 end
+		assert(n == 1 << 18, n)
+		local replaced, count = big:gsub("b", "B")
+		assert(count == 1 << 18 and #replaced == #big)
+		assert(big:find("abc x", 1, true) == nil)
+
+		assert(not pcall(table.move, {}, 1, 1 << 60, 1))
+		assert(not pcall(table.move, {}, 1, math.maxinteger, 2))
+		assert(not pcall(table.move, {}, -(1 << 40), 1 << 40, 1))
+		assert(table.concat(table.move({1, 2, 3}, 1, 3, 2), ",") == "1,1,2,3")
+		assert(#table.move({1, 2, 3}, 1, 3, 1, {}) == 3)
+		`,
+	)
+}
+
 // destroy closes the Lua state while the host's state is still there, and
 // whatever runs while it closes can't use yap.* any more.
 @(test)

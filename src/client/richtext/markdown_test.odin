@@ -1,8 +1,10 @@
 #+build !wasi
 package richtext
 
+import "core:slice"
 import "core:strings"
 import "core:testing"
+import "core:time"
 
 // md_show writes a Rich_Text's text with its styled runs as [letters:text],
 // where the letters are B for bold, I for italic, U for underline, S for strike
@@ -359,4 +361,141 @@ test_markdown_random :: proc(t: ^testing.T) {
 			}
 		}
 	}
+}
+
+// The first version of pair_delims, which looked back over every token for
+// each closer. It is slow on long text (the square of the number of tokens),
+// and the one in use must give the same result.
+@(private = "file")
+pair_delims_reference :: proc(toks: []Tok) {
+	for c in 0 ..< len(toks) {
+		if toks[c].kind != .Delim || !toks[c].can_close {
+			continue
+		}
+		for tok_count(toks[c]) > 0 {
+			o := -1
+			search: for k := c - 1; k >= 0; k -= 1 {
+				#partial switch toks[k].kind {
+				case .Link_Open, .Link_Close:
+					break search // pairs must not cross the boundaries of a link
+				case .Delim:
+					if toks[k].ch == toks[c].ch && toks[k].can_open && tok_count(toks[k]) > 0 {
+						o = k
+						break search
+					}
+				}
+			}
+			if o < 0 {
+				break
+			}
+			two := tok_count(toks[o]) >= 2 && tok_count(toks[c]) >= 2
+			n := 2 if two else 1
+			style: Md_Style
+			switch toks[c].ch {
+			case '~':
+				if !two {
+					toks[o].can_open = false
+					continue
+				}
+				style = .Strike
+			case '_':
+				style = .Underline if two else .Italic
+			case:
+				style = .Bold if two else .Italic
+			}
+			for k in o + 1 ..< c {
+				toks[k].styles += {style}
+				// Markers that were left open in there stay unchanged.
+				if toks[k].kind == .Delim {
+					toks[k].can_open = false
+				}
+			}
+			toks[o].used_right += n
+			toks[c].used_left += n
+		}
+	}
+}
+
+@(test)
+test_pair_delims_matches_the_reference :: proc(t: ^testing.T) {
+	delim_chars := [3]u8{'*', '_', '~'}
+	state: u64 = 0x2545f4914f6cdd1d
+	next :: proc(state: ^u64) -> u64 {
+		state^ ~= state^ << 13
+		state^ ~= state^ >> 7
+		state^ ~= state^ << 17
+		return state^
+	}
+	for round in 0 ..< 20000 {
+		n := int(next(&state) % 40)
+		toks := make([]Tok, n, context.temp_allocator)
+		at := 0
+		for &tok in toks {
+			switch k := next(&state) % 10; k {
+			case 0:
+				tok = {kind = .Link_Open, start = at, end = at}
+			case 1:
+				tok = {kind = .Link_Close, start = at, end = at}
+			case 2:
+				tok = {kind = .Text, start = at, end = at + 1}
+			case 3:
+				tok = {kind = .Code, start = at, end = at + 2}
+			case:
+				size := int(next(&state) % 3) + 1
+				tok = {
+					kind      = .Delim,
+					start     = at,
+					end       = at + size,
+					ch        = delim_chars[next(&state) % 3],
+					can_open  = next(&state) % 3 != 0,
+					can_close = next(&state) % 3 != 0,
+				}
+			}
+			at = tok.end + 1
+		}
+		fast := slice.clone(toks, context.temp_allocator)
+		slow := slice.clone(toks, context.temp_allocator)
+		pair_delims(fast)
+		pair_delims_reference(slow)
+		for i in 0 ..< n {
+			testing.expectf(
+				t,
+				fast[i] == slow[i],
+				"round %d, token %d: %v, but the reference says %v (from %v)",
+				round,
+				i,
+				fast[i],
+				slow[i],
+				toks,
+			)
+			if fast[i] != slow[i] {
+				return
+			}
+		}
+	}
+}
+
+// A long run of text that used to take the square of its length (a message
+// is up to 64 KB) takes a moment now.
+@(test)
+test_markdown_long_input :: proc(t: ^testing.T) {
+	for pattern in ([]string{"x* ", "*a ", "*a _b ", "_a* ", "~~a "}) {
+		text := strings.repeat(pattern, 20000, context.temp_allocator)
+		started := time.tick_now()
+		rt := markdown_parse(text, nil)
+		took := time.tick_since(started)
+		testing.expectf(t, took < 500 * time.Millisecond, "%q: parsing took %v", pattern, took)
+		testing.expect(t, len(rt.text) > 0)
+	}
+	// And the nested pairs: *a *a *a ... a* a* a*.
+	text := strings.concatenate(
+		{
+			strings.repeat("*a ", 8000, context.temp_allocator),
+			strings.repeat("a* ", 8000, context.temp_allocator),
+		},
+		context.temp_allocator,
+	)
+	started := time.tick_now()
+	_ = markdown_parse(text, nil)
+	testing.expect(t, time.tick_since(started) < 500 * time.Millisecond)
 }

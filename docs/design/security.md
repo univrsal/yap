@@ -469,6 +469,8 @@ are left unbounded:
   (`("a?"):rep(35)..("b")`) and `.-` on a long subject;
 - `collectgarbage()` on a nearly full heap.
 
+*Fixed (2026-11-04), except reading info:* the `__gc` loop is refused with S3. `table.move` refuses a range of a million or more elements. Pattern matching has a budget of steps per call (`yap_pattern_step`): a million, and three for each byte of the subject up to four million, counted in `match` and `singlematch`; over it the call fails with "pattern too complex". That needed four marked lines in Lua's `lstrlib.c`, so a copy of the 5.4.8 file is in `deps/thirdparty/lua/` and `yap_lua.c` includes it instead (a new Lua version needs the same four lines, see the comment in that file). `collectgarbage()` in a loop is stopped by the instruction limit between calls. Test: `test_long_calls_are_bounded`. Still open: `read_info` still runs every script in the folder at start-up, each for up to 500 ms, so a hostile file costs half a second per launch (no longer a hang). `yap_lua.lib` has to be rebuilt.
+
 `item_load` calls `read_info` on the UI thread for every script in the
 folder, at start-up and when one is added, so the 500 ms limit doesn't
 apply and an unapproved file hangs every launch until it's deleted by
@@ -571,6 +573,8 @@ its traffic by the number of sessions and starves the single main loop.
 connection packet and size limit for Voice (about 300 B), a room index,
 and a packet-rate cap in `handle_data`.
 
+*Fixed (2026-11-04), the limit only:* a bucket per connection (`voice_take`): each packet costs 400 plus its length, at 60 000 a second with a burst of 30 000. A client (a packet of up to about 500 bytes every 20 ms) uses 45 000 a second at most. A packet over it is dropped. Test: `test_voice_limit`. Not done: indexing the sessions by room (`relay_voice` still walks all of them for each packet; with the limit that is bounded by about 150 packets a second per connection), and a limit on the file routes' chunks.
+
 **S10. Quadratic message parsing.** (Client.) A message of up to
 `MAX_CHAT_SIZE` (64 KB) can stall every viewer for seconds per frame
 for as long as it's on screen, because `rich_make`
@@ -584,6 +588,8 @@ cached):
   loop at `:570` quadratic as well;
 - `markdown.odin:217`: atoms to segments is O(atoms × segments), about
   1e8 for a message of `www.a ` links.
+
+*Fixed (2026-11-04), except the cache:* `link_end` counts the brackets once; `pair_delims` keeps a stack of openers per character, marks what lies between a pair once, and adds up the styles from differences; the atoms are matched to their segments by binary search. Tests: `test_pair_delims_matches_the_reference` (the old version, kept in the test, on 20 000 random token lists), `test_markdown_long_input`, `test_find_links_long_input` (each of the 64 KB inputs above takes milliseconds). What remains is that `rich_make` still parses a message every time it is drawn, now in time proportional to its size. A cache per message id and width needs to know when names, roles and emoji change.
 
 Fix: track the parenthesis balance incrementally, cap delimiters and
 atoms per line and message and fall back to plain text, merge atoms and
@@ -660,6 +666,8 @@ login and every role or rights change, and `conv_by_name` and
 are also put into a group they never agreed to. Fix: a cap on groups
 per `created_by`, delete groups that stay empty (about a day), and let
 `convs_sorted` skip what it doesn't need.
+
+*Fixed (2026-11-04), by limits only:* an account may have started at most `MAX_EMPTY_GROUPS` (16) groups that have no message, and `MAX_GROUPS_STARTED` (1000) in all (`groups_started`, `group_open`); opening a group that exists is always allowed. Test: `test_group_limits`. Not done: deleting groups that stay empty, and making `convs_sorted` skip what it doesn't need. A group is only shown to the others once it has a message.
 
 **S16. Build and CI supply chain.** `docker/Dockerfile:9` pipes the
 Odin release (a rolling `dev-` build) from GitHub into `tar` with no
@@ -802,8 +810,8 @@ actions pinned by commit, `permissions:` per job.
 1. ~~S5, S3, S6, S7~~ (fixed 2026-11-04).
 2. ~~S2 and S1~~ (fixed 2026-11-04; roaming after login is still open,
    see S2).
-3. ~~S8, S11~~ (fixed 2026-11-04), S4, S9, S10.
-4. S12, S15, S16 (S13, S14 fixed 2026-11-04), then the Low items as they come.
+3. ~~S8, S11, S4, S9, S10~~ (fixed 2026-11-04, with what is left noted in each).
+4. S12, S16 (S13, S14, S15 fixed 2026-11-04), then the Low items as they come.
 
 ## Checked and sound
 

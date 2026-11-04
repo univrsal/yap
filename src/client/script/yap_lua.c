@@ -64,11 +64,43 @@
 /* auxiliary library */
 #include "lauxlib.c"
 
+/*
+ * A budget for the pattern matching of one call of string.find, match, gmatch
+ * (one step of the iterator) and gsub. The instruction hook can't interrupt
+ * a call of a C function, and a pattern can take a time that grows as the
+ * power (or even the exponent) of the length of what it is matched against.
+ * The patched lstrlib.c counts a step for every call of match and
+ * singlematch and raises an error when the budget is gone, in the way it
+ * does for patterns that recurse too deeply. A million-byte string with a
+ * simple pattern takes about two million steps, which is much less than a
+ * tenth of a second.
+ *
+ * The count is per thread, since scripts run on the UI and on the network
+ * thread, and a call starts a new one.
+ */
+#define YAP_PATTERN_STEPS 1000000L
+#define YAP_PATTERN_STEPS_MAX 4000000L
+#if defined(_MSC_VER)
+#define YAP_THREAD_LOCAL __declspec(thread)
+#else
+#define YAP_THREAD_LOCAL __thread
+#endif
+static YAP_THREAD_LOCAL long yap_steps_left;
+static void yap_pattern_begin(size_t subject) {
+    /* A scan of a long string takes steps in proportion to its length. */
+    yap_steps_left = subject > (size_t)(YAP_PATTERN_STEPS_MAX / 4) ? YAP_PATTERN_STEPS_MAX
+                                                                    : YAP_PATTERN_STEPS + 3 * (long)subject;
+}
+static void yap_pattern_step(lua_State *L) {
+    if (--yap_steps_left < 0) luaL_error(L, "pattern too complex (it took too many steps)");
+}
+
 /* the libraries scripts get */
 #include "lbaselib.c"
 #include "lcorolib.c"
 #include "lmathlib.c"
-#include "lstrlib.c"
+/* Lua's own, with the steps counted (see above). */
+#include "../../../deps/thirdparty/lua/lstrlib.c"
 #include "ltablib.c"
 #include "lutf8lib.c"
 
@@ -116,6 +148,14 @@ static const char bootstrap[] =
     "    end\n"
     "  end\n"
     "  return rep(s, n, sep)\n"
+    "end\n"
+    /* table.move({}, 1, 1 << 60) loops 2^60 times without allocating. */
+    "local move = table.move\n"
+    "function table.move(a1, f, e, t, a2)\n"
+    "  if type(f) == 'number' and type(e) == 'number' and (e + 0.0) - f >= MAX_STRING then\n"
+    "    error('table.move: too many elements to move', 2)\n"
+    "  end\n"
+    "  return move(a1, f, e, t, a2)\n"
     "end\n"
     "local function limited(f, name)\n"
     "  return function(s, pattern, ...)\n"

@@ -137,6 +137,25 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_conv_id(&buf, conv.id))
 }
 
+// How many groups an account may have started (that is, be `created_by`):
+// without a message in them, and in all.
+MAX_EMPTY_GROUPS :: 16
+MAX_GROUPS_STARTED :: 1000
+
+// groups_started counts the groups that `by` started, and how many of them
+// have no messages.
+groups_started :: proc(c: ^Convs, by: proto.Account_Id) -> (empty, total: int) {
+	for _, conv in c.by_id {
+		if conv.kind == .Group && conv.created_by == by {
+			total += 1
+			if conv.last_msg == 0 {
+				empty += 1
+			}
+		}
+	}
+	return
+}
+
 // group_open answers with the group of the connection's account and the
 // accounts it names, creating it if it doesn't exist yet, like dm_open does for
 // a DM. Bots can't be in a group, neither as the one who opens it nor as one of
@@ -170,6 +189,15 @@ group_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	accounts[len(others)] = me
 	conv := group_find(&s.convs, accounts)
 	if conv == nil {
+		// A group is kept for good, and every pass over the conversations
+		// (logging in, a change of roles) takes them all, so what one account
+		// may start is limited: how many that nobody has written in yet, and
+		// how many in all.
+		empty, total := groups_started(&s.convs, me)
+		if empty >= MAX_EMPTY_GROUPS || total >= MAX_GROUPS_STARTED {
+			respond(u, id, .Too_Large)
+			return
+		}
 		conv = group_add(&s.convs, accounts, me)
 		if conv == nil {
 			respond(u, id, .Internal)
