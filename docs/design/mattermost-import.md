@@ -323,7 +323,7 @@ Every imported channel is `Text_Only` (D7).
 | --- | --- |
 | membership | a row |
 | `last_viewed_at` | `read_id`: the last message in the channel at or before that time, or the member's own last message if that is later (0 means never opened) |
-| `notify_props.desktop` / `mark_unread` | `notify`: `all`, `mention` → Mentions, `none` → None; `default` → All |
+| `notify_props.desktop` / `mark_unread` | `notify`: `mark_unread` `mention` (a muted channel) → None; else `desktop` `mention` → Mentions, `none` → None, `all` / `default` → All |
 | `roles` with `channel_admin` | channel admin (step 13, D6) |
 | `favorite`, `favorited_by`, `shown_by` | dropped (D9) |
 
@@ -874,10 +874,12 @@ what will be done. What the rules decide:
   `town-square` is the home channel, `off-topic` the default one, unless
   private or archived; every channel is `Text_Only` (D7), the home channel
   too.
-- **Notification.** The member's setting decides (`none`, `mention`, `all`);
+- **Notification.** A channel the member muted (`mark_unread` is `mention`,
+  which is what Mattermost's mute sets) is muted (None), so that it doesn't
+  show a count of everything written while it was muted; its mentions still
+  count. Otherwise the member's setting decides (`none`, `mention`, `all`);
   `default` means whatever they set for everything, which the export doesn't
-  keep for each channel, so it follows `mark_unread`: `mention` gives
-  Mentions, anything else All.
+  keep for each channel, and gives All.
 - **Roles.** Admin for a system admin or the team's admin, guest for
   `system_guest` (D6). The owner is the account that was asked for with
   `--owner`, which has to be a member and active, or else the first active

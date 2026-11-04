@@ -90,19 +90,23 @@ topic_of :: proc(c: Channel) -> (topic: string, from_purpose: bool) {
 }
 
 // notify_of returns how a member wants to be notified of a channel's messages.
-// The notification setting decides, and "default", which means whatever the
-// member has set for everything, decides by whether the channel is marked as
-// unread by every message or only by mentions.
+// A channel the member muted in Mattermost (which marks it as unread only by
+// mentions) is muted, whatever the notification setting says, so that it
+// doesn't show a count of everything that was written while it was muted.
+// Otherwise the notification setting decides, and "default", which means
+// whatever the member has set for everything (which the export doesn't keep),
+// is All.
 notify_of :: proc(n: Notify_Props) -> proto.Notify_Level {
+	if n.mark_unread == "mention" {
+		return .None
+	}
 	switch n.desktop {
 	case "none":
 		return .None
 	case "mention":
 		return .Mentions
-	case "all":
-		return .All
 	}
-	return .Mentions if n.mark_unread == "mention" else .All
+	return .All
 }
 
 // has_role says whether a space separated list of roles has `role`.

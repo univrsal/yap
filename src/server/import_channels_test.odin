@@ -99,11 +99,12 @@ test_import_channels :: proc(t: ^testing.T) {
 		testing.expect_value(t, members_of(general, a), "admin alice bob carol dave gus")
 		testing.expect_value(t, admins_of(general, a), "admin bob")
 		testing.expect_value(t, general.topic, "Talk about *anything* (really)")
-		// carol asked for mentions only there, and nobody else for anything.
+		// carol muted it (unread only by mentions), and nobody else asked for
+		// anything.
 		testing.expect_value(
 			t,
 			general.reads[account_find(a, "carol").id].notify,
-			proto.Notify_Level.Mentions,
+			proto.Notify_Level.None,
 		)
 		testing.expect_value(
 			t,
@@ -169,7 +170,7 @@ test_import_channels :: proc(t: ^testing.T) {
 	// It is in the database too, as the server will load it.
 	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM convs"), 12)
 	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM members WHERE admin != 0"), 5)
-	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM members WHERE notify = 1"), 1)
+	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM members WHERE notify = 2"), 1) // carol muted General
 	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM convs WHERE flags & 4 != 0"), 1) // archived
 	loaded: Convs
 	testing.expect(t, convs_load(&loaded, &it.db, []string{DEFAULT_CHANNEL_NAME}, a))
