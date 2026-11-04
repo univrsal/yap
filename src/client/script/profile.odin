@@ -20,7 +20,7 @@
 package script
 
 import "core:fmt"
-import "core:log"
+import log "common:wlog"
 import "core:slice"
 import "core:strings"
 import "core:time"
