@@ -509,6 +509,32 @@ its own); `yap.status` is the same status area.
 - **A filter stopped working.** Three failures in a row switch a script's filters off;
   the log says why. Reload to start again.
 
+### Finding a script that is slow
+
+The client times every run of every handler, `/command` and filter (the time it was
+actually running, not the time between slices) and writes two kinds of lines to the log:
+
+```
+script weather.lua: on_message took 14.2ms
+script weather.lua: the filter on_incoming took 1.6ms (and 3 more slow ones since the last note)
+script weather.lua: in the last 1m0s, 212 calls took 38.4ms (0.06% of the time); most: on_message 180 x 31.2ms (slowest 14.2ms), on_timer 30 x 6.1ms (slowest 0.4ms)
+```
+
+- **A slow call** is noted as a warning as soon as it happens: a handler or command that
+  took 10 ms or more, or a filter that took 1 ms or more (filters run on the network
+  thread and are stopped after 2 ms). One handler is noted at most every 10 seconds,
+  and the note says how many more there were in between.
+- **A summary** is written every minute for each script that did something: how many
+  calls, how long they took in all and as a share of the time, and the four handlers
+  that took the most, with their slowest call. It is an info line if some call was slow
+  or the total was over 5 ms, and a debug line otherwise, so a quiet script doesn't fill
+  the log. A script that has failed shows how many calls did (`2 failed`).
+
+The share of time is of the clock, not of a frame: 1% means the script runs for 0.6
+seconds out of a minute. The load of the script itself is a run named after the file.
+The default log level (`-log-level info`) shows the warnings and the info summaries;
+`-log-level debug` shows every summary. `-log-file` writes them to a file.
+
 ## Examples
 
 In [`docs/examples/scripts`](examples/scripts) (copy one to the scripts folder, or paste it

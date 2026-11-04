@@ -117,6 +117,8 @@ Script :: struct {
 	// must not reach the host state that destroy is freeing. Every yap.*
 	// function does nothing from then on.
 	closing:        bool,
+	// How long its handlers take (profile.odin).
+	profile:        Profile,
 	timers:         [dynamic]Timer,
 	// The /commands it registered (api.odin).
 	commands:       [dynamic]Command,
@@ -279,6 +281,7 @@ destroy :: proc(s: ^Script) {
 	// must find nothing of the host state left to touch.
 	s.closing = true
 	state_close(s.state)
+	profile_destroy(s)
 	for &t in s.tasks {
 		delete(t.name, s.allocator)
 	}
@@ -481,6 +484,7 @@ call_sync :: proc(
 	raw: C_Value
 	status := resume(s.state, thread, nargs, &buf[0], len(buf), &raw)
 	killed := s.run.killed
+	profile_record(s, handler, time.tick_since(s.run.began), killed || status == .Error, true)
 	s.run = saved
 	switch {
 	case killed:
@@ -623,6 +627,7 @@ resume_task :: proc(
 	if status == .Yield && !killed {
 		return false
 	}
+	profile_record(s, t.name, t.spent, killed || status == .Error, false)
 	r := Result {
 		name   = t.name,
 		status = .Finished,
