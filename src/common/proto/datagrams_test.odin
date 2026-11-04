@@ -196,6 +196,35 @@ test_sanitize_name :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_names_alike :: proc(t: ^testing.T) {
+	Pair :: struct {
+		a, b: string,
+	}
+	// Names that look the same, in the ways a modified client could make them.
+	alike := [?]Pair {
+		{"Alice", "alice"},
+		{"Alice", "Aliceㅤ"},
+		{"Alice", "Al​ice"},
+		{"Alice", "Аlice"}, // Cyrillic А
+		{"Alice", "Alicе"}, // Cyrillic е
+		{"admin", "admіn"}, // Cyrillic і
+		{"Alice", "Al1ce"},
+		{"Alice", "AIice"},
+		{"Bob", "B0b"},
+		{"Admin", "Ａｄｍｉｎ"}, // full-width
+		{"Zoë ❤", "Zoë ❤️"},
+	}
+	for c in alike {
+		testing.expectf(t, names_alike(c.a, c.b), "%q and %q look alike", c.a, c.b)
+	}
+	// And names that don't.
+	different := [?]Pair{{"Alice", "Alicia"}, {"Alice", "Bob"}, {"Zoë", "Zoe"}, {"", "Alice"}, {"a b", "ab"}}
+	for c in different {
+		testing.expectf(t, !names_alike(c.a, c.b), "%q and %q don't", c.a, c.b)
+	}
+}
+
+@(test)
 test_hello_and_welcome :: proc(t: ^testing.T) {
 	hb: [HELLO_MAX_SIZE]u8
 	conn_id, password, link, ok := decode_hello(encode_hello(&hb, 7))

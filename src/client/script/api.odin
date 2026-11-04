@@ -158,7 +158,7 @@ dispatch :: proc(s: ^Script, op: Op, values: []Value) -> (result: Value, err: Ma
 		a.name = "log"
 	}
 	server := s.run.server
-	if s.meta {
+	if s.meta || s.closing {
 		return nil, nil
 	}
 	switch op {

@@ -107,6 +107,32 @@ fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool, has_fi
 	return strings.to_string(b), from, terms > 0, has_file
 }
 
+// readable_convs lists the conversations `acc` may search as a JSON array of
+// ids, for the statements' json_each. With `only` set (and already checked to
+// be readable), it is that one conversation.
+@(private = "file")
+readable_convs :: proc(s: ^Server, acc: ^Account, only: proto.Conv_Id) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	strings.write_byte(&b, '[')
+	if only != 0 {
+		strings.write_u64(&b, u64(only))
+	} else {
+		first := true
+		for id, conv in s.convs.by_id {
+			if !conv_reader(conv, acc) {
+				continue
+			}
+			if !first {
+				strings.write_byte(&b, ',')
+			}
+			first = false
+			strings.write_u64(&b, u64(id))
+		}
+	}
+	strings.write_byte(&b, ']')
+	return strings.to_string(b)
+}
+
 // msg_search answers a Msg_Search with a page of the matching messages, newest first.
 msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	req, ok := proto.decode_msg_search(body)
@@ -151,9 +177,15 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		qs[0] = db_stmt(&s.db, .Files_All)
 		heads[1] = 0
 	}
+	// The statements only visit messages of the conversations the asker may
+	// read. Visiting the others and skipping them afterwards would show in
+	// where the search got to (searched_to), which says that a word occurs
+	// in a conversation the asker has no access to, and when.
+	readable := readable_convs(s, u.account, req.conv)
 	for q in qs {
 		db_bind_text(q, 1, query)
 		db_bind_int(q, 2, i64(min(before, proto.Msg_Id(max(i64)))))
+		db_bind_text(q, 3, readable)
 	}
 
 	// Stop the search once it has used up its share of the main loop.
@@ -164,9 +196,12 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	defer sqlite.progress_handler(s.db.conn, 0, nil, nil)
 
 	// All matches are visited newest first, and only those in the
-	// conversations the asker is searching (and may see) are kept. The
-	// oldest message looked at is where the search got to, and the next
-	// search continues from there.
+	// conversations the asker is searching are kept (the statements already
+	// leave out those the asker may not read; the check here is a second
+	// line). The oldest message looked at is where the search got to, and
+	// the next search continues from there. A search that is cut short
+	// before it finds anything in a long run of messages it skips inside
+	// SQLite doesn't get any further, and a later one starts there again.
 	found := make([dynamic]proto.Message, 0, req.limit, context.temp_allocator)
 	more: u8
 	searched_to := before

@@ -376,6 +376,35 @@ test_window_gives_up :: proc(t: ^testing.T) {
 	testing.expect(t, !w.broken)
 }
 
+// The frame number is the sender's. A fragment a billion frames ahead must
+// be handled at once (it used to be walked frame by frame) and leaves the
+// window usable.
+@(test)
+test_window_far_jump :: proc(t: ^testing.T) {
+	w := new(Video_Window)
+	defer free(w)
+	defer video_window_destroy(w)
+	video_window_reset(w)
+	now := time.tick_now()
+	_, ok := feed(w, fragments(1, true, make_frame(100)), now)
+	testing.expect(t, ok)
+	f2 := fragments(2, false, make_frame(2 * VIDEO_FRAGMENT_SIZE))
+	video_window_add(w, f2[0], now)
+
+	start := time.tick_now()
+	far := fragments(2 + 0x7FFFFFFF, false, make_frame(10))
+	video_window_add(w, far[0], now)
+	testing.expect(t, time.tick_diff(start, time.tick_now()) < 500 * time.Millisecond)
+	testing.expect(t, w.broken)
+	testing.expect_value(t, w.breaks, 1)
+	testing.expect_value(t, w.given_up, int(0x7FFFFFFF - VIDEO_WINDOW + 1))
+
+	// Frame 2 was dropped with the rest; a keyframe after the jump works.
+	_, ok = feed(w, fragments(3 + 0x7FFFFFFF, true, make_frame(10)), now)
+	testing.expect(t, ok)
+	testing.expect(t, !w.broken)
+}
+
 // A reliable window (over a WebSocket) asks for nothing again: a fragment that
 // is late is waited for, and a frame is only given up on once a later one is
 // complete, or after RELIABLE_WAIT.

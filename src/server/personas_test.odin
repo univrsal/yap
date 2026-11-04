@@ -58,6 +58,13 @@ test_persona :: proc(t: ^testing.T) {
 	// Not the name of an account, in any case, nor an empty one.
 	status, _ = persona_post(t, &ts, b, home, {name = "ALICE"}, 2)
 	testing.expect_value(t, status, proto.Status.Denied)
+	// Nor one that looks like it (Cyrillic а, a filler, a one for the l).
+	status, _ = persona_post(t, &ts, b, home, {name = "аlice"}, 20)
+	testing.expect_value(t, status, proto.Status.Denied)
+	status, _ = persona_post(t, &ts, b, home, {name = "aliceㅤ"}, 21)
+	testing.expect_value(t, status, proto.Status.Denied)
+	status, _ = persona_post(t, &ts, b, home, {name = "a1ice"}, 22)
+	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = persona_post(t, &ts, b, home, {name = "CI"}, 3)
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = persona_post(t, &ts, b, home, {name = " \t\n"}, 4)

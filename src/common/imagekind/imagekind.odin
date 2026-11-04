@@ -59,6 +59,25 @@ is_gif :: proc(data: []u8) -> bool {
 	return len(data) >= 6 && (string(data[:6]) == "GIF89a" || string(data[:6]) == "GIF87a")
 }
 
+// is_bmp: "BM" and room for a file header and the size of the info header
+// after it. That is all the signature there is, so it only says that what
+// follows is meant to be a BMP.
+is_bmp :: proc(data: []u8) -> bool {
+	return len(data) >= 18 && data[0] == 'B' && data[1] == 'M'
+}
+
+// stbi_readable says whether a picture is one of the kinds that the client
+// hands to stb_image (PNG, JPEG, GIF, BMP). stb_image reads many more (PSD,
+// TGA, HDR, PIC, PNM), historically the source of most of its memory safety
+// bugs, and picks a loader by trying them one after the other, so bytes from
+// somebody else only get there if they start like one of the four. None of the
+// rest can be mistaken for them: even TGA, which has no signature, needs the
+// byte after the first to be 0 or 1, and these start with 'N', 'I', 'M' or
+// 0xD8.
+stbi_readable :: proc(data: []u8) -> bool {
+	return is_png(data) || is_jpeg(data) || is_gif(data) || is_bmp(data)
+}
+
 // dimensions returns the width and height that the header of a JPEG, PNG,
 // WebP, GIF or BMP states. `ok` is false for anything else, or if the header
 // isn't all in `data`. A JPEG's start of frame may come after its metadata,

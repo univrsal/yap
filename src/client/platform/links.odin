@@ -64,20 +64,27 @@ link_end :: proc(text: string, start: int) -> int {
 			break
 		}
 	}
+	// The brackets are counted once and adjusted as characters are cut off,
+	// not counted again for every one (a link of 60 000 closing brackets
+	// would otherwise take a billion steps).
+	open_paren := strings.count(text[start:end], "(")
+	close_paren := strings.count(text[start:end], ")")
+	open_square := strings.count(text[start:end], "[")
+	close_square := strings.count(text[start:end], "]")
 	for end > start {
-		s := text[start:end]
-		last := s[len(s) - 1]
-		switch last {
+		switch text[end - 1] {
 		case '.', ',', ';', ':', '!', '?', '\'', '*':
 			end -= 1
 			continue
 		case ')':
-			if strings.count(s, "(") < strings.count(s, ")") {
+			if open_paren < close_paren {
+				close_paren -= 1
 				end -= 1
 				continue
 			}
 		case ']':
-			if strings.count(s, "[") < strings.count(s, "]") {
+			if open_square < close_square {
+				close_square -= 1
 				end -= 1
 				continue
 			}

@@ -741,7 +741,11 @@ body_object :: proc(j: ^Job) -> (obj: json.Object, ok: bool) {
 	if len(j.body) == 0 {
 		return {}, true
 	}
-	v, err := json.parse(j.body, allocator = context.temp_allocator)
+	v: json.Value
+	err: json.Error = .Unexpected_Token
+	if proto.json_nesting_ok(j.body) {
+		v, err = json.parse(j.body, allocator = context.temp_allocator)
+	}
 	if err == nil {
 		if o, is_object := v.(json.Object); is_object {
 			return o, true

@@ -343,7 +343,7 @@ STMT_SQL := [Stmt]string {
 	.Invite_Use             = "UPDATE invites SET uses = uses + 1 WHERE code = ?1",
 	.Invite_Use_Add         = "INSERT INTO invite_uses (code, account, used) VALUES (?1, ?2, ?3)",
 	.Invite_Of              = "SELECT u.code, i.creator FROM invite_uses u JOIN invites i ON i.code = u.code WHERE u.account = ?1 ORDER BY u.used LIMIT 1",
-	.Msg_Search             = "SELECT " + MSG_COLS + " FROM messages_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE messages_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	.Msg_Search             = "SELECT " + MSG_COLS + " FROM messages_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE messages_fts MATCH ?1 AND f.rowid < ?2 AND m.conv IN (SELECT value FROM json_each(?3)) ORDER BY f.rowid DESC",
 	.Reactors_Of            = "SELECT account FROM reactions WHERE message = ?1 AND emoji = ?2 ORDER BY time, account LIMIT ?3",
 	.Msg_Bounds             = "SELECT coalesce((SELECT min(id) FROM messages), 0), coalesce((SELECT max(id) FROM messages), 0)",
 	.Msg_From               = "SELECT id, time FROM messages WHERE id >= ?1 ORDER BY id LIMIT 1",
@@ -375,11 +375,14 @@ STMT_SQL := [Stmt]string {
 	.Attach_Blob_Convs      = "SELECT DISTINCT m.conv FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob = ?1",
 	.Files_Index_Add        = "INSERT INTO files_fts (rowid, names) VALUES (?1, ?2)",
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
+	// ?3 is a JSON array of the conversations the asker may read (see msg_search):
+	// messages of any other are never visited, so nothing about them (that a word
+	// occurs, or where) can show in the answer.
 	// Like Msg_Search, but searches the names of the files attached to messages.
-	.File_Search            = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	.File_Search            = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 AND m.conv IN (SELECT value FROM json_each(?3)) ORDER BY f.rowid DESC",
 	// Every message that has files (has:file without words), newest first.
 	// It is bound like the two above, and has no use for ?1.
-	.Files_All              = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE f.rowid < ?2 ORDER BY f.rowid DESC",
+	.Files_All              = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE f.rowid < ?2 AND m.conv IN (SELECT value FROM json_each(?3)) ORDER BY f.rowid DESC",
 	// What is left of a deleted account (see account_erase): a name nobody can
 	// log in with, and nothing else.
 	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', verify_code = '', verify_expires = 0, pw_hash = zeroblob(32) WHERE id = ?1",

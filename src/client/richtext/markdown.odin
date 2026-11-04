@@ -214,11 +214,24 @@ markdown_parse :: proc(
 	moved := make([]Md_Atom, len(atoms), allocator)
 	for a, i in atoms {
 		moved[i] = {-1, -1, a.url}
-		for s in o.segs {
-			if s.src <= a.start && a.end <= s.src + s.n {
+		// The segments are in the order of the source and don't overlap, so the
+		// one that holds the atom's start is the last that starts at or
+		// before it (not a search through all of them for every atom: a message
+		// of 60 000 bytes can have 10 000 of both).
+		lo, hi := 0, len(o.segs)
+		for lo < hi {
+			mid := lo + (hi - lo) / 2
+			if o.segs[mid].src <= a.start {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		if lo > 0 {
+			s := o.segs[lo - 1]
+			if a.end <= s.src + s.n {
 				moved[i].start = s.out + a.start - s.src
 				moved[i].end = s.out + a.end - s.src
-				break
 			}
 		}
 	}
@@ -376,7 +389,7 @@ Parser :: struct {
 	out:   ^Out,
 }
 
-@(private = "file")
+@(private)
 Tok_Kind :: enum u8 {
 	Text, // copied unchanged
 	Code, // the content of a code span
@@ -385,7 +398,7 @@ Tok_Kind :: enum u8 {
 	Link_Close,
 }
 
-@(private = "file")
+@(private)
 Tok :: struct {
 	kind:                  Tok_Kind,
 	start, end:            int, // in the source
@@ -398,7 +411,7 @@ Tok :: struct {
 	url:                   string, // Link_Close: the address the link goes to
 }
 
-@(private = "file")
+@(private)
 tok_count :: proc(t: Tok) -> int {
 	return t.end - t.start - t.used_left - t.used_right
 }
@@ -530,52 +543,120 @@ inline :: proc(p: ^Parser, start, end: int) {
 // characters are used from each run if both runs have two (bold, underline,
 // strike), otherwise one (italic; strike takes two). The text between a pair
 // gets its style, and runs in between that were left open stay unchanged.
-@(private = "file")
+//
+// The time it takes is in proportion to the number of tokens (a message may
+// have tens of thousands), not their square: the openers that may still be
+// had wait on a stack for each character (a closer takes the nearest, and
+// openers that have been used up or cut off are dropped as they are found),
+// the runs between a pair are marked as unable to open once each (skipping
+// those that already are), and the styles are added up from differences in
+// one pass at the end. A link's boundaries clear the stacks, since pairs must
+// not cross them.
+@(private)
 pair_delims :: proc(toks: []Tok) {
+	slot_of :: proc(ch: u8) -> int {
+		switch ch {
+		case '*':
+			return 0
+		case '_':
+			return 1
+		}
+		return 2
+	}
+	stacks: [3][dynamic]int
+	for &stack in stacks {
+		stack = make([dynamic]int, context.temp_allocator)
+	}
+	// diffs[style][k] is how many pairs of that style start (+) and end (-) at
+	// the token k, allocated when there is a first one.
+	diffs: [Md_Style][]int
+	// skip[k] is the first token from k on that hasn't been marked unable to
+	// open by a pair around it (union-find with path halving).
+	skip := make([]int, len(toks) + 1, context.temp_allocator)
+	for k in 0 ..= len(toks) {
+		skip[k] = k
+	}
+	first_unmarked :: proc(skip: []int, k: int) -> int {
+		k := k
+		for skip[k] != k {
+			skip[k] = skip[skip[k]]
+			k = skip[k]
+		}
+		return k
+	}
+
 	for c in 0 ..< len(toks) {
-		if toks[c].kind != .Delim || !toks[c].can_close {
+		#partial switch toks[c].kind {
+		case .Link_Open, .Link_Close:
+			for &stack in stacks {
+				clear(&stack)
+			}
+			continue
+		case .Delim:
+		case:
 			continue
 		}
-		for tok_count(toks[c]) > 0 {
-			o := -1
-			search: for k := c - 1; k >= 0; k -= 1 {
-				#partial switch toks[k].kind {
-				case .Link_Open, .Link_Close:
-					break search // pairs must not cross the boundaries of a link
-				case .Delim:
-					if toks[k].ch == toks[c].ch && toks[k].can_open && tok_count(toks[k]) > 0 {
-						o = k
-						break search
+		stack := &stacks[slot_of(toks[c].ch)]
+		if toks[c].can_close {
+			for tok_count(toks[c]) > 0 {
+				// The nearest opener that still is one.
+				for len(stack) > 0 {
+					top := toks[stack[len(stack) - 1]]
+					if top.can_open && tok_count(top) > 0 {
+						break
 					}
+					pop(stack)
 				}
-			}
-			if o < 0 {
-				break
-			}
-			two := tok_count(toks[o]) >= 2 && tok_count(toks[c]) >= 2
-			n := 2 if two else 1
-			style: Md_Style
-			switch toks[c].ch {
-			case '~':
-				if !two {
-					return_to_text(toks, o, c)
-					continue
+				if len(stack) == 0 {
+					break
 				}
-				style = .Strike
-			case '_':
-				style = .Underline if two else .Italic
-			case:
-				style = .Bold if two else .Italic
+				o := stack[len(stack) - 1]
+				two := tok_count(toks[o]) >= 2 && tok_count(toks[c]) >= 2
+				n := 2 if two else 1
+				style: Md_Style
+				switch toks[c].ch {
+				case '~':
+					if !two {
+						return_to_text(toks, o, c)
+						continue
+					}
+					style = .Strike
+				case '_':
+					style = .Underline if two else .Italic
+				case:
+					style = .Bold if two else .Italic
+				}
+				if diffs[style] == nil {
+					diffs[style] = make([]int, len(toks) + 1, context.temp_allocator)
+				}
+				diffs[style][o + 1] += 1
+				diffs[style][c] -= 1
+				// Markers that were left open in between stay unchanged.
+				for k := first_unmarked(skip, o + 1); k < c; k = first_unmarked(skip, k) {
+					if toks[k].kind == .Delim {
+						toks[k].can_open = false
+					}
+					skip[k] = k + 1
+				}
+				toks[o].used_right += n
+				toks[c].used_left += n
 			}
-			for k in o + 1 ..< c {
+		}
+		if toks[c].can_open && tok_count(toks[c]) > 0 {
+			append(stack, c)
+		}
+	}
+
+	for style in Md_Style {
+		if diffs[style] == nil {
+			continue
+		}
+		covered := 0
+		for k in 0 ..< len(toks) {
+			covered += diffs[style][k]
+			if covered > 0 {
 				toks[k].styles += {style}
-				// Markers that were left open in there stay unchanged.
-				if toks[k].kind == .Delim {
-					toks[k].can_open = false
-				}
 			}
-			toks[o].used_right += n
-			toks[c].used_left += n
 		}
 	}
 }

@@ -1,5 +1,6 @@
 package server
 
+import "core:fmt"
 import "core:os"
 import "core:slice"
 import "core:testing"
@@ -259,4 +260,54 @@ test_group_deleted_member :: proc(t: ^testing.T) {
 	testing.expect(t, account_erase(&ts.s, bob_acc))
 	status, _ = post(t, &ts, alice, conv, "anyone?", 3)
 	testing.expect_value(t, status, proto.Status.Denied)
+}
+
+// An account may only start so many groups that nobody has written in, and
+// (since a group is kept for good) so many in all.
+@(test)
+test_group_limits :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	ts_account(t, &ts, "alice", "a password")
+	others: [8]proto.Account_Id
+	for &id, i in others {
+		name := fmt.tprintf("user%d", i)
+		id = ts_account(t, &ts, name, "a password").id
+	}
+	alice := logged_in(t, &ts, "alice")
+
+	// Pairs of the others make 28 different groups with alice.
+	opened := make([dynamic]proto.Conv_Id, context.temp_allocator)
+	status: proto.Status
+	for i in 0 ..< len(others) {
+		for j in i + 1 ..< len(others) {
+			conv: proto.Conv_Id
+			status, conv = group_open_as(t, &ts, alice, others[i], others[j])
+			if len(opened) < MAX_EMPTY_GROUPS {
+				testing.expect_value(t, status, proto.Status.Ok)
+				append(&opened, conv)
+			} else {
+				testing.expect_value(t, status, proto.Status.Too_Large)
+			}
+		}
+	}
+	testing.expect_value(t, len(opened), MAX_EMPTY_GROUPS)
+	empty, total := groups_started(&s.convs, account_find(&s.accounts, "alice").id)
+	testing.expect_value(t, empty, MAX_EMPTY_GROUPS)
+	testing.expect_value(t, total, MAX_EMPTY_GROUPS)
+
+	// A group that is already there is opened again, whatever the limit.
+	status, _ = group_open_as(t, &ts, alice, others[0], others[1])
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	// A message in one of them makes room for another.
+	_, _ = post(t, &ts, alice, opened[0], "hello", 1)
+	empty, total = groups_started(&s.convs, account_find(&s.accounts, "alice").id)
+	testing.expect_value(t, empty, MAX_EMPTY_GROUPS - 1)
+	status, _ = group_open_as(t, &ts, alice, others[6], others[7])
+	testing.expect_value(t, status, proto.Status.Ok)
+	status, _ = group_open_as(t, &ts, alice, others[5], others[7])
+	testing.expect_value(t, status, proto.Status.Too_Large)
 }

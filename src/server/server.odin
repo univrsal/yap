@@ -84,6 +84,7 @@ Conn :: struct {
 	last_typing:     time.Tick, // see handle_typing
 	// How many requests it may still make (request_take in rpc.odin).
 	requests:        proto.Bucket, // see request_take
+	voice:           proto.Bucket, // see voice_take
 	request_warned:  bool, // that it's over the limit, until it's not
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
@@ -423,6 +424,9 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		}
 		return
 	}
+	if !session_finish_from_ok(c, from) {
+		return
+	}
 
 	conn_id, link, result := session_finish(c, &s.gate, s.password, packet, from)
 	switch result {
@@ -440,6 +444,13 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 
 	u := conn_of(s, c.peer_key)
+	if (u == nil || u.account == nil) && !unlogged_room(s, from) {
+		// Too many sessions that haven't logged in, from this address or in
+		// all. The client will try again.
+		log.debugf("no room for another session that hasn't logged in, from %v", net.to_string(from))
+		drop_session(s, idx)
+		return
+	}
 	if link == .Bulk {
 		bind_bulk(s, c, u, conn_id, from)
 		return
@@ -494,6 +505,33 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// The client waits for the Welcome on a new session. Anything that
 	// logging in queued for it is sent after this, later in this iteration.
 	send_welcome(s, c)
+}
+
+// How many sessions that have finished their handshake but whose connection
+// hasn't logged in there may be, from one address (the web relay's browsers
+// all come from this machine, so it is exempt) and in all (as a part of
+// max_sessions). A session that never logs in is kept alive by Pings until
+// REJECT_AFTER, and a host that makes handshakes with random keys could
+// otherwise fill the whole table with them, and keep new clients and every
+// rekey out. Logged in connections, and the sessions they make for rekeying
+// or a bulk link, aren't counted.
+UNLOGGED_PER_ADDRESS :: 16
+
+// unlogged_room says whether another session that hasn't logged in may be
+// kept for `from`.
+unlogged_room :: proc(s: ^Server, from: net.Endpoint) -> bool {
+	addr := gate.key_of(from)
+	total, mine := 0, 0
+	for _, c in s.sessions {
+		if !c.keyed || (c.conn != nil && c.conn.account != nil) {
+			continue
+		}
+		total += 1
+		if gate.key_of(c.endpoint) == addr {
+			mine += 1
+		}
+	}
+	return total < max(s.max_sessions / 2, 1) && (gate.local(from) || mine < UNLOGGED_PER_ADDRESS)
 }
 
 // bind_bulk makes a session that has just finished its handshake the bulk
@@ -723,7 +761,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 	switch kind {
 	case .Voice:
-		if len(pt) >= proto.VOICE_UP_HEADER_SIZE {
+		if len(pt) >= proto.VOICE_UP_HEADER_SIZE && voice_take(c.conn, len(pt)) {
 			relay_voice(s, c, pt)
 		}
 	case .State_Ack:
@@ -990,6 +1028,25 @@ bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 		}
 	}
 	return nil
+}
+
+// A connection may send voice at VOICE_RATE a second, and VOICE_BURST at
+// once, where each packet costs VOICE_PACKET_COST and its length. Every
+// packet is sent again to everyone else in the room (and costs a pass over all
+// the sessions), so without a limit one account sending packets as fast as
+// the link goes would multiply its traffic by the size of the room and use up
+// the main loop. A client sends one packet every 20 ms of at most about 500
+// bytes (Music, 192 kbit/s), which is 45 000 of these a second.
+VOICE_RATE :: 60_000
+VOICE_BURST :: 30_000
+VOICE_PACKET_COST :: 400
+
+// voice_take takes what a voice packet of `size` bytes costs, if the
+// connection has that much left. A packet that doesn't is dropped, like one
+// lost on the way.
+voice_take :: proc(u: ^Conn, size: int) -> bool {
+	proto.bucket_refill(&u.voice, time.tick_now(), VOICE_RATE, VOICE_BURST)
+	return proto.bucket_take(&u.voice, f64(VOICE_PACKET_COST + size))
 }
 
 // relay_voice forwards a voice frame to everyone else in the speaker's

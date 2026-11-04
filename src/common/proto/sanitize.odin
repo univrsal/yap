@@ -1,6 +1,7 @@
 package proto
 
 import "core:strings"
+import "core:unicode"
 import "core:unicode/utf8"
 
 // Display names are the names accounts are shown with (see accounts.odin).
@@ -111,22 +112,108 @@ sanitize_message :: proc(text: string, buf: []u8) -> string {
 	return string(buf[:n])
 }
 
-// Zero-width characters, bidirectional controls and the BOM. These could make
-// a name look like another one or rearrange the text around it.
+// Characters that show nothing (or only change how what is around them is
+// shown): zero-width characters, bidirectional controls, the BOM, the
+// default-ignorable fillers (Hangul and Braille blanks among them), the
+// invisible operators and annotation marks, and the tag characters (which
+// carry hidden text). They could make a name look like another one, or
+// rearrange the text around it. Variation selectors aren't here: emoji need
+// them.
 @(private = "file")
 invisible :: proc(r: rune) -> bool {
 	switch r {
 	case 0x00AD,
-	     0x200B ..=
-	     0x200F,
-	     0x202A ..=
-	     0x202E,
-	     0x2060 ..=
-	     0x2064,
-	     0x2066 ..=
-	     0x2069,
-	     0xFEFF:
+	     0x034F,
+	     0x061C,
+	     0x115F,
+	     0x1160,
+	     0x17B4,
+	     0x17B5,
+	     0x180B ..= 0x180F,
+	     0x200B ..= 0x200F,
+	     0x202A ..= 0x202E,
+	     0x2060 ..= 0x206F,
+	     0x2800,
+	     0x3164,
+	     0xFEFF,
+	     0xFFA0,
+	     0xFFF9 ..= 0xFFFB,
+	     0xE0000 ..= 0xE007F:
 		return true
 	}
 	return false
+}
+
+// name_skeleton reduces a name to what it looks like, so that two names that
+// look alike are equal: invisible characters and variation selectors are
+// dropped, letters are folded to lower case, full-width forms become
+// ASCII, and letters that look like a Latin one (Cyrillic and Greek ones, and
+// the likes of 0 and O, 1, l and I) become that one. It errs on the side of
+// calling names alike: the cost of that is only that clients show the
+// username next to the name.
+name_skeleton :: proc(name: string, allocator := context.temp_allocator) -> string {
+	b := strings.builder_make(allocator)
+	for r in name {
+		r := r
+		switch {
+		case invisible(r), r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF:
+			continue
+		case r >= 0xFF01 && r <= 0xFF5E:
+			r -= 0xFEE0 // full-width ASCII
+		}
+		r = unicode.to_lower(r)
+		switch r {
+		case 'а', 'α':
+			r = 'a'
+		case 'ь', 'ъ':
+			r = 'b'
+		case 'с', 'ϲ':
+			r = 'c'
+		case 'ԁ':
+			r = 'd'
+		case 'е', 'ё', 'є':
+			r = 'e'
+		case 'һ':
+			r = 'h'
+		case 'і', 'ї', 'ι', 'ı', 'l', '1', '|':
+			r = 'i'
+		case 'ј':
+			r = 'j'
+		case 'к', 'κ':
+			r = 'k'
+		case 'м':
+			r = 'm'
+		case 'п', 'η':
+			r = 'n'
+		case 'о', 'ο', '0':
+			r = 'o'
+		case 'р', 'ρ':
+			r = 'p'
+		case 'ԛ':
+			r = 'q'
+		case 'ѕ', '5':
+			r = 's'
+		case 'т', 'τ':
+			r = 't'
+		case 'υ', 'ц':
+			r = 'u'
+		case 'ν':
+			r = 'v'
+		case 'ԝ':
+			r = 'w'
+		case 'х', 'χ':
+			r = 'x'
+		case 'у', 'γ':
+			r = 'y'
+		case 'з':
+			r = 'z'
+		}
+		strings.write_rune(&b, r)
+	}
+	return strings.to_string(b)
+}
+
+// names_alike says whether two names look the same (see name_skeleton).
+names_alike :: proc(a, b: string) -> bool {
+	return name_skeleton(a) == name_skeleton(b)
 }

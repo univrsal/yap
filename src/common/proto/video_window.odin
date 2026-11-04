@@ -218,13 +218,15 @@ video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 	if f.frame - w.next >= VIDEO_WINDOW {
 		// Too far ahead: the frames before the window can't be completed anymore.
 		start := f.frame - VIDEO_WINDOW + 1
-		for fr := w.next; fr != start; fr += 1 {
-			s := &w.slots[fr % VIDEO_WINDOW]
-			if s.used && s.frame == fr {
-				clear_slot(s)
+		// The gap can be as large as 2^31 frames (the frame number is the
+		// sender's), so don't walk it: only the slots can hold anything.
+		skipped := start - w.next
+		for &s in w.slots {
+			if s.used && s.frame - w.next < skipped {
+				clear_slot(&s)
 			}
-			w.given_up += 1
 		}
+		w.given_up += int(skipped)
 		if !w.broken {
 			w.breaks += 1
 			w.last_break = {

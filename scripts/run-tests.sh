@@ -24,7 +24,7 @@ else
 		src/common/imagekind src/common/memtrack
 		src/client/hotkeys src/client/richtext src/client/script
 		src/client/imaging src/client/settings src/client/platform
-		src/client/clipboard src/client/audio src/client/audio/opus
+		src/client/clipboard src/client/audio src/client/audio/opus src/client/headless
 		src/client/audio/rnn src/client/render src/client/conn src/client
 		src/server/webpush src/server/mail src/server/mattermost
 		src/lib/http src/lib/gateway src/server

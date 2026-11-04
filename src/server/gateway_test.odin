@@ -403,6 +403,24 @@ test_gateway_login :: proc(t: ^testing.T) {
 			path = "/api/v1/login",
 			body = `{"username": "Alice", "password": "alice's password", "device": "weather cron"}`,
 		},
+		// Nothing nested deeply (json recurses without a limit), nothing large.
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = strings.repeat("[", 2000, context.temp_allocator),
+		},
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = strings.concatenate(
+				{
+					`{"username": "alice", "password": "`,
+					strings.repeat("x", 8000, context.temp_allocator),
+					`"}`,
+				},
+				context.temp_allocator,
+			),
+		},
 	}
 	defer calls_destroy(calls)
 	if !gt_calls(t, &ts, &h, calls) {
@@ -414,6 +432,9 @@ test_gateway_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, calls[2].status, 400)
 	testing.expect_value(t, calls[3].status, 401)
 	testing.expect_value(t, calls[4].status, 200)
+	testing.expect_value(t, calls[5].status, 400)
+	testing.expect_value(t, error_of(calls[5].reply), "invalid")
+	testing.expect_value(t, calls[6].status, 413)
 	got: gateway.Token_JSON
 	testing.expect_value(
 		t,
@@ -2269,4 +2290,391 @@ test_gateway_commands :: proc(t: ^testing.T) {
 		testing.expect_value(t, update.d.bot.username, "helper")
 		testing.expect_value(t, len(update.d.commands), 0)
 	}
+}
+
+// ---- transfers that fail ----
+
+// Raw is a request that another thread sends as it is, without waiting for
+// an answer. The connection stays open until the test closes it (gt_raw_close),
+// which is how a bot that goes away in the middle of a transfer is played.
+@(private = "file")
+Raw :: struct {
+	port:    int,
+	request: string, // owned by the test
+	close:   bool, // atomic
+	done:    bool, // atomic
+}
+
+@(private = "file")
+gt_raw :: proc(r: ^Raw) -> ^thread.Thread {
+	return thread.create_and_start_with_poly_data(r, proc(r: ^Raw) {
+			defer sync.atomic_store(&r.done, true)
+			sock, err := net.dial_tcp(net.Endpoint{net.IP4_Loopback, r.port})
+			if err != nil {
+				return
+			}
+			defer net.close(sock)
+			if !http.send_all(sock, transmute([]u8)r.request) {
+				return
+			}
+			for !sync.atomic_load(&r.close) {
+				time.sleep(time.Millisecond)
+			}
+		}, init_context = context)
+}
+
+// gt_raw_close closes the connection of `r` while the server keeps running.
+@(private = "file")
+gt_raw_close :: proc(ts: ^Test_Server, r: ^Raw, th: ^thread.Thread) {
+	sync.atomic_store(&r.close, true)
+	for !sync.atomic_load(&r.done) {
+		lt_turn(ts)
+	}
+	thread.join(th)
+	thread.destroy(th)
+}
+
+// gt_until keeps the server running until `cond` holds, for at most 10 seconds.
+// It returns whether `cond` came to hold.
+@(private = "file")
+gt_until :: proc(ts: ^Test_Server, cond: proc(s: ^Server) -> bool) -> bool {
+	start := time.tick_now()
+	for time.tick_since(start) < 10 * time.Second {
+		if cond(&ts.s) {
+			return true
+		}
+		lt_turn(ts)
+	}
+	return cond(&ts.s)
+}
+
+// A gateway, a bot that may upload files, and a server that takes them.
+@(private = "file")
+Files_Setup :: struct {
+	ts:    Test_Server,
+	h:     Harness,
+	dir:   string,
+	token: string,
+	home:  proto.Conv_Id,
+}
+
+@(private = "file")
+files_open :: proc(t: ^testing.T, f: ^Files_Setup) {
+	lt_open(t, &f.ts)
+	s := &f.ts.s
+	f.dir = strings.clone(test_dir(t))
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, f.dir))
+	attachments_open(s, {max_megabytes = 8, rate_kb = 1024 * 1024})
+	admin := gt_admin(t, &f.ts)
+	pub: [proto.KEY_SIZE]u8
+	f.token, pub = gt_token(t, &f.ts, admin, "helper")
+	bot := device_of(&s.accounts, pub).account
+	conv_member_add(&s.convs, s.convs.home, bot)
+	f.home = s.convs.home.id
+	gt_open(t, &f.ts, &f.h)
+}
+
+@(private = "file")
+files_close :: proc(f: ^Files_Setup) {
+	gt_close(&f.ts, &f.h)
+	attachments_close(&f.ts.s)
+	lt_close(&f.ts)
+	remove_tree(f.dir)
+	delete(f.dir)
+	delete(f.token)
+}
+
+// gt_upload_request is the head of an upload of `size` bytes, followed by the
+// first `sent` of them.
+@(private = "file")
+gt_upload_request :: proc(token: string, size, sent: int) -> string {
+	b := strings.builder_make()
+	fmt.sbprintf(
+		&b,
+		"POST /api/v1/uploads?name=part.bin HTTP/1.1\r\nHost: test\r\nAuthorization: Bot %s\r\nContent-Length: %d\r\n\r\n",
+		token,
+		size,
+	)
+	for _ in 0 ..< sent {
+		strings.write_byte(&b, 'x')
+	}
+	return strings.to_string(b)
+}
+
+// A bot that goes away before it has sent the whole body: the gateway cancels
+// the upload on the server, which drops it, and carries on for the next bot.
+@(test)
+test_gateway_upload_cut_short :: proc(t: ^testing.T) {
+	f: Files_Setup
+	files_open(t, &f)
+	defer files_close(&f)
+	ts := &f.ts
+
+	r := Raw {
+		port    = f.h.port,
+		request = gt_upload_request(f.token, 500_000, 50_000),
+	}
+	defer delete(r.request)
+	th := gt_raw(&r)
+	// Once the server has some of it, the bot hangs up.
+	started := gt_until(ts, proc(s: ^Server) -> bool {
+		for _, up in s.attach.uploads {
+			return up.recv.done > 0
+		}
+		return false
+	})
+	testing.expect(t, started, "the upload didn't start")
+	gt_raw_close(ts, &r, th)
+	if !started {
+		return
+	}
+	testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
+		return len(s.attach.uploads) == 0
+	}), "the server kept the upload")
+
+	gt_run(t, ts, &f.h, f.token, {{"GET", "/api/v1/me", "", 200}})
+}
+
+// The server cancels an upload: the bot is told so.
+@(test)
+test_gateway_upload_cancelled :: proc(t: ^testing.T) {
+	f: Files_Setup
+	files_open(t, &f)
+	defer files_close(&f)
+	ts := &f.ts
+	s := &ts.s
+
+	// Small enough to be sent whole before the gateway reads any of it.
+	body := strings.repeat("x", 100_000)
+	defer delete(body)
+	calls := []Call {
+		{method = "POST", path = "/api/v1/uploads?name=part.bin", token = f.token, body = body},
+	}
+	defer calls_destroy(calls)
+	sc := Script {
+		port  = f.h.port,
+		calls = calls,
+	}
+	worker := thread.create_and_start_with_poly_data(&sc, gt_script, init_context = context)
+	// As soon as the server has accepted it, and before any of it has
+	// arrived, the server gives up on it.
+	if testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
+		return len(s.attach.uploads) == 1
+	})) {
+		for _, up in s.attach.uploads {
+			buf: [proto.TRANSFER_CANCEL_SIZE]u8
+			cancel := proto.encode_transfer_cancel(&buf, up.id, .Failed)
+			send_message(s, sending_session(s, up.conn), cancel)
+		}
+	}
+	for !sync.atomic_load(&sc.done) {
+		lt_turn(ts)
+	}
+	thread.join(worker)
+	thread.destroy(worker)
+	if !testing.expect(t, sc.ok, "the upload got no answer") {
+		return
+	}
+	testing.expect_value(t, calls[0].status, 502)
+	testing.expect_value(t, error_of(calls[0].reply), "bad_gateway")
+	testing.expect(t, strings.contains(calls[0].reply, "Failed"), calls[0].reply)
+
+	gt_run(t, ts, &f.h, f.token, {{"GET", "/api/v1/me", "", 200}})
+}
+
+// A bot that goes away in the middle of fetching an attachment: the gateway
+// cancels the download on the server, which stops sending it.
+@(test)
+test_gateway_download_cut_short :: proc(t: ^testing.T) {
+	f: Files_Setup
+	files_open(t, &f)
+	defer files_close(&f)
+	ts := &f.ts
+	s := &ts.s
+
+	file := strings.repeat("y", 300_000)
+	defer delete(file)
+	home_messages := fmt.aprintf("/api/v1/convs/%d/messages", f.home)
+	defer delete(home_messages)
+	r := gt_run(t, ts, &f.h, f.token, {{"POST", "/api/v1/uploads?name=big.bin", file, 201}})
+	if r == nil {
+		return
+	}
+	upload: struct {
+		id: string,
+	}
+	if !gt_json(t, r[0], &upload) {
+		return
+	}
+	post_body := strings.concatenate({`{"attachments": ["`, upload.id, `"]}`})
+	defer delete(post_body)
+	r = gt_run(t, ts, &f.h, f.token, {{"POST", home_messages, post_body, 201}})
+	if r == nil {
+		return
+	}
+	post: struct {
+		attachments: []struct {
+			id: string,
+		},
+	}
+	if !gt_json(t, r[0], &post) || !testing.expect_value(t, len(post.attachments), 1) {
+		return
+	}
+
+	// Slowly, so that it is still going when the bot hangs up.
+	s.attach.rate = 16 * 1024
+	raw := Raw {
+		port    = f.h.port,
+		request = fmt.aprintf(
+			"GET /api/v1/attachments/%s HTTP/1.1\r\nHost: test\r\nAuthorization: Bot %s\r\n\r\n",
+			post.attachments[0].id,
+			f.token,
+		),
+	}
+	defer delete(raw.request)
+	th := gt_raw(&raw)
+	started := gt_until(ts, proc(s: ^Server) -> bool {
+		return len(s.attach.downloads) == 1
+	})
+	testing.expect(t, started, "the download didn't start")
+	gt_raw_close(ts, &raw, th)
+	if !started {
+		return
+	}
+	testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
+		return len(s.attach.downloads) == 0
+	}), "the server kept sending the attachment")
+}
+
+// Uploads refused before their body is read. A small body is read anyway so
+// that the connection can be used for the next request.
+@(test)
+test_gateway_upload_refused :: proc(t: ^testing.T) {
+	f: Files_Setup
+	files_open(t, &f)
+	defer files_close(&f)
+	ts := &f.ts
+
+	long_name := strings.concatenate(
+		{
+			"/api/v1/uploads?name=",
+			strings.repeat("n", proto.MAX_FILE_NAME + 1, context.temp_allocator),
+		},
+	)
+	defer delete(long_name)
+	calls := []Call {
+		{method = "POST", path = "/api/v1/uploads", token = f.token, body = "no name"},
+		{method = "POST", path = long_name, token = f.token, body = "long name"},
+		{method = "POST", path = "/api/v1/uploads?name=a", body = "no token"},
+		{method = "GET", path = "/api/v1/me", token = f.token},
+		// Nothing to upload: the connection closes after this.
+		{method = "POST", path = "/api/v1/uploads?name=a", token = f.token},
+	}
+	defer calls_destroy(calls)
+	if gt_calls(t, ts, &f.h, calls) {
+		testing.expect_value(t, calls[0].status, 400)
+		testing.expect(t, strings.contains(calls[0].reply, "?name="), calls[0].reply)
+		testing.expect_value(t, calls[1].status, 400)
+		testing.expect(t, strings.contains(calls[1].reply, "at most 200 bytes"), calls[1].reply)
+		testing.expect_value(t, calls[2].status, 401)
+		testing.expect_value(t, calls[3].status, 200)
+		testing.expect_value(t, calls[4].status, 411)
+	}
+
+	wrong := []Call{{method = "GET", path = "/api/v1/uploads?name=a", token = f.token}}
+	defer calls_destroy(wrong)
+	if gt_calls(t, ts, &f.h, wrong) {
+		testing.expect_value(t, wrong[0].status, 405)
+		testing.expect_value(t, wrong[0].allow, "POST")
+	}
+	testing.expect_value(t, len(ts.s.attach.uploads), 0)
+}
+
+// POST /groups: a group with two others, and lists of others that aren't. A
+// bot can't be in a group, so the groups are opened by a person's token.
+@(test)
+test_gateway_groups :: proc(t: ^testing.T) {
+	ts: Test_Server
+	lt_open(t, &ts)
+	defer lt_close(&ts)
+	admin := gt_admin(t, &ts)
+	ts_account(t, &ts, "alice", "alice's password")
+	bob := ts_account(t, &ts, "bob", "bob's password")
+	carol := ts_account(t, &ts, "carol", "carol's password")
+	bot_token, bot_pub := gt_token(t, &ts, admin, "helper")
+	defer delete(bot_token)
+	bot := device_of(&ts.s.accounts, bot_pub).account
+	h: Harness
+	gt_open(t, &ts, &h)
+	defer gt_close(&ts, &h)
+
+	login := []Call {
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = `{"username": "alice", "password": "alice's password"}`,
+		},
+	}
+	defer calls_destroy(login)
+	if !gt_calls(t, &ts, &h, login) || !testing.expect_value(t, login[0].status, 200) {
+		return
+	}
+	got: gateway.Token_JSON
+	if !gt_json(t, login[0].reply, &got) {
+		return
+	}
+	token := strings.clone(got.token)
+	defer delete(token)
+
+	// The braces go in as arguments, as fmt would take them for its own.
+	body :: proc(a, b: proto.Account_Id) -> string {
+		return fmt.aprintf("%s%d\", \"%d%s", `{"accounts": ["`, a, b, `"]}`)
+	}
+	both := body(bob.id, carol.id)
+	defer delete(both)
+	one := fmt.aprintf("%s%d%s", `{"accounts": ["`, bob.id, `"]}`)
+	defer delete(one)
+	zero := body(bob.id, 0)
+	defer delete(zero)
+	unknown := body(bob.id, 99999)
+	defer delete(unknown)
+	with_bot := body(bob.id, bot)
+	defer delete(with_bot)
+	r := gt_run(
+		t,
+		&ts,
+		&h,
+		token,
+		{
+			{"POST", "/api/v1/groups", both, 200},
+			{"POST", "/api/v1/groups", both, 200},
+			{"POST", "/api/v1/groups", one, 400},
+			{"POST", "/api/v1/groups", zero, 400},
+			{"POST", "/api/v1/groups", `{"accounts": "everyone"}`, 400},
+			{"POST", "/api/v1/groups", `not json`, 400},
+			{"POST", "/api/v1/groups", unknown, 404},
+			{"POST", "/api/v1/groups", with_bot, 403},
+		},
+	)
+	if r == nil {
+		return
+	}
+	group, again: struct {
+		id:      string,
+		kind:    string,
+		members: []string,
+	}
+	if !gt_json(t, r[0], &group) || !gt_json(t, r[1], &again) {
+		return
+	}
+	testing.expect_value(t, group.kind, "group")
+	// The same group again, not a new one.
+	testing.expect_value(t, again.id, group.id)
+	testing.expect_value(t, len(group.members), 2)
+	for m in group.members {
+		testing.expect(t, m == fmt.tprint(bob.id) || m == fmt.tprint(carol.id), m)
+	}
+
+	// Nor can a bot open one.
+	gt_run(t, &ts, &h, bot_token, {{"POST", "/api/v1/groups", both, 403}})
 }

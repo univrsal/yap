@@ -143,7 +143,13 @@ commands_run :: proc(c: ^Conn, j: ^Job) {
 // sets them again whenever it connects.
 @(private)
 commands_set_run :: proc(c: ^Conn, j: ^Job) {
-	v, err := json.parse(j.body, allocator = context.temp_allocator)
+	v: json.Value
+	err: json.Error
+	if proto.json_nesting_ok(j.body) {
+		v, err = json.parse(j.body, allocator = context.temp_allocator)
+	} else {
+		err = .Unexpected_Token
+	}
 	items, is_list := v.(json.Array)
 	if err != nil || !is_list {
 		reply(

@@ -233,3 +233,17 @@ test_dimensions :: proc(t: ^testing.T) {
 		testing.expectf(t, w == c.width && h == c.height, "%s: %dx%d", c.name, w, h)
 	}
 }
+
+@(test)
+test_stbi_readable :: proc(t: ^testing.T) {
+	testing.expect(t, stbi_readable([]u8{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0}))
+	testing.expect(t, stbi_readable([]u8{0xFF, 0xD8, 0xFF, 0xE0, 0, 0}))
+	testing.expect(t, stbi_readable(transmute([]u8)string("GIF89a\x01\x00\x01\x00")))
+	testing.expect(t, stbi_readable(transmute([]u8)string("BM\x1e\x00\x00\x00\x00\x00\x00\x00\x1a\x00\x00\x00\x0c\x00\x00\x00")))
+	// What stb_image also reads, and what isn't a picture.
+	testing.expect(t, !stbi_readable(transmute([]u8)string("P6\n1 1\n255\n\x01\x02\x03")))
+	testing.expect(t, !stbi_readable(transmute([]u8)string("#?RADIANCE\n")))
+	testing.expect(t, !stbi_readable(transmute([]u8)string("8BPS\x00\x01")))
+	testing.expect(t, !stbi_readable(transmute([]u8)string("BM")))
+	testing.expect(t, !stbi_readable(nil))
+}

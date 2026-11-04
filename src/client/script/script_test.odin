@@ -366,6 +366,85 @@ test_huge_strings_are_refused :: proc(t: ^testing.T) {
 	)
 }
 
+// A finalizer runs when the state is closed, and not under the instruction
+// limit, so scripts may not have any.
+@(test)
+test_finalizers_are_refused :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		assert(not pcall(setmetatable, {}, { __gc = function() end }))
+		assert(not pcall(setmetatable, {}, { __gc = true }))
+		assert(not pcall(setmetatable, {}, { __gc = false }))
+		-- Other metatables still work.
+		local obj = setmetatable({}, { __index = function(_, k) return k .. "!" end })
+		assert(obj.x == "x!")
+		assert(getmetatable(obj) ~= nil)
+		assert(setmetatable({}, nil) ~= nil)
+		`,
+	)
+}
+
+// A call of a C function can't be interrupted by the time limit, so what could
+// take very long is bounded in itself: patterns by a budget of steps, and
+// table.move by how many elements it moves.
+@(test)
+test_long_calls_are_bounded :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		`
+		-- 2^35 steps without the budget.
+		local ok, err = pcall(string.find, ("a"):rep(35), ("a?"):rep(35) .. "b")
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		-- A power of the length: a*b on a string of a's is quadratic.
+		local ok, err = pcall(string.find, ("a"):rep(1 << 16), "a*a*a*b")
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		ok, err = pcall(string.gsub, ("a"):rep(1 << 16), "a-b", "")
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		ok, err = pcall(function() for _ in (("a"):rep(1 << 16)):gmatch(".-b") do end end)
+		assert(not ok and tostring(err):find("too complex"), tostring(err))
+		-- The budget is for one call: the next one starts anew.
+		assert(("hello world"):find("o w") == 5)
+		assert(("hello world"):match("(%w+) (%w+)") == "hello")
+		-- And what is ordinary on big strings still works: a megabyte with
+		-- a simple pattern takes about two million steps.
+		local big = ("abc "):rep(1 << 18)
+		local n = 0
+		for _ in big:gmatch("%a+") do n = n + 1 end
+		assert(n == 1 << 18, n)
+		local replaced, count = big:gsub("b", "B")
+		assert(count == 1 << 18 and #replaced == #big)
+		assert(big:find("abc x", 1, true) == nil)
+
+		assert(not pcall(table.move, {}, 1, 1 << 60, 1))
+		assert(not pcall(table.move, {}, 1, math.maxinteger, 2))
+		assert(not pcall(table.move, {}, -(1 << 40), 1 << 40, 1))
+		assert(table.concat(table.move({1, 2, 3}, 1, 3, 2), ",") == "1,1,2,3")
+		assert(#table.move({1, 2, 3}, 1, 3, 1, {}) == 3)
+		`,
+	)
+}
+
+// destroy closes the Lua state while the host's state is still there, and
+// whatever runs while it closes can't use yap.* any more.
+@(test)
+test_destroy_stops_the_api :: proc(t: ^testing.T) {
+	s := new_script(t)
+	load(t, s, `yap.timer("x", 1)`)
+	testing.expect_value(t, len(s.timers), 1)
+	s.closing = true
+	load(t, s, `yap.timer("y", 1)`)
+	testing.expect_value(t, len(s.timers), 1)
+	s.closing = false
+	destroy(s)
+}
+
 @(test)
 test_nothing_leaks_when_destroyed_midway :: proc(t: ^testing.T) {
 	// The test runner reports memory still allocated at the end.
@@ -1221,4 +1300,96 @@ test_status_and_the_limit_on_notifications :: proc(t: ^testing.T) {
 	results, _, _ = run_to_end(s)
 	defer finish(&results)
 	testing.expectf(t, results[0].status == .Finished, "%v", results[0].message)
+}
+
+// Every run of a handler is timed and counted under its name, and failures
+// are counted too.
+@(test)
+test_profile_counts_handlers :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	load(
+		t,
+		s,
+		"function on_message(text) local n = 0 for i = 1, 20000 do n = n + i end end\nfunction on_presence() error('boom') end",
+	)
+	for _ in 0 ..< 3 {
+		_, ok := call(s, "on_message", "hi")
+		testing.expect(t, ok)
+	}
+	_, ok := call(s, "on_presence", "x")
+	testing.expect(t, ok)
+	results, _, _ := run_to_end(s)
+	defer finish(&results)
+
+	messages, presences: Profile_Stat
+	for st in s.profile.stats {
+		switch st.name {
+		case "on_message":
+			messages = st
+		case "on_presence":
+			presences = st
+		}
+	}
+	testing.expect_value(t, messages.calls, 3)
+	testing.expect_value(t, messages.failed, 0)
+	testing.expect(t, messages.total > 0 && messages.max > 0 && messages.max <= messages.total)
+	testing.expect_value(t, presences.calls, 1)
+	testing.expect_value(t, presences.failed, 1)
+
+	text, total := profile_text(s.name, &s.profile, time.Minute)
+	testing.expect(t, total > 0)
+	testing.expect(t, strings.contains(text, "script test: in the last 1m0s, 5 calls took"), text)
+	testing.expect(t, strings.contains(text, "1 failed"), text)
+	testing.expect(t, strings.contains(text, "on_message 3 x"), text)
+}
+
+// A slow call is noted once, and then no more often than SLOW_LOG_EVERY, the
+// others being counted. A filter is slow sooner, and names are limited.
+@(test)
+test_profile_slow_and_limits :: proc(t: ^testing.T) {
+	s := new_script(t)
+	defer destroy(s)
+	profile_record(s, "on_message", SLOW_CALL - time.Microsecond, false, false)
+	testing.expect_value(t, s.profile.slow, 0)
+	profile_record(s, "on_message", SLOW_CALL, false, false)
+	testing.expect_value(t, s.profile.slow, 1)
+	// Noted: counting starts anew. The next ones are held back.
+	st := &s.profile.stats[0]
+	testing.expect_value(t, st.slow, 0)
+	profile_record(s, "on_message", 2 * SLOW_CALL, false, false)
+	profile_record(s, "on_message", 3 * SLOW_CALL, false, false)
+	st = &s.profile.stats[0]
+	testing.expect_value(t, st.slow, 2)
+	testing.expect_value(t, st.max, 3 * SLOW_CALL)
+	// After SLOW_LOG_EVERY the next one is noted, with the two held back.
+	st.logged = time.tick_add(time.tick_now(), -SLOW_LOG_EVERY - time.Second)
+	profile_record(s, "on_message", SLOW_CALL, false, false)
+	testing.expect_value(t, s.profile.stats[0].slow, 0)
+
+	// A filter has less time.
+	profile_record(s, "on_incoming", SLOW_FILTER, false, true)
+	testing.expect_value(t, s.profile.slow, 5)
+	profile_record(s, "on_incoming", SLOW_FILTER - time.Microsecond, false, true)
+	testing.expect_value(t, s.profile.slow, 5)
+
+	// Over PROFILE_NAMES handlers, the rest is counted together.
+	for i in 0 ..< PROFILE_NAMES + 10 {
+		profile_record(s, fmt.tprintf("command %d", i), time.Microsecond, false, false)
+	}
+	testing.expect(t, len(s.profile.stats) <= PROFILE_NAMES + 1)
+	other := 0
+	for st in s.profile.stats {
+		if st.name == PROFILE_OTHER {
+			other = st.calls
+		}
+	}
+	testing.expect(t, other > 0)
+
+	// Flushing starts over.
+	profile_flush(s, time.tick_now())
+	testing.expect_value(t, len(s.profile.stats), 0)
+	testing.expect_value(t, s.profile.slow, 0)
+	text, _ := profile_text(s.name, &s.profile, time.Minute)
+	testing.expect_value(t, text, "")
 }

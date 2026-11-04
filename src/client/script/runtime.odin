@@ -73,6 +73,8 @@ Runtime :: struct {
 	entries:             [dynamic]Entry, // those that are running
 	next_id:             Server_Id,
 	results:             [dynamic]Result,
+	// When the scripts' profiles were last logged (profile.odin).
+	profiled:            time.Tick,
 	// Command lines typed on another thread (runtime_queue_command), run by
 	// the next runtime_step.
 	queue_mutex:         sync.Mutex,
@@ -232,6 +234,23 @@ runtime_step :: proc(rt: ^Runtime, budget: time.Duration) {
 		entry_save(&e)
 	}
 	report(rt, &rt.results)
+	profile_log(rt)
+}
+
+// profile_log logs what the scripts' handlers took, every PROFILE_EVERY.
+@(private = "file")
+profile_log :: proc(rt: ^Runtime) {
+	now := time.tick_now()
+	if rt.profiled == {} {
+		rt.profiled = now
+	}
+	if time.tick_diff(rt.profiled, now) < PROFILE_EVERY {
+		return
+	}
+	rt.profiled = now
+	for &e in rt.entries {
+		profile_flush(e.script, now)
+	}
 }
 
 @(private = "file")

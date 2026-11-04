@@ -137,6 +137,22 @@ test_search :: proc(t: ^testing.T) {
 	status, _, _, _ = search(t, &ts, bob, gaming.id, "cafe")
 	testing.expect(t, status != .Ok)
 
+	// A word that only occurs where bob can't read leaves no trace in his
+	// answer: not as a result, and not in how far the search got, which
+	// would give away that it is there and when it was posted. The answer is
+	// the same as for a word that occurs nowhere.
+	more_b: bool
+	to_none, to_secret: proto.Msg_Id
+	_, ids, more_b, to_none = search(t, &ts, bob, 0, "nowhere")
+	testing.expect(t, len(ids) == 0 && !more_b)
+	_, ids, more_b, to_secret = search(t, &ts, bob, 0, "secret")
+	testing.expect(t, len(ids) == 0 && !more_b)
+	testing.expect_value(t, to_secret, to_none)
+	// And has:file doesn't walk them either.
+	_, ids, more_b, to_secret = search(t, &ts, bob, 0, "has:file")
+	testing.expect(t, len(ids) == 0 && !more_b)
+	testing.expect_value(t, to_secret, to_none)
+
 	// A query without any words is refused.
 	status, _, _, _ = search(t, &ts, bob, home, "!!!")
 	testing.expect_value(t, status, proto.Status.Invalid)

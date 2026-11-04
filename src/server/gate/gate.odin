@@ -184,7 +184,8 @@ cookie_valid :: proc(g: ^Gate, packet: []byte, from: net.Endpoint) -> bool {
 // key_of returns the address of an endpoint, without the port, as bytes.
 key_of :: common.address_key
 
-@(private = "file")
+// local says whether an address is this machine, where the web relay's
+// browsers all come from.
 local :: proc(from: net.Endpoint) -> bool {
 	switch a in from.address {
 	case net.IP4_Address:

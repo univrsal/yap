@@ -1,17 +1,18 @@
 package conn
 
 import "core:fmt"
-import "core:strings"
 
 import "common:."
 import "common:proto"
 
 // How people are shown: by the name of their account (see auth.odin for where
 // accounts come from). Display names are not unique, so if another connected
-// user has the same display name (ignoring case), the username is shown too:
+// user has a display name that looks the same (ignoring case, invisible
+// characters and look-alike letters, see proto.name_skeleton), the username is
+// shown too:
 //
 // 	Alice
-// 	Alice (alice2)   when another "Alice" or "alice" is here
+// 	Alice (alice2)   when another "Alice", "alice" or "Аlice" (Cyrillic А) is here
 
 // fingerprint is the first 4 bytes of a public key in hex, which is used to
 // tell devices apart.
@@ -31,12 +32,12 @@ display_name :: proc(c: ^Server_Conn, num: proto.User_Num) -> string {
 		// The snapshot arrived before the account did.
 		return fmt.tprintf("account #%d", user.account)
 	}
+	shown := proto.name_skeleton(acc.display)
 	for &other in ch.state.users {
 		if other.account == user.account {
 			continue
 		}
-		if o, ok := c.auth.accounts[other.account];
-		   ok && strings.equal_fold(o.display, acc.display) {
+		if o, ok := c.auth.accounts[other.account]; ok && proto.name_skeleton(o.display) == shown {
 			return fmt.tprintf("%s (%s)", acc.display, acc.username)
 		}
 	}

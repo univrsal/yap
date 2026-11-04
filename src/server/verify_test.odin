@@ -164,6 +164,14 @@ test_verify :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, u, .Server_Info)
 	testing.expect_value(t, status, proto.Status.Ok)
 
+	// It isn't told what is said in the channels it joined by registering
+	// either, until it has verified.
+	ts_account(t, &ts, "frank", "a password")
+	frank := logged_in(t, &ts, "frank")
+	_, _ = post(t, &ts, frank, s.convs.home.id, "private chatter", 1)
+	_, heard := has_event(ts_events(t, &ts, u), .Msg_New)
+	testing.expect(t, !heard)
+
 	// Mails that don't verify the account are still deleted.
 	subject := fmt.tprintf("verify %s", acc.verify_code)
 	mail_in(&ts, 1, "someone@example.com", subject) // not hers

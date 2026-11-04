@@ -7,7 +7,9 @@ import "core:bytes"
 import "core:encoding/endian"
 import "core:image/qoi"
 
-// decode turns PNG, JPEG, BMP, GIF, WebP or QOI data into RGBA pixels. It
+// decode turns PNG, JPEG, BMP, GIF, WebP or QOI data into RGBA pixels, and
+// refuses other formats that stb_image would read (see
+// imagekind.stbi_readable). It
 // refuses images with more than MAX_PIXELS before decoding them. (A server's
 // sheet of emoji is sent as QOI, which core Odin can write but stb_image
 // can't read. stb_image can't read WebP either; libwebp is used for that,
@@ -21,6 +23,12 @@ decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: 
 	}
 	if imagekind.is_webp(data) {
 		return decode_webp(data, allocator)
+	}
+	if !imagekind.stbi_readable(data) {
+		// Not stb_image's other formats (PSD, TGA, HDR, PIC, PNM): nobody sends
+		// those, and their loaders aren't worth the risk.
+		log.debugf("clipboard: not a picture format the client reads")
+		return {}, .Decode_Failed
 	}
 	w, h, comp: i32
 	if stbi.info_from_memory(raw_data(data), i32(len(data)), &w, &h, &comp) == 0 {
