@@ -559,6 +559,8 @@ stack, and the gateway runs inside the server. `json.parse` in
 bot token. Fix: count `[`/`{` depth before parsing (limit about 32), and
 cut the login body to about 1 KiB.
 
+*Fixed (2026-11-04):* `proto.json_nesting_ok` (limit `JSON_MAX_DEPTH`, 32) is checked before `json.unmarshal`/`json.parse` of anything from the API: `POST /login`, `PUT /commands` and `body_object` (every other route with a JSON body). `POST /login` also refuses bodies over `MAX_LOGIN_BODY` (4 KiB) with 413. Tests: `test_json_nesting_ok`, and two calls in `test_gateway_login`. The 512 KiB body is still read before the route is known. Not covered: the Mattermost importer (an admin's own file) and the client's own config and store files.
+
 **S9. No rate limit on UDP Voice.** (Server.) `relay_voice`
 (`server.odin:999`) checks the Speak right, then seals and sends one
 copy to every session (it walks `s.sessions`, not the room's members).
@@ -596,6 +598,8 @@ A hostile sharer can run the viewer out of memory or GPU memory. Fix:
 set `dec->max_pixels` (about 8192 × 4608) before `avcodec_open2`, and
 drop frames above a cap in `Output::submit`.
 
+*Fixed (2026-11-04):* `max_pixels` is set to 8192 × 4608 before `avcodec_open2` (`kMaxPixels` in `view.cpp`, so libdav1d gets it as its frame size limit), and a decoded frame above it, or with no size, ends the view ("a frame is too large") before it reaches the output. The file compiles against the bundled FFmpeg 8.1 headers, but it wasn't run: no test covers the decoder, and watching a share with a forged size is still to be tried by hand.
+
 **S12. Scripts can do more than the approval says.** (Client.)
 - `on_incoming` and `on_send` (`runtime.odin:754`, `:827`) need no
   permission. A script with none can replace or hide incoming messages
@@ -629,6 +633,8 @@ weakest) decode bytes sent by a peer. Previews fetch by file name
 for a PNG, JPEG, GIF or BMP magic with `imagekind` first, or compile
 with `STBI_ONLY_PNG|JPEG|BMP|GIF`.
 
+*Fixed (2026-11-04):* `clipboard.decode` only hands data to stb_image if it starts like a PNG, JPEG, GIF or BMP (`imagekind.stbi_readable`). The other loaders can't be reached through those: each of them needs other first bytes, and TGA, which has no signature, needs the second byte to be 0 or 1. Tests: `test_stbi_readable`, `test_decode_other_formats_are_refused` (stb_image reads the PNM it uses there). Other `stbi` uses load files that are built into the client, or the user's own avatar (`common/avatar`).
+
 **S14. Display names can impersonate with invisible characters.**
 (Protocol/client.) `proto/sanitize.odin:117` (`invisible`) misses
 U+061C, U+115F/1160/3164/FFA0 (Hangul fillers), U+2800, U+034F, U+180E,
@@ -642,6 +648,8 @@ and Cf, Zl and Zp character, and compare names after NFKC, stripping
 and case folding. Related (server): `profile_set` doesn't make display
 names unique, and personas are only checked against exact existing
 names (`personas.odin:30`).
+
+*Fixed (2026-11-04), except uniqueness:* `invisible()` now covers the fillers (U+115F, U+1160, U+3164, U+FFA0), U+2800, U+034F, U+061C, U+17B4/5, U+180B to 180F, U+2060 to 206F and the tag characters; U+2028/2029 become spaces in a name. (Tag characters are gone from messages too, which breaks the flags of England, Scotland and Wales.) `proto.name_skeleton` and `names_alike` fold case, full-width forms, variation selectors and look-alike Cyrillic and Greek letters (and 0, 1, l, |), and are used where the client decides to show the username (`display_name`) and for the names of personas (`persona_check`). Tests: `test_sanitize_name`, `test_names_alike`, `test_persona`. The skeleton table is small and by hand, not Unicode's confusables data. Display names are still not unique (a design choice: the username is shown next to a name that looks the same).
 
 **S15. Groups aren't capped.** (Server.) `MAX_CHANNELS` caps channels,
 nothing caps groups (`conv_requests.odin:145`, `group_open`), and every
@@ -794,8 +802,8 @@ actions pinned by commit, `permissions:` per job.
 1. ~~S5, S3, S6, S7~~ (fixed 2026-11-04).
 2. ~~S2 and S1~~ (fixed 2026-11-04; roaming after login is still open,
    see S2).
-3. S4, S8, S9, S10, S11.
-4. S12 to S16, then the Low items as they come.
+3. ~~S8, S11~~ (fixed 2026-11-04), S4, S9, S10.
+4. S12, S15, S16 (S13, S14 fixed 2026-11-04), then the Low items as they come.
 
 ## Checked and sound
 

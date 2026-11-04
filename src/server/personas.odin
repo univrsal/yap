@@ -29,8 +29,13 @@ persona_check :: proc(
 	if name == "" {
 		return {}, .Invalid
 	}
+	// Not a name that an account has or looks like it has.
+	skeleton := proto.name_skeleton(name)
 	for _, other in s.accounts.by_id {
-		if strings.equal_fold(other.username, name) || strings.equal_fold(other.display, name) {
+		if strings.equal_fold(other.username, name) ||
+		   strings.equal_fold(other.display, name) ||
+		   proto.name_skeleton(other.username) == skeleton ||
+		   proto.name_skeleton(other.display) == skeleton {
 			return {}, .Denied
 		}
 	}

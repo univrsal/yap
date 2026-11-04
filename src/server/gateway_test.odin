@@ -403,6 +403,24 @@ test_gateway_login :: proc(t: ^testing.T) {
 			path = "/api/v1/login",
 			body = `{"username": "Alice", "password": "alice's password", "device": "weather cron"}`,
 		},
+		// Nothing nested deeply (json recurses without a limit), nothing large.
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = strings.repeat("[", 2000, context.temp_allocator),
+		},
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = strings.concatenate(
+				{
+					`{"username": "alice", "password": "`,
+					strings.repeat("x", 8000, context.temp_allocator),
+					`"}`,
+				},
+				context.temp_allocator,
+			),
+		},
 	}
 	defer calls_destroy(calls)
 	if !gt_calls(t, &ts, &h, calls) {
@@ -414,6 +432,9 @@ test_gateway_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, calls[2].status, 400)
 	testing.expect_value(t, calls[3].status, 401)
 	testing.expect_value(t, calls[4].status, 200)
+	testing.expect_value(t, calls[5].status, 400)
+	testing.expect_value(t, error_of(calls[5].reply), "invalid")
+	testing.expect_value(t, calls[6].status, 413)
 	got: gateway.Token_JSON
 	testing.expect_value(
 		t,

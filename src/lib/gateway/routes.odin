@@ -64,6 +64,10 @@ ROUTES := [?]Route {
 	{method = "DELETE", pattern = "me/avatar", kind = .Call, run = avatar_delete_run},
 }
 
+// How large the body of POST /login may be: a username, a password
+// (proto.MAX_PASSWORD_SIZE) and a device name, with room for JSON escapes.
+MAX_LOGIN_BODY :: 4 * 1024
+
 // POST /login {username, password, device} -> {token} creates a new token for
 // an ordinary account. From then on the token is a device of that account,
 // named `device` ("API" if not given). The gateway generates the key and logs
@@ -77,6 +81,14 @@ login_prepare :: proc(j: ^Job, req: ^http.Request) -> (r: Reply, done: bool) {
 		device:   string,
 	}
 	b: Login_Body
+	// Nobody is logged in yet, and the body has three short strings, so don't
+	// parse more than that (and nothing nested deeply: json recurses).
+	if len(j.body) > MAX_LOGIN_BODY {
+		return error_reply(413, "too_large", "The login body is too large."), true
+	}
+	if !proto.json_nesting_ok(j.body) {
+		return error_reply(400, "invalid", "The request body is nested too deeply."), true
+	}
 	if err := json.unmarshal(j.body, &b, allocator = context.temp_allocator); err != nil {
 		return error_reply(
 				400,

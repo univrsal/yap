@@ -126,6 +126,16 @@ AVPixelFormat hw_pix_fmt(const AVCodec *codec, AVBufferRef *device) {
 	}
 }
 
+/*
+The size of a frame is whatever the sharer's bitstream says. Left alone,
+FFmpeg takes frames of about 16k x 16k (and dav1d more), which is hundreds of
+megabytes a frame, times the frames it keeps for reference, the copies made
+for the output and the texture, so a hostile sharer could use up the viewer's
+memory. This is 8K UHD with room to spare, and the biggest share (several
+monitors side by side included) that anyone makes. See also decode().
+*/
+constexpr int64_t kMaxPixels = 8192LL * 4608LL;
+
 bool open_decoder(yv_view *v, yv_codec codec) {
 	close_decoder(v);
 	v->codec = codec;
@@ -158,6 +168,9 @@ bool open_decoder(yv_view *v, yv_codec codec) {
 	// many frames as there are threads.
 	v->dec->thread_type = FF_THREAD_SLICE;
 	v->dec->thread_count = 0;
+	// Checked when the decoder learns the size, before anything is allocated
+	// for it; the libdav1d wrapper passes it to dav1d as its frame size limit.
+	v->dec->max_pixels = kMaxPixels;
 	v->hw_format = AV_PIX_FMT_NONE;
 	if (use_device) {
 		v->hw_format = hw_pix_fmt(dec, device);
@@ -230,6 +243,14 @@ void decode(yv_view *v, Packet &p) {
 		}
 		if (err < 0) {
 			fail(v, "a frame didn't decode");
+			return;
+		}
+		// A second line behind max_pixels: a frame the output couldn't have
+		// copies and textures for is not shown.
+		if (v->frame->width <= 0 || v->frame->height <= 0 ||
+		    static_cast<int64_t>(v->frame->width) * v->frame->height > kMaxPixels) {
+			av_frame_unref(v->frame);
+			fail(v, "a frame is too large");
 			return;
 		}
 		bool ok = v->output->submit(v->frame);

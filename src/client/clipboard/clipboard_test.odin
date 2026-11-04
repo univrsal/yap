@@ -223,3 +223,31 @@ test_scale_down :: proc(t: ^testing.T) {
 	testing.expect_value(t, one.pixels[1], 0)
 	testing.expect_value(t, one.pixels[3], 127)
 }
+
+// stb_image reads more formats than the client wants to decode from other
+// people's bytes (PSD, TGA, HDR, PIC, PNM). They are refused, though stb_image
+// would read these.
+@(test)
+test_decode_other_formats_are_refused :: proc(t: ^testing.T) {
+	ppm := transmute([]u8)string("P6\n1 1\n255\n\x01\x02\x03")
+	w, h, comp: i32
+	testing.expect(t, stbi.info_from_memory(raw_data(ppm), i32(len(ppm)), &w, &h, &comp) == 1)
+	_, err := decode(ppm)
+	testing.expect_value(t, err, Error.Decode_Failed)
+
+	hdr := transmute([]u8)string("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n\x80\x80\x80\x80")
+	_, err = decode(hdr)
+	testing.expect_value(t, err, Error.Decode_Failed)
+
+	// An uncompressed 1x1 24-bit TGA.
+	tga := []u8{0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 24, 0, 1, 2, 3}
+	_, err = decode(tga)
+	testing.expect_value(t, err, Error.Decode_Failed)
+
+	// The formats that are read still are (test_decode_png, test_dib_to_bmp).
+	png := test_png()
+	defer delete(png)
+	img, png_err := decode(png[:])
+	defer image_destroy(&img)
+	testing.expect_value(t, png_err, Error.None)
+}
