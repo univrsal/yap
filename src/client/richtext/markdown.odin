@@ -20,6 +20,12 @@ import "client:platform"
 //   - item, * item      a bullet, shown as a bullet character
 //   1. item             a numbered item, as written
 //   [text](url)         a link that shows `text` and goes to a web address
+//   ![alt](url)         a picture (as Mattermost and GitHub write them), shown
+//                       as a link to it that shows `alt`; a size (`=44x22`)
+//                       and a title (`"title"`) after the address are dropped.
+//                       Pictures aren't fetched: a client never goes to an
+//                       address on its own. Inside a link's text
+//                       (`[![alt](img) text](url)`) a picture is just its `alt`.
 //   \*                  a marker that is just the character
 //
 // markdown_parse works on a message as it is shown (see text_display_links), so
@@ -464,6 +470,29 @@ inline :: proc(p: ^Parser, start, end: int) {
 				i += n
 			}
 			continue
+		case '!':
+			if img, ok := find_image(p, i, end); ok {
+				// Its words, or its title if it has none. On its own it is a link
+				// to the picture, which shows the address if it has neither.
+				label_start, label_end := img.alt_start, img.alt_end
+				if label_start == label_end {
+					label_start, label_end = img.title_start, img.title_end
+				}
+				if link_close >= 0 {
+					if label_start < label_end {
+						text(&toks, label_start, label_end)
+					}
+				} else {
+					if label_start == label_end {
+						label_start, label_end = img.url_start, img.url_end
+					}
+					append(&toks, Tok{kind = .Link_Open, start = i, end = i})
+					text(&toks, label_start, label_end)
+					append(&toks, Tok{kind = .Link_Close, start = i, end = i, url = img.url})
+				}
+				i = img.end
+				continue
+			}
 		case '[':
 			if link_close < 0 {
 				if c, e, url, ok := find_link(p, i, end); ok {
@@ -530,6 +559,10 @@ inline :: proc(p: ^Parser, start, end: int) {
 		case .Link_Open:
 			link_start = out_len(o)
 		case .Link_Close:
+			if out_len(o) == link_start {
+				// Its text was only pictures with no words: the address shows.
+				out_put(o, t.url, t.styles)
+			}
 			append(
 				&o.links,
 				Md_Link{link_start, out_len(o), strings.clone(t.url, o.b.buf.allocator)},
@@ -717,6 +750,11 @@ find_link :: proc(p: ^Parser, i, end: int) -> (close, link_end: int, url: string
 		case '\\':
 			j += 2
 			continue
+		case '!':
+			if img, found := find_image(p, j, end); found {
+				j = img.end
+				continue
+			}
 		case '[':
 			return
 		case ']':
@@ -740,6 +778,99 @@ find_link :: proc(p: ^Parser, i, end: int) -> (close, link_end: int, url: string
 		j += 1
 	}
 	return
+}
+
+// A picture: ![alt](url), where the address may be followed by a size
+// (`=44x22`, `=44x`, `=x22`) and a title in double quotes, each after a space.
+@(private = "file")
+Md_Image :: struct {
+	alt_start, alt_end:     int,
+	url_start, url_end:     int,
+	title_start, title_end: int, // empty if it has none
+	url:                    string,
+	end:                    int, // after its `)`
+}
+
+// find_image checks whether a picture starts at `i` (its `!`). Its words may
+// be empty but can't have a `[` or `]` in them, and the address has to be a
+// web address (an atom).
+@(private = "file")
+find_image :: proc(p: ^Parser, i, end: int) -> (img: Md_Image, ok: bool) {
+	src := p.src
+	if i + 1 >= end || src[i + 1] != '[' {
+		return
+	}
+	j := i + 2
+	img.alt_start = j
+	for {
+		if j >= end {
+			return
+		}
+		if a, found := p.at[j]; found {
+			j = p.atoms[a].end
+			continue
+		}
+		if src[j] == '\\' {
+			j += 2
+			continue
+		}
+		if src[j] == '[' {
+			return
+		}
+		if src[j] == ']' {
+			break
+		}
+		j += 1
+	}
+	img.alt_end = j
+	if j + 2 >= end || src[j + 1] != '(' {
+		return
+	}
+	a, found := p.at[j + 2]
+	if !found || !p.atoms[a].url || p.atoms[a].end > end {
+		return
+	}
+	img.url_start, img.url_end = p.atoms[a].start, p.atoms[a].end
+	j = img.url_end
+	spaces :: proc(src: string, j, end: int) -> int {
+		j := j
+		for j < end && src[j] == ' ' {
+			j += 1
+		}
+		return j
+	}
+	// The size.
+	if k := spaces(src, j, end); k > j && k < end && src[k] == '=' {
+		k += 1
+		x := false
+		for k < end && (is_digit(rune(src[k])) || (src[k] == 'x' && !x)) {
+			x = x || src[k] == 'x'
+			k += 1
+		}
+		if !x {
+			return
+		}
+		j = k
+	}
+	// The title.
+	if k := spaces(src, j, end); k > j && k < end && src[k] == '"' {
+		close := strings.index_byte(src[k + 1:end], '"')
+		if close < 0 {
+			return
+		}
+		img.title_start, img.title_end = k + 1, k + 1 + close
+		j = k + close + 2
+	}
+	j = spaces(src, j, end)
+	if j >= end || src[j] != ')' {
+		return
+	}
+	img.end = j + 1
+	img.url = src[img.url_start:img.url_end]
+	if len(img.url) >= 4 && strings.equal_fold(img.url[:4], "www.") {
+		img.url = strings.concatenate({"https://", img.url}, context.temp_allocator)
+	}
+	return img, true
 }
 
 @(private = "file")

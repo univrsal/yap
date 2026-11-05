@@ -213,6 +213,60 @@ test_markdown_links :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_markdown_images :: proc(t: ^testing.T) {
+	// On its own, a picture is a link to it that shows its words.
+	text := "a ![logo](https://x.org/l.png) b"
+	rt := markdown_parse(text, md_atoms(text, "https://x.org/l.png"))
+	testing.expect_value(t, rt.text, "a logo b")
+	testing.expect_value(t, len(rt.links), 1)
+	testing.expect_value(t, rt.links[0], Md_Link{2, 6, "https://x.org/l.png"})
+	testing.expect_value(t, rt.atoms[0].start, -1)
+
+	// Mattermost's size and title are dropped; without words the title shows,
+	// and without either the address.
+	text = `![](https://x.org/l.png =44x22 "the logo")`
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/l.png"))
+	testing.expect_value(t, rt.text, "the logo")
+	testing.expect_value(t, len(rt.links), 1)
+	text = "![](https://x.org/l.png =x22)"
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/l.png"))
+	testing.expect_value(t, rt.text, "https://x.org/l.png")
+	testing.expect_value(t, rt.atoms[0], Md_Atom{0, 19, true})
+
+	// Inside a link a picture is its words, and the link goes where it goes.
+	text = "[![build](https://x.org/b.png =44x22 \"build (success)\") `full`](https://x.org/job)"
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/b.png", "https://x.org/job"))
+	testing.expect_value(t, md_show(rt), "build [C:full]")
+	testing.expect_value(t, len(rt.links), 1)
+	testing.expect_value(t, rt.links[0], Md_Link{0, 10, "https://x.org/job"})
+	text = "[![](https://x.org/b.png)](https://x.org/job)"
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/b.png", "https://x.org/job"))
+	testing.expect_value(t, rt.text, "https://x.org/job")
+	testing.expect_value(t, len(rt.links), 1)
+
+	// Not pictures: no web address, a size without an x, an open title, and
+	// anything else after the address.
+	for not_image in ([?]string {
+			"![a](b)",
+			"![a](https://x.org =44)",
+			`![a](https://x.org "t)`,
+			"![a](https://x.org x)",
+		}) {
+		atoms: []Md_Atom
+		if strings.contains(not_image, "https") {
+			atoms = md_atoms(not_image, "https://x.org")
+		}
+		rt = markdown_parse(not_image, atoms)
+		testing.expectf(t, len(rt.links) == 0 && rt.text == not_image, "%q: %v", not_image, rt)
+	}
+	// An escaped ! is a link after a !.
+	text = `\![a](https://x.org)`
+	rt = markdown_parse(text, md_atoms(text, "https://x.org"))
+	testing.expect_value(t, rt.text, "!a")
+	testing.expect_value(t, len(rt.links), 1)
+}
+
+@(test)
 test_markdown_plain :: proc(t: ^testing.T) {
 	testing.expect_value(t, markdown_plain("just words"), "just words")
 	testing.expect_value(
@@ -293,6 +347,9 @@ test_markdown_random :: proc(t: ^testing.T) {
 		"```",
 		"URL",
 		"@M",
+		"!",
+		" =4x2",
+		"\"",
 	}
 	state: u64 = 0x9e3779b97f4a7c15
 	next :: proc(state: ^u64) -> u64 {
