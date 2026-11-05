@@ -100,6 +100,73 @@ test_rich_layout :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_rich_headings :: proc(t: ^testing.T) {
+	ctx := rich_test_ctx()
+	defer free(ctx)
+
+	// Headings of level 1 to 3 are in fonts of their own, the others are as
+	// big as the text; all of them are bold.
+	r := rich_make("# one\n### three\n#### four\ntext", nil, nil, nil, false)
+	testing.expect_value(t, rich_line_font(ctx, r.lines[0]), render.heading_font(render.CHAT_FONT, 1, .Regular))
+	testing.expect(t, rich_line_font(ctx, r.lines[0]) != render.CHAT_FONT)
+	testing.expect(t, rich_line_font(ctx, r.lines[1]) != rich_line_font(ctx, r.lines[0]))
+	testing.expect_value(t, rich_line_font(ctx, r.lines[2]), render.CHAT_FONT)
+	testing.expect_value(t, rich_line_font(ctx, r.lines[3]), render.CHAT_FONT)
+	testing.expect_value(t, rich_width(ctx, &r, r.lines[2].start, r.lines[2].end), 4 * 10)
+	// Text that isn't in the chat's font has headings as big as itself.
+	ctx.style.font = nil
+	testing.expect_value(t, rich_line_font(ctx, r.lines[0]), mu.Font(nil))
+}
+
+@(test)
+test_rich_tables :: proc(t: ^testing.T) {
+	ctx := rich_test_ctx()
+	defer free(ctx)
+
+	// Wide enough: each column is as wide as its widest cell (the column names
+	// are bold), inset by 6 on each side, and the text is aligned in it.
+	r := rich_make("| a | bb |\n|---|--:|\n| ccc | d |", nil, nil, nil, false)
+	vls := rich_layout(ctx, &r, 200)
+	testing.expect_value(t, len(vls), 4)
+	testing.expect_value(t, r.text[vls[0].start:vls[0].end], "a")
+	testing.expect_value(t, r.text[vls[3].start:vls[3].end], "d")
+	testing.expect(t, !vls[0].same_row && vls[1].same_row && !vls[2].same_row && vls[3].same_row)
+	testing.expect_value(t, vls[0].x, 6)
+	testing.expect_value(t, vls[1].cell_x, 24 + 12)
+	testing.expect_value(t, vls[1].x, 36 + 6) // "bb" fills its column
+	testing.expect_value(t, vls[3].x, 36 + 6 + 20 - 8) // "d" is on the right
+	testing.expect(t, vls[0].row_first && !vls[0].table_last && vls[3].table_last)
+	// A row is a line and the space around it.
+	testing.expect_value(t, rich_height(ctx, &r, 200), 2 * (16 + 2 * 3))
+
+	// Too narrow: the columns share the width and the cells wrap, every cell
+	// of a row has as many lines as its tallest, and all the text is there.
+	r = rich_make("| a | bb |\n|---|---|\n| ccc dd | e |", nil, nil, nil, false)
+	vls = rich_layout(ctx, &r, 40)
+	total := 0
+	rows := 0
+	for vl, i in vls {
+		total += vl.end - vl.start
+		if !vl.same_row {
+			rows += 1
+		} else {
+			testing.expect_value(t, vl.h, vls[i - 1].h)
+		}
+		testing.expect(t, vl.cell_x + vl.cell_w <= 40)
+	}
+	testing.expect_value(t, total, len("a") + len("bb") + len("cccdd") + len("e"))
+	testing.expect(t, rows > 2)
+	testing.expect(t, vls[len(vls) - 1].table_last)
+
+	// Text after a table is laid out as before.
+	r = rich_make("|a|\n|-|\n|b|\nafter", nil, nil, nil, false)
+	vls = rich_layout(ctx, &r, 200)
+	testing.expect_value(t, len(vls), 3)
+	testing.expect_value(t, vls[2].cell, -1)
+	testing.expect_value(t, r.text[vls[2].start:vls[2].end], "after")
+}
+
+@(test)
 test_rich_spans :: proc(t: ^testing.T) {
 	// Mentions, emoji and links to messages move with the text. A web
 	// address that a [text](url) takes goes away, while others stay.

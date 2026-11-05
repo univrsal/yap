@@ -141,6 +141,8 @@ select_item :: proc(ui: ^UI, item: i64, text: string) {
 // `pos`, in `font` (the style's if nil). It paints the selected part of the
 // line (so call it before drawing the text) and works out whether the pointer
 // is on the line or past it, which decides where a press or a drag lands.
+// Lines that are side by side (a table's cells) each take the pointer only
+// between `hit_from` and `hit_to`.
 select_line :: proc(
 	ui: ^UI,
 	item: i64,
@@ -149,6 +151,8 @@ select_line :: proc(
 	pos: mu.Vec2,
 	rich: ^Rich = nil,
 	font: mu.Font = nil,
+	hit_from: i32 = min(i32),
+	hit_to: i32 = max(i32),
 ) {
 	ctx := &ui.ctx
 	s := &ui.select
@@ -159,7 +163,9 @@ select_line :: proc(
 	// A press or drag lands on the line the pointer is on or, failing that,
 	// the last line above it, at the end of that line if the pointer is below
 	// it. Above every line it lands at the start of the first line.
-	if mouse.y >= pos.y {
+	if mouse.y >= pos.y && (mouse.x < hit_from || mouse.x >= hit_to) {
+		// Beside this line: another cell of its row takes it.
+	} else if mouse.y >= pos.y {
 		if mouse.y < pos.y + h {
 			s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x, rich)}
 			width := span_width(ctx, font, text, start, end, rich)

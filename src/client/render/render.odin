@@ -326,10 +326,27 @@ Font_Kind :: enum {
 	// The UI's font LIST_ZOOM times bigger, for the channel list. Like the
 	// preview's, its atlases are only created once it is drawn with.
 	List,
+	// The chat's font HEADING_ZOOM times bigger, for a message's headings of
+	// level 1 to 3 (heading_font). Their atlases are only created once they
+	// are drawn with too.
+	Heading_1,
+	Heading_2,
+	Heading_3,
 }
 
 PREVIEW_ZOOM :: 3
 LIST_ZOOM :: 1.15
+HEADING_ZOOM := [3]f32{1.5, 1.3, 1.15}
+
+// heading_font returns the font for a heading of `level` (1 to 6) in a text
+// whose font is `font`, in `style`. Headings of level 4 and below, and those in
+// a text that isn't in the chat's font, are as big as the text.
+heading_font :: proc(font: mu.Font, level: int, style: Font_Style) -> mu.Font {
+	if uintptr(font) & 0xf != uintptr(Font_Kind.Chat) || level < 1 || level > 3 {
+		return font_with_style(font, style)
+	}
+	return font_handle(Font_Kind(int(Font_Kind.Heading_1) + level - 1), style)
+}
 
 // PREVIEW_FONT is the handle of the large font.
 PREVIEW_FONT :: mu.Font(uintptr(Font_Kind.Preview))
@@ -405,13 +422,9 @@ g_fonts: ^[Font_Kind]Font_Slot
 // returns its face).
 @(private = "file")
 slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
-	switch uintptr(font) & 0xf {
-	case uintptr(Font_Kind.Chat):
-		return &fonts[.Chat]
-	case uintptr(Font_Kind.Preview):
-		return &fonts[.Preview]
-	case uintptr(Font_Kind.List):
-		return &fonts[.List]
+	kind := int(uintptr(font) & 0xf)
+	if kind < len(Font_Kind) {
+		return &fonts[Font_Kind(kind)]
 	}
 	return &fonts[.UI]
 }
@@ -420,7 +433,19 @@ slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
 // than being made for every frame: the fonts that only some screens use.
 @(private = "file")
 lazy_font :: proc(kind: Font_Kind) -> bool {
-	return kind == .Preview || kind == .List
+	return kind != .UI && kind != .Chat
+}
+
+// heading_zoom sets the headings' fonts to their sizes for a chat zoom of
+// `zoom`.
+@(private = "file")
+heading_zoom :: proc(r: ^Renderer, zoom: f32) {
+	for factor, i in HEADING_ZOOM {
+		slot := &r.fonts[Font_Kind(int(Font_Kind.Heading_1) + i)]
+		slot.zoom = zoom * factor
+		slot.font.zoom = zoom * factor
+		slot.font.scale, slot.font.uni.scale = 0, 0
+	}
 }
 
 // set_chat_zoom sets how much bigger the chat's text is than the UI's text
@@ -435,6 +460,7 @@ set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
 	slot.font.zoom = zoom
 	// The next frame rebuilds them at the new size.
 	slot.font.scale, slot.font.uni.scale = 0, 0
+	heading_zoom(r, zoom)
 }
 
 // quad_indices returns the contents of the index buffer: two triangles per
@@ -463,6 +489,7 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	}
 	r.fonts[.Preview].zoom, r.fonts[.Preview].font.zoom = PREVIEW_ZOOM, PREVIEW_ZOOM
 	r.fonts[.List].zoom, r.fonts[.List].font.zoom = LIST_ZOOM, LIST_ZOOM
+	heading_zoom(r, 1)
 	g_fonts = &r.fonts
 	if !gpu_init(&r.gpu, window) {
 		for &slot in r.fonts {
