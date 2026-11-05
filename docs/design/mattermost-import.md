@@ -439,10 +439,13 @@ Built (2026-10-29): `mattermost/rewrite.odin` (a pure function on a text) and
   online then isn't known; it still reads as `@here`.
 - **Markdown.** yap shows bold, italic, underline, strike, code and code blocks,
   quotes, bullets and numbers, and `[text](url)` links (its header in
-  `client/richtext/markdown.odin` is the list). Mattermost's headings, tables,
-  task lists, inline images and LaTeX aren't drawn but stay readable as the
-  text they were written as (the sample's table is `| a | b |`). Nothing is
-  converted: the text is as typed.
+  `client/richtext/markdown.odin` is the list). Inline images
+  (`![alt](url =44x22 "title")`, also inside a link, as CI badges are) show as
+  a link labelled with their `alt` text; the picture isn't fetched, since a
+  client never goes to an address on its own. Mattermost's headings, tables,
+  task lists and LaTeX aren't drawn but stay readable as the text they were
+  written as (the sample's table is `| a | b |`). Nothing is converted: the
+  text is as typed.
 
 Tested: 25 cases of the rewriter, from the sample's own posts and from what
 makes a rule go wrong (names with punctuation and a dot in them, an address, a
