@@ -75,6 +75,7 @@ run_ui :: proc(opt: Options) -> bool {
 		}
 	}
 	app.channel_w = CHANNEL_W_DEFAULT
+	app.images = !opt.no_images && os_getenv("TERM_PROGRAM") != "Apple_Terminal"
 
 	app.known_servers = opt.known_servers
 	app.device = opt.device
@@ -122,6 +123,9 @@ run_ui :: proc(opt: Options) -> bool {
 		wait_ms := IDLE_MS
 		if app.scripts != nil && script.runtime_scripts(app.scripts) > 0 {
 			wait_ms = SCRIPT_TICK_MS // their timers are on time
+		}
+		if app.again {
+			app.again, wait_ms = false, 1
 		}
 		res := tui.terminal_wait(&term, ESCAPE_MS if pending else wait_ms)
 		if tui.terminal_take_resized() {

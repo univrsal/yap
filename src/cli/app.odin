@@ -108,6 +108,7 @@ Server_UI :: struct {
 	reply_name:     string, // who that is, for the banner (owned)
 	editing:        proto.Msg_Id, // changing this message of ours
 	call_announced: proto.Call_Id,
+	pictures:       Pictures, // decoded pictures of messages, by blob
 }
 
 App :: struct {
@@ -124,6 +125,8 @@ App :: struct {
 	device:        string, // what to call this device when logging in
 	tz:            ^datetime.TZ_Region,
 	quit:          bool,
+	images:        bool, // pictures in messages are drawn
+	again:         bool, // the loop should come round again at once
 	// What the user chose for their voice, on every server.
 	muted:         bool,
 	deafened:      bool,
@@ -403,7 +406,14 @@ app_sync :: proc(a: ^App, mentions: []conn.View_Mention) {
 		push(a, conn.Members_Command{conv = a.viewing})
 	}
 	key := conn.Timeline_Key{a.viewing, 0}
+	if a.images {
+		if pictures_update(&a.pictures, v, g.timeline.w - 20) {
+			a.again = true // there may be more to decode: another turn of the loop
+		}
+		a.layout.pictures, a.thread_layout.pictures = &a.pictures, &a.pictures
+	}
 	layout_update(&a.layout, v, key, g.timeline.w, a.tz, a.unread_from)
+	ask_for_pictures(a, &a.layout)
 
 	tl, have := &v.timelines[key]
 	rows := len(a.layout.rows)
@@ -420,6 +430,7 @@ app_sync :: proc(a: ^App, mentions: []conn.View_Mention) {
 	if a.thread != 0 {
 		tkey := conn.Timeline_Key{a.viewing, a.thread}
 		layout_update(&a.thread_layout, v, tkey, g.thread.w - 1, a.tz, 0)
+		ask_for_pictures(a, &a.thread_layout)
 		trows := len(a.thread_layout.rows)
 		a.thread_scroll = clamp(a.thread_scroll, 0, max(trows - (g.thread.h - 1), 0))
 		if ttl, ok := &v.timelines[tkey]; ok && !ttl.loading && len(ttl.messages) > 0 && !ttl.have_oldest {
@@ -450,5 +461,27 @@ app_sync :: proc(a: ^App, mentions: []conn.View_Mention) {
 	if a.notice != "" && time.tick_since(a.notice_at) > NOTICE_SHOWN {
 		delete(a.notice)
 		a.notice = ""
+	}
+}
+
+// ask_for_pictures asks for the previews of pictures that messages in view
+// have, the newest first and a few at a time, and again after a while if they did
+// not come.
+ask_for_pictures :: proc(a: ^App, l: ^Timeline_Layout) {
+	if !a.images {
+		return
+	}
+	asked := 0
+	#reverse for w in l.wants {
+		if asked >= 4 {
+			break
+		}
+		last, was := a.pictures.asked[w.blob]
+		if was && time.tick_since(last) < 10 * time.Second {
+			continue
+		}
+		a.pictures.asked[w.blob] = time.tick_now()
+		push(a, conn.Attach_Preview_Command{conv = a.viewing, msg = w.msg, index = w.index})
+		asked += 1
 	}
 }

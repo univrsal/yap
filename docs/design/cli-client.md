@@ -515,3 +515,37 @@ there), a picture preview, Windows, screen sharing and cameras (out of scope),
 a screen for roles beyond reading them (`/mkrole`, `/setrole` work as commands),
 and testing the real sound devices on a machine that has them: the code that
 opens them is the window client's, but it was only run here without a card.
+
+**Phase 4 (2026-11-06).** The optional part, in the order of how much it helps.
+
+- **Packaging and CI (done).** The Linux and macOS jobs build `yap-cli` after
+  `build.sh` (stripped in a release), `package.sh` puts it in the platform zip
+  when it exists, the release workflow makes it executable, and the Linux job runs
+  `scripts/cli-smoke.py`, which starts a server of its own and drives the built
+  client in a pseudo-terminal. I could not run GitHub Actions here, so the changes
+  were checked by parsing the workflows and running `package.sh` with a stand-in
+  web build; the first CI run is the real test. The macOS disk image and the
+  Windows installer are the window client's and are unchanged.
+- **User guide (done).** `docs/Terminal.md`, linked from the README and
+  `docs/Building.md`.
+- **Pictures (done, in cells).** Not the kitty or sixel protocols, which could
+  not be tried here: pictures are scaled to a grid of half-block characters
+  (`▀`, the upper pixel as the foreground colour and the lower as the background)
+  and so are ordinary cells for the renderer, which keeps scrolling, resizing and
+  copying as they were. They are asked for as previews when a message with one is
+  laid out (the newest four at a time, again after ten seconds), decoded one
+  per turn of the loop with the window client's decoders (stb, libwebp), and
+  need 24-bit colour. A real protocol would give full resolution on the terminals
+  that have one (kitty, WezTerm, iTerm2, foot) and could be added beside this as
+  an option, with this as the fallback.
+- **Windows (not done).** It needs a console layer beside `terminal_posix.odin`:
+  virtual-terminal output and input modes (`SetConsoleMode`, which make the
+  escape sequences and the SGR mouse reports work as on Unix, so `input.odin`,
+  `flush.odin` and everything above are reused), the size from
+  `GetConsoleScreenBufferInfo`, and a wait on the console handle and an event
+  instead of `poll` and a pipe. Then `build.bat`, the CI job, the installer and the
+  smoke test (which needs a ConPTY) follow. It is a day's work that cannot be
+  tested from here, so it is left until someone can.
+
+Tests: 185 in `src/cli` (6 on pictures). The smoke test also sends a picture
+and sees it come back as cells.

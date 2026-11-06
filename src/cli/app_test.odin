@@ -3854,3 +3854,111 @@ test_the_help_is_not_cut_off :: proc(t: ^testing.T) {
 		testing.expectf(t, screen_has(&f, strings.trim_right_space(line)), "%q is cut off", line)
 	}
 }
+
+@(private = "file")
+picture_message :: proc(f: ^Fixture, png: []u8, ready: bool) {
+	m := add_message(&f.v, 1, 10, 2, T0, "look")
+	m.files = make([]conn.Msg_File, 1)
+	m.files[0] = {blob = 71, name = strings.clone("pic.png"), size = u64(len(png))}
+	if ready {
+		f.v.blobs[71] = {
+			state = .Ready,
+			jpeg  = png,
+		}
+	}
+}
+
+@(test)
+test_a_picture_is_asked_for_then_drawn :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	f.app.images = true
+	picture_message(&f, RED_OVER_BLUE_PNG[:], false)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "loading the picture"))
+	cmds := take(&f)
+	pc, ok := find_cmd(conn.Attach_Preview_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, pc.msg, 10)
+	testing.expect_value(t, pc.index, 0)
+	// Not again at once.
+	frame(&f)
+	_, again := find_cmd(conn.Attach_Preview_Command, take(&f))
+	testing.expect(t, !again)
+
+	// It arrives; it is decoded on the next frame, and drawn on the one after.
+	f.v.blobs[71] = {
+		state = .Ready,
+		jpeg  = RED_OVER_BLUE_PNG[:],
+	}
+	frame(&f)
+	testing.expect(t, f.app.again) // the loop is to come round again
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "loading the picture"))
+	y := row_of(&f, "▀")
+	testing.expect(t, y > 0)
+	x := col_of(&f, y, "▀")
+	cell := tui.cell_at(&f.buf, x, y)
+	testing.expect_value(t, cell.r, '▀')
+	testing.expect_value(t, cell.style.fg, tui.color_rgb(255, 0, 0))
+	below := tui.cell_at(&f.buf, x, y + 1)
+	testing.expect_value(t, below.style.fg, tui.color_rgb(0, 0, 255))
+	// Clicking it is clicking the message.
+	click(&f, x, y)
+	testing.expect(t, f.app.menu.open)
+	discard(&f)
+}
+
+@(test)
+test_pictures_are_off_unless_asked_for :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	picture_message(&f, RED_OVER_BLUE_PNG[:], true)
+	frame(&f)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "▀"))
+	testing.expect(t, screen_has(&f, "📎 pic.png"))
+	_, asked := find_cmd(conn.Attach_Preview_Command, take(&f))
+	testing.expect(t, !asked)
+}
+
+@(test)
+test_a_picture_that_cannot_be_decoded_stays_a_file :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	f.app.images = true
+	junk := [?]u8{9, 9, 9, 9}
+	picture_message(&f, junk[:], true)
+	frame(&f)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "▀"))
+	testing.expect(t, !screen_has(&f, "loading the picture"))
+	testing.expect(t, screen_has(&f, "📎 pic.png"))
+	discard(&f)
+}
+
+@(test)
+test_pictures_in_a_thread_pane :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 30)
+	defer fixture_destroy(&f)
+	f.app.images = true
+	a_thread(&f)
+	r := f.v.roots[10]
+	r.msg.files = make([]conn.Msg_File, 1)
+	r.msg.files[0] = {blob = 72, name = strings.clone("pic.png"), size = u64(len(RED_OVER_BLUE_PNG))}
+	f.v.roots[10] = r
+	f.v.blobs[72] = {
+		state = .Ready,
+		jpeg  = RED_OVER_BLUE_PNG[:],
+	}
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "▀"))
+	discard(&f)
+}

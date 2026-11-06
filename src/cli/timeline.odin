@@ -28,6 +28,7 @@ Row_Kind :: enum u8 {
 	Head, // the first row of a message: time, name and the start of the text
 	Body, // the rest of a message's text
 	Files,
+	Image, // a row of a picture
 	Reactions,
 	Thread, // "3 replies" under a thread's root
 	System,
@@ -60,20 +61,33 @@ Layout_Key :: struct {
 	roots:       int,
 	outbox:      int,
 	saves:       u64, // what is being saved, and how far
+	pictures:    int, // how many are decoded
 	me:          proto.Account_Id,
 	loading:     bool,
 	have_oldest: bool,
 	valid:       bool,
 }
 
+// A picture a message has that has not arrived: which message and file, and its blob.
+Want :: struct {
+	msg:   proto.Msg_Id,
+	index: int,
+	blob:  proto.Blob_Id,
+}
+
 Timeline_Layout :: struct {
-	arena: virtual.Arena,
-	rows:  [dynamic]Row,
-	key:   Layout_Key,
+	arena:    virtual.Arena,
+	rows:     [dynamic]Row,
+	key:      Layout_Key,
+	// The pictures to draw in messages (nil to draw none), and those that are
+	// still to be fetched.
+	pictures: ^Pictures,
+	wants:    [dynamic]Want,
 }
 
 layout_destroy :: proc(l: ^Timeline_Layout) {
 	delete(l.rows)
+	delete(l.wants)
 	virtual.arena_destroy(&l.arena)
 	l^ = {}
 }
@@ -99,6 +113,7 @@ layout_update :: proc(
 		accounts    = len(v.accounts),
 		roots       = len(v.roots),
 		saves       = saves_signature(v),
+		pictures    = len(l.pictures.by_blob) if l.pictures != nil else 0,
 		outbox      = len(v.outbox),
 		me          = v.me,
 		valid       = true,
@@ -114,6 +129,8 @@ layout_update :: proc(
 	// The array of rows is not in the arena (the arena is emptied for each
 	// layout), so it gets its memory before the allocator is switched.
 	reserve(&l.rows, 64)
+	clear(&l.wants)
+	reserve(&l.wants, 8)
 	if l.arena.curr_block == nil {
 		_ = virtual.arena_init_growing(&l.arena)
 	} else {
@@ -423,6 +440,23 @@ add_message :: proc(
 			}
 		}
 		add_row(l, .Files, m.id, text_x, segs)
+	}
+	if l.pictures != nil && .Deleted not_in m.flags {
+		for f, i in m.files {
+			if !is_picture_file(f) {
+				continue
+			}
+			pic, here := l.pictures.by_blob[f.blob]
+			switch {
+			case here && !pic.failed:
+				for row in 0 ..< pic.rows {
+					add_row(l, .Image, m.id, text_x, concat_segs({{pad, {}}}, picture_row(pic, row)))
+				}
+			case !here:
+				append(&l.wants, Want{m.id, i, f.blob})
+				add_row(l, .Files, m.id, text_x, {{pad, {}}, {"  loading the picture…", theme.dim}})
+			}
+		}
 	}
 	if len(m.reactions) > 0 && .Deleted not_in m.flags {
 		segs := make([dynamic]Seg, context.temp_allocator)

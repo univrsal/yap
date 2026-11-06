@@ -235,6 +235,23 @@ def main():
         check("▸ tester" not in cli.screen.text(), "leaves the voice room", cli)
         cli.send("\x1b[15~")  # unmute
 
+        # A picture: attached with /attach, fetched back as a preview and drawn in cells.
+        import struct, zlib
+        def png(w, h):
+            rows = b"".join(b"\x00" + b"".join(bytes((x * 255 // w, y * 255 // h, 128)) for x in range(w)) for y in range(h))
+            def chunk(t, d):
+                return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+            return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+        picture = os.path.join(tmp, "gradient.png")
+        with open(picture, "wb") as f:
+            f.write(png(40, 20))
+        cli.send(f"/attach {picture}\r")
+        cli.pump(0.3)
+        cli.send("a picture\r")
+        check(cli.wait_for("▀"), "draws a picture sent in a message", cli)
+        if os.environ.get("YAP_SMOKE_SHOW"):
+            print("\n".join("      | " + r for r in cli.screen.rows() if r.strip()))
+
         # A click on the channel in the list, and on the message for its menu.
         cli.send("\x1b[<0;5;3M\x1b[<0;5;3m")
         cli.pump(0.3)

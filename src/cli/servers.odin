@@ -46,6 +46,7 @@ Server_Request :: struct {
 server_ui_destroy :: proc(u: ^Server_UI) {
 	layout_destroy(&u.layout)
 	layout_destroy(&u.thread_layout)
+	pictures_destroy(&u.pictures)
 	completion_destroy(&u.completion)
 	tui.editor_destroy(&u.editor)
 	delete(u.reply_name)

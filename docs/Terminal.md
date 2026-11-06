@@ -16,7 +16,7 @@ in on one logs in on the other (they are the same device).
 
 Options: `-user`, `-user-password` and `-device` log in from the command line,
 `-password` is the server's password, `-channel` a channel to join,
-`-download-dir` where saved files go, `-log-file` where the log goes (by default
+`-download-dir` where saved files go, `-no-images` to not draw pictures, `-log-file` where the log goes (by default
 `cli.log` in the config folder; the screen has no room for it) and `-tone <hz>`
 uses a sine tone as the microphone, for trying voice without a sound card.
 
@@ -85,9 +85,17 @@ The voice settings (`F9`: microphone, speakers, quality, noise suppression, the
 gate) start as the window client's and, once changed here, are kept in `cli.json`
 in the config folder.
 
+## Pictures
+
+Pictures attached to messages (png, jpg, gif, bmp, webp, up to 8 MB) are fetched
+and drawn in the message with half-block characters, two pixels to a cell, so
+they need a terminal with 24-bit colour (nearly all of them; the macOS
+Terminal.app does not, and gets none). They are small, to fit among the text:
+**Save file** in the message's menu saves the original. `-no-images` turns it off.
+
 ## What is not there
 
-Screen sharing and cameras, the tray, themes, avatars and pictures in messages
-(files can be saved from the message's menu). Windows is not supported yet. The
+Screen sharing and cameras, the tray, themes and avatars. Windows is not supported
+yet. The
 design notes, with what was built when, are in
 [design/cli-client.md](design/cli-client.md).

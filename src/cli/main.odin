@@ -30,6 +30,7 @@ Options :: struct {
 	log_file:      string `usage:"Append the log to this file (default: cli.log in the config folder, unless -print)."`,
 	download_dir:  string `usage:"Save files from messages to this folder (default: the downloads folder)."`,
 	tone:          f32 `usage:"For testing: use a sine tone of this frequency (Hz) as the microphone, instead of the sound system."`,
+	no_images:     bool `usage:"Do not draw pictures in messages (they need a terminal with 24-bit colour)."`,
 	print:         bool `usage:"No screen: print the channels and what is unread in them, as they change, until Ctrl+C."`,
 }
 
