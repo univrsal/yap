@@ -691,7 +691,8 @@ ZOOM_STEP :: 1.25
 // allows. It is a window of its own, so it floats over everything.
 //
 // The mouse wheel zooms in and out around the pointer, dragging moves a
-// zoomed image around, and Fit goes back to the whole image.
+// zoomed image around. The picture fills the window, and its size and zoom
+// are in the title.
 image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	im := &ui.images
 	if im.viewer.kind == .None {
@@ -705,7 +706,16 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		im.placed = true
 		im.zoom, im.pan = 1, {}
 		w := max(min(int(im.shown.width) + 2 * int(ctx.style.padding), int(window_w) - 40), 240)
-		h := max(min(int(im.shown.height) + 60, int(window_h) - 40), 160)
+		h := max(
+			min(
+				int(im.shown.height) +
+				int(ctx.style.title_height) +
+				int(ctx.style.footer_height) +
+				2 * int(ctx.style.padding),
+				int(window_h) - 40,
+			),
+			160,
+		)
 		rect := mu.Rect{(window_w - i32(w)) / 2, (window_h - i32(h)) / 2, i32(w), i32(h)}
 		if cnt := mu.get_container(ctx, title); cnt != nil {
 			cnt.rect = rect
@@ -721,8 +731,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 	cnt := mu.get_current_container(ctx)
 
-	row := ctx.style.size.y + 2 * ctx.style.padding + 10
-	mu.layout_row(ctx, {-1}, cnt.body.h - i32(row) - ctx.style.spacing)
+	mu.layout_row(ctx, {-1}, -1)
 	picture := mu.layout_next(ctx)
 	fit_w, _ := conn.fit_box(
 		int(im.shown.width),
@@ -765,13 +774,33 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		spinner(ui, rect)
 	}
 
-	mu.layout_row(ctx, {90, -1})
-	if .SUBMIT in button(ctx, "Fit") {
-		im.zoom, im.pan = 1, {}
-	}
+	// The title says the image's size and how far it is zoomed. The window
+	// is known by its title (a name that stays the same), so the text is
+	// drawn over the title bar instead of being the title.
 	shown_percent := 100 * f32(rect.w) / f32(max(im.shown.width, 1))
-	status := fmt.tprintf("%dx%d   %.0f%%", im.shown.width, im.shown.height, shown_percent)
-	dim_label(ctx, status)
+	viewer_title(
+		ui,
+		cnt,
+		fmt.tprintf("%s   %dx%d   %.0f%%", title, im.shown.width, im.shown.height, shown_percent),
+	)
+}
+
+// viewer_title draws `text` over the current window's title bar, in place of
+// the title that microui drew (begin_window), and the close button again.
+@(private = "file")
+viewer_title :: proc(ui: ^UI, cnt: ^mu.Container, text: string) {
+	ctx := &ui.ctx
+	bar := mu.Rect{cnt.rect.x, cnt.rect.y, cnt.rect.w, ctx.style.title_height}
+	// Inside the window, drawing is clipped to its body, which leaves out
+	// the title bar. Pop that for now, down to the window's whole rect, and
+	// put it back after.
+	mu.pop_clip_rect(ctx)
+	defer mu.push_clip_rect(ctx, cnt.body)
+	ctx.draw_frame(ctx, bar, .TITLE_BG)
+	close := mu.Rect{bar.x + bar.w - bar.h, bar.y, bar.h, bar.h}
+	bar.w -= close.w
+	mu.draw_control_text(ctx, text, bar, .TITLE_TEXT, {})
+	mu.draw_icon(ctx, .CLOSE, close, ctx.style.colors[.TITLE_TEXT])
 }
 
 // viewer_input zooms with the mouse wheel over the picture area, keeping
