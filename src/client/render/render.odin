@@ -815,6 +815,8 @@ own_icon :: proc(id: mu.Icon) -> (Icon, bool) {
 		return .Collapsed, true
 	case .EXPANDED:
 		return .Expanded, true
+	case .RESIZE:
+		return .Resize, true
 	}
 	return {}, false
 }

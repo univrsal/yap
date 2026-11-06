@@ -6,7 +6,6 @@ import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
-import "client:richtext"
 import "common:proto"
 
 // Bookmarks (src/common/proto/bookmarks.odin): messages we marked to come back
@@ -98,26 +97,27 @@ bookmarks_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		m := e.msg
 		mu.push_id(ctx, uintptr(m.id))
 		defer mu.pop_id(ctx)
-		name := "someone"
-		if acc, ok := v.accounts[m.sender]; ok {
-			name = acc.display
+		note := bookmark_place(v, e.conv, m)
+		if m.kind == .Text && m.text != "" && len(m.files) > 0 && .Deleted not_in m.flags {
+			names := make([]string, len(m.files), context.temp_allocator)
+			for f, j in m.files {
+				names[j] = f.name
+			}
+			note = fmt.tprintf(
+				"%s   files: %s",
+				note,
+				strings.join(names, ", ", context.temp_allocator),
+			)
 		}
-		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			author_color(v, m.sender),
-			fmt.tprintf("%s  %s", chat_time(ui, proto.Unix_Time(m.time / 1000)), name),
-			label_proc,
-		)
-		mu.layout_row(ctx, {-1})
-		bookmark_text(ui, m)
-		mu.layout_row(ctx, {-150, 70, -1})
-		with_text_color(ctx, theme.dim, bookmark_place(v, e.conv, m), label_proc)
-		if .SUBMIT in stable_button(ctx, "go", "Go to") {
+		buttons := [?]Card_Button {
+			{"go", .Pop_Out, "Go to the message", {}},
+			{"remove", .Bookmark, "Remove the bookmark", theme.chat_name},
+		}
+		switch message_card(ui, m, {note}, buttons[:]) {
+		case 0:
 			go_to_message(ui, e.conv, m.id)
 			ui.channels.show_list = false
-		}
-		if .SUBMIT in stable_button(ctx, "remove", "Remove") {
+		case 1:
 			conn.push_command(cmds, conn.Bookmark_Command{id = m.id})
 		}
 		if i < len(bm.list) - 1 {
@@ -146,42 +146,4 @@ bookmark_place :: proc(v: ^conn.View, conv: proto.Conv_Id, m: conn.View_Message)
 		return fmt.tprintf("a reply %s", place)
 	}
 	return place
-}
-
-// bookmark_text is what a bookmarked message says, on as many lines as it
-// takes.
-@(private = "file")
-bookmark_text :: proc(ui: ^UI, m: conn.View_Message) {
-	ctx := &ui.ctx
-	v := ui.view
-	if .Deleted in m.flags {
-		dim_label(ctx, "This message was deleted.")
-		return
-	}
-	text: string
-	switch m.kind {
-	case .Text:
-		text, _, _ = richtext.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
-		text = richtext.markdown_plain(text)
-	case .File:
-		text = fmt.tprintf("the file %s", m.text)
-	case .System:
-		text = "a note about the conversation"
-	}
-	if text != "" {
-		wrap_text(ctx, text)
-	}
-	if len(m.files) > 0 {
-		names := make([]string, len(m.files), context.temp_allocator)
-		for f, j in m.files {
-			names[j] = f.name
-		}
-		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
-			wrap_text,
-		)
-	}
 }
