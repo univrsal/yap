@@ -3842,3 +3842,15 @@ test_a_wide_screen_has_no_overlay :: proc(t: ^testing.T) {
 	testing.expect(t, !g.overlay)
 	testing.expect_value(t, g.channels.w, CHANNEL_W_DEFAULT)
 }
+
+@(test)
+test_the_help_is_not_cut_off :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 100, 30)
+	defer fixture_destroy(&f)
+	press(&f, .F1)
+	frame(&f)
+	for line in HELP_LINES {
+		testing.expectf(t, screen_has(&f, strings.trim_right_space(line)), "%q is cut off", line)
+	}
+}

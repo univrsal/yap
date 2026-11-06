@@ -294,7 +294,7 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		}
 	case .Help:
 		lines := HELP_LINES
-		r := dialog_rect(b, 64, len(lines) + 4)
+		r := dialog_rect(b, 84, len(lines) + 4)
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Keys")
 		for l, i in lines {

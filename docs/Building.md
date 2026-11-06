@@ -9,7 +9,7 @@ fetch the third-party sources they need into `.cache` the first time.
 | --- | --- |
 | Server and client, Linux, macOS, OpenBSD | `./build.sh` (extra arguments go to both Odin builds, e.g. `./build.sh -debug`) |
 | Server and client, Windows | `build.bat` from a Visual Studio developer prompt |
-| Terminal client (Linux, macOS, BSD) | `./build-cli.sh` (builds `bin/yap-cli`; runs `./build.sh` first if the C libraries are missing). See [the plan](design/cli-client.md) |
+| Terminal client (Linux, macOS, BSD) | `./build-cli.sh` (builds `bin/yap-cli`; runs `./build.sh` first if the C libraries are missing). See [Terminal.md](Terminal.md) |
 | Web client | `web/build.sh` (needs emscripten; see [web/README.md](../web/README.md)) |
 | Screen sharing add-on (optional) | `scripts/build/build-video.sh` or `.bat` (see [Screenshare.md](Screenshare.md)) |
 | Server in a container | `docker build -f docker/Dockerfile .` (see [Server.md](Server.md)) |

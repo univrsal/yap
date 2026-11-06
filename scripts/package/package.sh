@@ -1,5 +1,6 @@
 #!/bin/sh
-# Lays out a release in dist/yap-<platform>/: the client, the server and
+# Lays out a release in dist/yap-<platform>/: the client, the terminal client
+# (where there is one), the server and
 # the web build (web/, which yap-server's relay serves). CI uploads the
 # folder as an artifact, which GitHub zips itself, and the release
 # workflow zips it for the release.
@@ -17,6 +18,8 @@ name=yap-$platform
 rm -rf "dist/$name"
 mkdir -p "dist/$name/web"
 cp "bin/yap$ext" "bin/yap-server$ext" "dist/$name/"
+# The terminal client, where there is one (not on Windows).
+[ -f bin/yap-cli ] && cp bin/yap-cli "dist/$name/"
 # The page and its glue, not the object file the build leaves beside them.
 cp "$web/index.html" "$web/index.js" "$web/index.wasm" "$web/favicon.ico" \
 	"$web/manifest.webmanifest" "$web/sw.js" "$web/icon-192.png" "$web/icon-512.png" "$web/apple-touch-icon.png" \

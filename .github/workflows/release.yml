@@ -46,7 +46,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Artifacts don't keep the executable bit.
-          find dist -type f \( -name yap -o -name yap-server -o -name yv-loopback \) -exec chmod +x {} +
+          find dist -type f \( -name yap -o -name yap-server -o -name yap-cli -o -name yv-loopback \) -exec chmod +x {} +
           (cd dist && for d in yap-*; do zip -qr "$d.zip" "$d"; done)
           gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.dmg dist/*.exe \
             --repo "$GITHUB_REPOSITORY" \
