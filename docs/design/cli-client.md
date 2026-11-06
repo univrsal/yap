@@ -2,9 +2,9 @@
 
 Planned 2026-11-06 on `master` (1308c92). Nothing here is built yet.
 
-The goal is a full chat client for the terminal, in the style of irssi or
-WeeChat, made for yap: every text feature the GUI has, voice for those who
-want it, and keyboard-only. It shares as much code with the GUI client as
+The goal is a full chat client for the terminal, for yap, with a channel list,
+clickable messages and menus, and mouse support, as well as the keyboard:
+every text feature the GUI has, and voice for those who want it. It shares as much code with the GUI client as
 can sensibly be shared. Where logic is stuck inside the GUI's `package
 client`, it is **moved out into packages both clients import**, in small
 commits that do not change what the GUI does.
@@ -57,56 +57,113 @@ terminal client needs too. A first read of it found:
 | D2 | **Extract before copy.** When the CLI needs logic that lives in `package client`, it is moved to a shared package first and the GUI is switched to the shared one. Copying is only for what is truly presentation. | One copy of the rules; fixes land in both clients. |
 | D3 | Extraction commits are move-only: no behavior change, GUI tests (`src/client`, `src/client/conn`) green before and after, each commit one move. | Keeps the GUI risk small and reviewable on its own. |
 | D4 | Use the **View**, not the log mode. | The View is what the GUI draws from (timelines, unread, members, typing, voice state). A terminal UI is a second reader of it. |
-| D5 | The terminal layer is our own, small (`src/cli/tui`): raw mode, input decoding, cell grid, diff redraw. No ncurses. | Keeps "single binary, minimal runtime dependencies". Needs `core:sys/posix`. |
-| D6 | Linux and macOS first; Windows later. | Keeps D5 small. |
+| D5 | The terminal layer is our own (`src/cli/tui`): raw mode, SGR mouse and key decoding, cell grid, diff redraw, plus the widgets (list, scroll view, menu, dialog, text field). No ncurses. | See "Do we need ncurses?". Keeps "single binary, minimal runtime dependencies". Uses `core:sys/posix`. |
+| D6 | Linux and macOS first; Windows later (it takes the same escape sequences in VT mode). | Keeps D5 small. |
 | D7 | Build with `build-cli.sh` (runs `build.sh` first if the C libraries are missing, then `odin build src/cli`). `build.sh`, `build.bat` and CI are only touched when `yap-cli` ships. | Do not slow down or risk the normal build while it is being built. |
 | D8 | Text first, voice optional (`-no-audio`). | Most of a terminal client's use is text, and audio devices over SSH are not a given. |
 
-## How it looks and works (irssi-style)
+## Do we need ncurses?
+
+No. What the brief asks for (a channel list, clicking, scrolling with the
+wheel) is done by the terminal, not by a library:
+
+- **Mouse:** the terminal reports clicks, drags and wheel turns as escape
+  sequences once asked (`CSI ?1002h` for button and drag events, `?1006h`
+  for the SGR format that has no coordinate limit). Every current terminal
+  does this: xterm, kitty, iTerm2, WezTerm, Alacritty, GNOME Terminal,
+  Windows Terminal, tmux. Decoding it is about 100 lines.
+- **Colours, styles, links:** ANSI/SGR, including 24-bit colour, and OSC 8
+  for clickable links.
+- **Clipboard:** OSC 52 writes to the system clipboard, also over SSH.
+- **Raw mode and size:** `termios` and `ioctl(TIOCGWINSZ)` from
+  `core:sys/posix`, a resize signal, and `?2004h` for bracketed paste.
+- **Windows 10+** takes the same escape sequences once virtual-terminal
+  mode is on, so a later Windows port is not a rewrite either.
+
+ncurses would add a runtime library the project's goals avoid ("minimal
+runtime dependencies", one static binary), needs our own binding, and is
+weak where this client needs strength: wide characters and emoji, 24-bit
+colour and mouse need the wide build (`ncursesw`) and care. It also only
+draws a screen; the list, scroll view, menu, dialog and text field widgets
+have to be written either way. A vendored single-header C library
+(`termbox2`, in the style of `deps/thirdparty`) is a middle road, but it
+replaces only the ~500 lines of raw mode, decoding and diffing, and brings
+its own limits (width tables, no OSC 8/52). **Decision (D5): our own `tui`
+layer, no dependency**; if it proves a time sink, termbox2 can be swapped
+in underneath it, since the widgets only see cells and events.
+
+What the terminal does *not* give for free:
+
+- **Text selection.** While mouse reporting is on, the terminal's own
+  selection stops working (Shift+drag still does in most). `tui` therefore
+  implements selecting message text itself (drag, double-click a word) and
+  copies with OSC 52. `/mouse off` or a key turns reporting off for people
+  who prefer the terminal's selection.
+- **Discoverability.** Keyboard shortcuts are shown in menus, tooltips-as-
+  status-line hints and `F1`, since nobody reads a manual first.
+- **Pictures** (avatars, attachments): kitty graphics or sixel, in a later
+  phase and only where the terminal supports them.
+
+## How it looks and works
+
+Modelled on the GUI's session screen (channels left, chat in the middle,
+members right), so someone who knows the GUI finds their way; **everything
+can be done with the mouse or the keyboard.**
 
 ```
- #general  Welcome to yap                                   (topic bar)
- 12:01 <anna> morning                           ┌─ members ────┐ (optional,
- 12:02 <ben>  @anna did you see this? ↩ #a41f   │ @anna  online│  toggle)
- 12:02 ── reply to anna: "morning" ──────────   │  ben   away  │
- 12:03 <you>  yes                                │  ...         │
- [12:04] [you(+online)] [yap.example: #general] [Act: 2,4,dm:ben] (status line)
- [#general] _                                                   (input line)
+┌ yap.example ▾ ─────────────────────────────────────────────────────────┐
+│ ▾ Channels        │ # general   Welcome to yap                  ⚙ ✉ 🔔 │
+│  # general     2  ├────────────────────────────────────────────┬───────┤
+│  # dev         @1 │ anna  12:01  morning                        │ ● anna│
+│  🔊 Lounge        │ ben   12:02  @anna did you see this?        │ ● ben │
+│     ● anna ◔ ben  │         ↩ anna: morning                     │ ○ cy  │
+│ ▾ Direct messages │ you   12:03  yes   👍 2  ❤ 1               │       │
+│  ● ben         1  │ ── new messages ──                          │       │
+│ ▸ Groups          │                                              │       │
+│ ▸ Servers   (+)   ├────────────────────────────────────────────┴───────┤
+│                   │ ben is typing…                                      │
+│ 🎙 muted  🎧      │ > message #general_                       📎 😀 ⏎  │
+└───────────────────┴──────────────────────────────────────────────────────┘
 ```
 
-- **One window per conversation**: a channel, a DM, a group, plus a status
-  window per server (log lines, server notices). This is irssi's model and
-  maps directly onto `View.channels`, the DM list and `Timeline_Key`.
-- **Switching:** `Alt+1..9`, `Alt+←/→`, `Ctrl+P/N`, `/win 3`, `/join #x`,
-  `/query ben`, `/close`, a fuzzy `Ctrl+K` jump (what `ui_palette.odin` does
-  for the GUI). Many servers: `/server` and `Alt+Shift+N`.
-- **Activity bar** in the status line with irssi's levels: traffic, messages,
-  highlights (mentions of you, built on `richtext/mentions`), DMs. Unread
-  counts and the "read up to" marker come from the View as in the GUI.
-- **Scrollback:** `PgUp/PgDn`; at the top it asks the server for older
-  messages (`conn/messages.odin`'s windows), `/jump <id>`, `/unread`.
-- **Messages:** timestamps, per-author colours, markdown as ANSI
-  (bold/italic/underline/code), threads shown inline with a `↩` marker or
-  opened in their own window, reactions as `👍2`, edit and delete marks,
-  system lines, file attachments as `[file name.zip 3.1 MB #id.1]`.
-- **Input line:** emacs keys, history (`Up/Down`), word and `/command` tab
-  completion, `Ctrl+W/U/K`, bracketed paste, multi-line with `Alt+Enter`,
-  `Up` on an empty line edits the last message, `/me`. Terminals have no
-  mouse-and-selection editing, so this is a plain line editor with the
-  GUI's completion and history behind it, and `ui_text_area.odin` stays GUI
-  only.
-- **Everything else is a `/command`** with the headless client's names
-  (`/react`, `/pin`, `/search`, `/ban`, `/invite`, `/roles`, ...) so
-  documentation and habits carry over. Output goes to the current window,
-  not a log.
-- **Notices:** terminal bell, OSC 9/777 desktop notification, window/tab
-  title with the unread count.
-- **Scripts:** the same Lua runtime and script folder as the GUI.
-- **Config:** the GUI's `settings.json` (joined servers, devices, quality)
-  plus a small `cli.json` for keys and colours (new, CLI only).
+- **Channel list** (left): sections for channels, voice rooms with who is in
+  them, DMs, groups and the joined servers, collapsible, with unread and
+  mention badges (the View already has both). Click to open, wheel to
+  scroll, drag the border to resize, right-click for a menu (mark read,
+  notifications, leave, channel settings). Reorder-by-drag only where the
+  GUI allows it.
+- **Timeline** (centre): scrolls with the wheel, `PgUp/PgDn`, `Home/End`;
+  asks the server for older messages at the top. Markdown as ANSI,
+  per-author colours, day lines, a "new messages" rule, reply lines,
+  threads in a side panel, reactions as chips you can click to toggle,
+  links (OSC 8) you can click, file attachments with `[save]`.
+- **Message actions:** hover highlights a message; clicking it, or
+  `Enter` on the keyboard cursor, opens the same menu the GUI has: reply,
+  react (an emoji picker), edit, delete, pin, bookmark, forward, copy,
+  jump to thread.
+- **Composer:** a multi-line box, `Enter` sends, `Alt+Enter` newline, `Up`
+  edits your last message, tab completion for `@names`, `:emoji:` and
+  `/commands` in a popup you can click, bracketed paste, undo, `📎` to
+  attach (a path prompt; drag-and-drop from the terminal also pastes a
+  path), `😀` for the picker.
+- **Dialogs and forms** for what the GUI has as pages: join a server,
+  log in or register, trust a new server key, settings (audio devices,
+  quality, notifications, scripts), profile, members and roles, bans,
+  invites, channel settings. Fields, checkboxes, dropdowns, buttons, `Tab`
+  to move, `Esc` to close. This is where most of the new code is.
+- **Voice and calls:** click a voice room to join; mute, deafen and the
+  level meter in the lower left; an incoming-call dialog.
+- **Command palette** (`Ctrl+K`): jump to any channel, DM or action by
+  typing, as `ui_palette.odin` does. For people who prefer typing, the
+  headless client's `/commands` all work too, in the composer.
+- **Notices:** bell, OSC 9/777 desktop notification, window title with the
+  unread count. **Scripts:** the same Lua runtime and folder as the GUI.
+- **Config:** the GUI's `settings.json` (shared: joined servers, devices,
+  quality) plus a small `cli.json` for colours and keys.
 - **Out, because they don't mean anything in a terminal:** screen sharing,
-  cameras, tray, titlebar, themes, hotkeys, Web Push. Profile pictures and
-  chat images are out until an optional late phase (kitty graphics/sixel).
+  cameras, tray, titlebar, hotkeys, Web Push.
+- **Narrow terminals:** under about 80 columns the member list hides, and
+  under 50 the channel list becomes an overlay opened with `Ctrl+B`.
 
 ## Layout
 
@@ -114,12 +171,15 @@ terminal client needs too. A first read of it found:
 src/client/<new shared packages>     see "Extractions" (imported by yap and yap-cli)
 src/cli/
   main.odin         flags, logging, config paths (client:platform), start
-  app.odin          event loop: key input, wake pipe, redraw
-  windows.odin      the window list, activity levels, switching
+  app.odin          event loop: keys, mouse, wake pipe, resize, redraw
+  state.odin        what the CLI keeps besides the View: selection, focus, open dialogs
   session.odin      the joined servers (uses the shared Session, below)
-  tui/              raw mode, input decoding, cell buffer, diff flush, resize
-  screens/          timeline, status line, topic bar, member list, overlays
-  input.odin        the line editor; completion and history come from shared packages
+  tui/              terminal layer: raw mode, key/mouse decoding, cell buffer,
+                    diff flush, OSC 8/52, widths; no knowledge of yap
+  widgets/          list, scroll view, menu, dialog, form fields, text field,
+                    emoji picker (on top of tui; hit-testing and focus live here)
+  screens/          channel list, timeline, members, composer, voice bar, and
+                    the dialogs/forms (join, login, settings, roles, ...)
   commands.odin     /command handling: the shared parser, plus how results are shown
   notify.odin       bell, OSC notices, title
   *_test.odin
@@ -162,23 +222,27 @@ a `Session` with a `View`, no screen: connects, prints the channel list,
 exits on `Ctrl+C`. Settles the open question about `View` (below) and the
 binary size.
 
-**Phase 1: one server, text (L).** `tui`, windows, status line, E3, E1,
-timeline, input line, send/edit/delete/reply, history paging, unread, E6
-(the first `/commands`: `/join`, `/msg`, `/me`, `/win`, `/quit`, `/help`).
-First usable client; chat with a GUI user in both directions.
+**Phase 1: one server, text (L).** `tui` and the first widgets (list,
+scroll view, text field, menu), mouse and keys, the channel list, E3, E1,
+timeline with clickable messages and a message menu, composer, the
+join/login/trust-key dialogs, send/edit/delete/reply, history paging,
+unread, E6 (a few `/commands`: `/join`, `/me`, `/quit`, `/help`). First
+usable client; chat with a GUI user in both directions, mouse only if
+wanted.
 
-**Phase 2: all of text chat (L).** E4, E5, E7. DMs and groups, buddies,
-reactions, threads, pins, bookmarks, search, attachments (`/attach`,
-`/save`), typing and presence, notices, member list, tab completion, several
-servers, scripts.
+**Phase 2: all of text chat (L).** E4, E5, E7. DMs, groups and buddies in
+the list, reactions (clickable chips and a picker), threads, pins,
+bookmarks, search, attachments, typing and presence, the member list,
+completion popups, notices, several servers, text selection and copy, the
+rest of the `/commands`, scripts.
 
-**Phase 3: voice, calls and administration (M).** Join/leave voice, mute,
-deafen, who is talking, devices from `settings`, calls, the admin `/commands`
-(roles, bans, invites, channel settings, purge), `cli.json`, the `Ctrl+K`
-jump. The headless client's `-tone` / `-input-file` stay available for
-tests.
+**Phase 3: voice, calls, settings and administration (M).** Voice rooms
+(join by click, mute/deafen, who is talking, devices from `settings`),
+calls, the settings dialogs, the admin forms (roles, bans, invites, channel
+settings, purge), `cli.json`, the `Ctrl+K` palette, narrow-terminal layout.
+The headless client's `-tone` / `-input-file` stay available for tests.
 
-**Phase 4: optional.** Image preview (kitty/sixel) with `client:imaging`;
+**Phase 4: optional.** Pictures (kitty/sixel) with `client:imaging`;
 Windows; packaging and CI (`scripts/package/`, `release.yml`, adding
 `src/cli` to `scripts/run-tests.sh`).
 
@@ -214,6 +278,14 @@ Windows; packaging and CI (`scripts/package/`, `release.yml`, adding
 - **E3 is the risky extraction**, since pixel layout depends on it. If it
   proves invasive, the CLI computes its own day lines and merging (a few
   dozen lines once heights are gone) and the plan notes the copy.
+- **Mouse in a terminal is coarser than in a window.** Cell-sized hit
+  targets, no hover on some terminals (hover highlight only where the
+  terminal sends motion events; everything must also work from the
+  keyboard), and no native selection while reporting is on (see above).
+  tmux and screen need `set -g mouse on` to pass mouse events through.
+- **The widget set is the bulk of the work**, more than the protocol side,
+  which `conn` already does. Phase 1 builds the minimum and each later phase
+  adds only what it needs.
 - **Terminal differences.** Wide characters and emoji widths, terminals
   that don't do bracketed paste or OSC 9. D5 means these are ours to get
   right; the `tui` tests carry a table of widths.

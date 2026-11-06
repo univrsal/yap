@@ -9,7 +9,7 @@ comments cite them by file name (for example "D12 in hq-share.md").
 | [animated.md](animated.md) | Animated WebP/GIF pictures and emoji |
 | [bot-api.md](bot-api.md) | Bot accounts and the HTTP/JSON gateway |
 | [bot-commands.md](bot-commands.md) | Slash commands that bots register for everyone |
-| [cli-client.md](cli-client.md) | An irssi-style terminal client, and the GUI logic shared with it |
+| [cli-client.md](cli-client.md) | A mouse-and-keyboard terminal client, and the GUI logic shared with it |
 | [channel-access.md](channel-access.md) | Default and text-only channels, per-role rights |
 | [group-dms.md](group-dms.md) | DMs of three to eight people |
 | [hq-share.md](hq-share.md) | Screen sharing with the yap_video library |
