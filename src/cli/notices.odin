@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 
 import "client:conn"
 import "client:richtext"
@@ -29,12 +30,13 @@ notices_destroy :: proc(a: ^App) {
 // locked.
 notices_update :: proc(a: ^App, mentions: []conn.View_Mention) {
 	v := a.view
+	on := fmt.tprintf(" on %s", server_name(v)) if len(a.servers) > 1 else ""
 	for m in mentions {
 		// A DM that is open and read needs no notice; a mention does, wherever it is.
 		if (m.dm || m.group) && m.conv == v.viewing && a.scroll == 0 {
 			continue
 		}
-		append(&a.notices, Notice{strings.clone(conn.mention_title(m, "")), strings.clone(richtext.markdown_plain(m.text))})
+		append(&a.notices, Notice{strings.clone(conn.mention_title(m, on)), strings.clone(richtext.markdown_plain(m.text))})
 	}
 	switch v.call.status {
 	case .Ringing_In:
@@ -44,7 +46,7 @@ notices_update :: proc(a: ^App, mentions: []conn.View_Mention) {
 			if acc, ok := v.accounts[v.call.peer]; ok {
 				name = acc.display
 			}
-			append(&a.notices, Notice{fmt.aprintf("%s is calling you", name), strings.clone("/answer to pick up, /hangup to decline")})
+			append(&a.notices, Notice{fmt.aprintf("%s is calling you%s", name, on), strings.clone("/answer to pick up, /hangup to decline")})
 		}
 	case .None:
 		a.call_announced = 0
@@ -56,6 +58,12 @@ notices_update :: proc(a: ^App, mentions: []conn.View_Mention) {
 		if row.kind != .Header {
 			unread += row.unread
 			mentions += row.mentions
+		}
+	}
+	for s, i in a.servers {
+		if i != a.cur {
+			u, m := server_unread(s)
+			unread, mentions = unread + u, mentions + m
 		}
 	}
 	title: string
@@ -90,3 +98,34 @@ incoming_call_text :: proc(v: ^conn.View) -> string {
 	return fmt.tprintf("📞 %s is calling — /answer or /hangup", name)
 }
 
+
+// notices_background makes notices of what happened on the servers that are not
+// shown: mentions, DMs (none of them is being read) and calls. Call with the
+// shown server's View locked; the others are locked in turn.
+notices_background :: proc(a: ^App) {
+	for s, i in a.servers {
+		if i == a.cur {
+			continue
+		}
+		mentions := conn.view_take_mentions(s.view)
+		sync.mutex_lock(&s.view.mutex)
+		defer sync.mutex_unlock(&s.view.mutex)
+		on := fmt.tprintf(" on %s", server_name(s.view))
+		for m in mentions {
+			append(&a.notices, Notice{strings.clone(conn.mention_title(m, on)), strings.clone(richtext.markdown_plain(m.text))})
+		}
+		#partial switch s.view.call.status {
+		case .Ringing_In:
+			if s.view.call.id != s.ui.call_announced {
+				s.ui.call_announced = s.view.call.id
+				name := "someone"
+				if acc, ok := s.view.accounts[s.view.call.peer]; ok {
+					name = acc.display
+				}
+				append(&a.notices, Notice{fmt.aprintf("%s is calling you%s", name, on), strings.clone("switch to that server and /answer")})
+			}
+		case .None:
+			s.ui.call_announced = 0
+		}
+	}
+}

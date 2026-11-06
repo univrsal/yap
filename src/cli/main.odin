@@ -18,7 +18,7 @@ import "common:memtrack"
 // prints the channels it is in (run_print), which needs no terminal.
 
 Options :: struct {
-	server:        string `args:"pos=0,required" usage:"Server to connect to, host or host:port (default port 7777)."`,
+	server:        string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Without it, the servers joined in the window client."`,
 	key:           string `usage:"Our private key file (default: the same one the window client uses)."`,
 	known_servers: string `usage:"File with the servers' keys that were trusted (default: the same one the window client uses)."`,
 	password:      string `usage:"The server's password, if it has one."`,
@@ -77,6 +77,10 @@ main :: proc() {
 // run_print connects and shows what the view has until Ctrl+C, or the connection fails
 // for good.
 run_print :: proc(opt: Options) -> bool {
+	if opt.server == "" {
+		fmt.eprintln("-print needs a server.")
+		return false
+	}
 	interrupt_install()
 	s := conn.session_new(
 		{

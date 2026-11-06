@@ -17,6 +17,9 @@ Fixture :: struct {
 	c:   ^conn.Server_Conn,
 	app: App,
 	buf: tui.Buffer,
+	// A second server, if one was added (see second_server).
+	v2:  conn.View,
+	c2:  ^conn.Server_Conn,
 }
 
 @(private = "file")
@@ -40,6 +43,11 @@ fixture :: proc(f: ^Fixture, w := 80, h := 20) {
 fixture_destroy :: proc(f: ^Fixture) {
 	tui.buffer_destroy(&f.buf)
 	app_destroy(&f.app)
+	if f.c2 != nil {
+		conn.commands_destroy(&f.c2.commands)
+		free(f.c2)
+		conn.view_destroy(&f.v2)
+	}
 	conn.commands_destroy(&f.c.commands)
 	free(f.c)
 	conn.view_destroy(&f.v)
@@ -908,7 +916,7 @@ test_key_change_dialog :: proc(t: ^testing.T) {
 	testing.expect(t, screen_has(&f, "bbbbbbbb"))
 	// Other keys do nothing.
 	type_text(&f, "x")
-	testing.expect(t, !f.app.quit && !f.app.reconnect)
+	testing.expect(t, !f.app.quit && len(f.app.requests) == 0)
 	type_text(&f, "q")
 	testing.expect(t, f.app.quit)
 }
@@ -933,7 +941,8 @@ test_trusting_a_new_key :: proc(t: ^testing.T) {
 	}
 	frame(&f)
 	type_text(&f, "t")
-	testing.expect(t, f.app.reconnect)
+	testing.expect_value(t, len(f.app.requests), 1)
+	testing.expect_value(t, f.app.requests[0].kind, Server_Request_Kind.Reconnect)
 	data, read_err := os.read_entire_file(path, context.temp_allocator)
 	testing.expect(t, read_err == nil)
 	testing.expect(t, strings.contains(string(data), "example.org:7777"))
@@ -954,7 +963,7 @@ test_a_key_that_cannot_be_saved_is_not_trusted :: proc(t: ^testing.T) {
 	}
 	frame(&f)
 	type_text(&f, "t")
-	testing.expect(t, !f.app.reconnect)
+	testing.expect_value(t, len(f.app.requests), 0)
 	testing.expect(t, strings.contains(f.app.notice, "Could not save"))
 }
 
@@ -2449,4 +2458,446 @@ test_selecting_in_a_thread_pane :: proc(t: ^testing.T) {
 col_of :: proc(f: ^Fixture, y: int, text: string) -> int {
 	row := screen(f)[y]
 	return tui.string_width(row[:strings.index(row, text)])
+}
+
+// second_server adds another server, called other.org, with a channel or two.
+@(private = "file")
+second_server :: proc(f: ^Fixture) {
+	f.v2 = test_view()
+	delete(f.v2.server)
+	f.v2.server = strings.clone("other.org:7777")
+	f.v2.my_name = strings.clone("me")
+	add_account(&f.v2, 1, "me")
+	add_account(&f.v2, 5, "zed")
+	add_channel(&f.v2, 11, "lobby", unread = 4)
+	add_channel(&f.v2, 12, "random")
+	f.v2.viewing = 11
+	f.c2 = new(conn.Server_Conn)
+	app_add_server(&f.app, &f.v2, f.c2)
+}
+
+@(test)
+test_several_servers_are_listed_above_the_channels :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "other.org")) // a single server has no list of them
+	second_server(&f)
+	frame(&f)
+	rows := screen(&f)
+	testing.expect(t, strings.contains(rows[1], "● example.org:7777"), rows[1])
+	testing.expect(t, strings.contains(rows[2], "● other.org:7777") && strings.contains(rows[2], " 4 "), rows[2])
+	testing.expect(t, strings.contains(rows[3], "───"), rows[3])
+	// The channels of the shown server follow.
+	testing.expect(t, strings.contains(rows[4], "Channels"), rows[4])
+	testing.expect(t, strings.contains(rows[5], "# general"), rows[5])
+	testing.expect(t, tui.cell_at(&f.buf, 5, 1).style == theme.selected)
+}
+
+@(test)
+test_a_server_that_is_down_has_an_open_mark :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	f.v2.status = .Failed
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[2], "○ other.org"))
+}
+
+@(test)
+test_clicking_a_server_shows_it :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	frame(&f)
+	discard(&f)
+	click(&f, 8, 2)
+	testing.expect_value(t, f.app.cur, 1)
+	testing.expect(t, f.app.view == &f.v2)
+	// The server we left is told we're no longer reading it.
+	cmds := take(&f)
+	rd, ok := find_cmd(conn.Reading_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rd.conv, 0)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "# lobby"))
+	testing.expect(t, !screen_has(&f, "# general"))
+	testing.expect(t, strings.contains(screen(&f)[0], "# lobby"))
+	// And the other server is told it is read now.
+	cmds = take(&f)
+	testing.expect_value(t, len(cmds), 0) // this one's commands are in its own queue
+	testing.expect(t, len(f.c2.commands.commands) > 0)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+	// The first is now the one with something unread (a mention, in the fixture).
+	testing.expect(t, strings.contains(screen(&f)[1], "example.org") && strings.contains(screen(&f)[1], " @1 "), screen(&f)[1])
+}
+
+@(test)
+test_each_server_keeps_its_own_state :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	second_server(&f)
+	add_message(&f.v2, 11, 100, 5, T0, "welcome to the lobby")
+	frame(&f)
+	open_thread(&f.app, 10)
+	type_text(&f, "half a thought")
+	frame(&f)
+	discard(&f)
+	app_switch(&f.app, 1)
+	frame(&f)
+	// Nothing of the first is here: no thread, an empty box, the lobby's messages.
+	testing.expect_value(t, f.app.thread, 0)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "")
+	testing.expect(t, screen_has(&f, "welcome to the lobby"))
+	type_text(&f, "other draft")
+	app_switch(&f.app, 0)
+	frame(&f)
+	testing.expect_value(t, f.app.thread, 10)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "half a thought")
+	testing.expect_value(t, f.app.viewing, 1)
+	app_switch(&f.app, 1)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "other draft")
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_commands_go_to_the_server_shown :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	frame(&f)
+	app_switch(&f.app, 1)
+	frame(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+	discard(&f)
+	type_text(&f, "hi lobby")
+	press(&f, .Enter)
+	testing.expect_value(t, len(take(&f)), 0) // not the first server's
+	found := false
+	for c in f.c2.commands.commands {
+		if chat, is := c.(conn.Chat_Command); is && chat.text == "hi lobby" {
+			found = true
+		}
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+	testing.expect(t, found)
+}
+
+@(test)
+test_ctrl_n_and_p_go_through_the_servers :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	// With one server they are nothing.
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'n', mods = {.Ctrl}})
+	testing.expect_value(t, f.app.cur, 0)
+	second_server(&f)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'n', mods = {.Ctrl}})
+	testing.expect_value(t, f.app.cur, 1)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'n', mods = {.Ctrl}})
+	testing.expect_value(t, f.app.cur, 0)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'p', mods = {.Ctrl}})
+	testing.expect_value(t, f.app.cur, 1)
+	discard(&f)
+}
+
+@(test)
+test_switching_closes_what_was_open :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	second_server(&f)
+	frame(&f)
+	click(&f, 40, row_of(&f, "hello there"))
+	testing.expect(t, f.app.menu.open)
+	app_switch(&f.app, 1)
+	testing.expect(t, !f.app.menu.open)
+	open_list(&f.app, .Pins)
+	app_switch(&f.app, 0)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	discard(&f)
+}
+
+@(test)
+test_server_commands :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	frame(&f)
+	type_text(&f, "/servers")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Output)
+	testing.expect_value(t, f.app.dialog.text, "*1  example.org:7777  (Connected)\n 2  other.org:7777  (Connected)\n")
+	press(&f, .Escape)
+	type_text(&f, "/server 2")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.cur, 1)
+	type_text(&f, "/server EXAMPLE")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.cur, 0)
+	type_text(&f, "/server 9")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "There is no server 9"))
+	testing.expect_value(t, f.app.cur, 0)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_connecting_and_disconnecting_are_requests :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	type_text(&f, "/connect new.example:7777 hunter2")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.requests), 1)
+	testing.expect_value(t, f.app.requests[0].kind, Server_Request_Kind.Connect)
+	testing.expect_value(t, f.app.requests[0].address, "new.example:7777")
+	testing.expect_value(t, f.app.requests[0].password, "hunter2")
+	delete(f.app.requests[0].address)
+	delete(f.app.requests[0].password)
+	clear(&f.app.requests)
+	type_text(&f, "/connect")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.requests), 0)
+	testing.expect(t, f.app.notice_error)
+
+	type_text(&f, "/disconnect")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Disconnect, index = 0})
+	clear(&f.app.requests)
+	type_text(&f, "/disconnect other")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Disconnect, index = 1})
+	clear(&f.app.requests)
+	type_text(&f, "/disconnect nowhere")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.requests), 0)
+}
+
+@(test)
+test_removing_a_server :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	app_switch(&f.app, 1)
+	// The one shown goes: the other is shown.
+	app_remove_server(&f.app, 1)
+	testing.expect_value(t, len(f.app.servers), 1)
+	testing.expect_value(t, f.app.cur, 0)
+	testing.expect(t, f.app.view == &f.v)
+	// The last one going ends the program.
+	testing.expect(t, !f.app.quit)
+	app_remove_server(&f.app, 0)
+	testing.expect(t, f.app.quit)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_removing_a_server_before_the_shown_one :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	app_switch(&f.app, 1)
+	app_remove_server(&f.app, 0)
+	testing.expect_value(t, f.app.cur, 0)
+	testing.expect(t, f.app.view == &f.v2)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_a_key_change_on_the_second_server_reconnects_that_one :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	app_switch(&f.app, 1)
+	dir, err := os.make_directory_temp("", "yap-cli-*", context.temp_allocator)
+	if err != nil {
+		testing.fail_now(t, "could not make a temporary directory")
+	}
+	defer os.remove_all(dir)
+	f.app.known_servers = strings.concatenate({dir, "/known"}, context.temp_allocator)
+	f.v2.key_change = {
+		changed  = true,
+		server   = strings.clone("other.org:7777"),
+		received = {0 ..< 32 = 0xcc},
+	}
+	frame(&f)
+	type_text(&f, "t")
+	testing.expect_value(t, len(f.app.requests), 1)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Reconnect, index = 1})
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_a_new_connection_replaces_the_old :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	nv := test_view()
+	defer conn.view_destroy(&nv)
+	nc := new(conn.Server_Conn)
+	defer free(nc)
+	defer conn.commands_destroy(&nc.commands)
+	old := app_replace_connection(&f.app, 0, &nv, nc, nil)
+	testing.expect(t, old == nil)
+	testing.expect(t, f.app.view == &nv)
+	testing.expect(t, f.app.client == nc)
+	testing.expect_value(t, f.app.viewing, 0)
+	// The next frame starts over with what the new connection says.
+	nv.viewing = 1
+	add_channel(&nv, 1, "general")
+	frame(&f)
+	testing.expect_value(t, f.app.viewing, 1)
+	// The test's own fixture still frees its view and client.
+	f.app.view = &f.v
+	f.app.client = f.c
+	f.app.servers[0].view, f.app.servers[0].client = &f.v, f.c
+	discard(&f)
+}
+
+@(test)
+test_mentions_on_another_server_say_where :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	append(
+		&f.v2.mentioned,
+		conn.View_Mention{name = strings.clone("zed"), place = strings.clone("#lobby"), text = strings.clone("psst"), conv = 11},
+	)
+	frame(&f)
+	notices := take_notices(&f.app)
+	defer free_notices(notices)
+	testing.expect_value(t, len(notices), 1)
+	testing.expect_value(t, notices[0].title, "zed mentioned you in #lobby on other.org:7777")
+	// And those of the shown server say theirs, now that there are two.
+	mention(&f, "anna", "#dev", "hey", 2)
+	frame(&f)
+	notices2 := take_notices(&f.app)
+	defer free_notices(notices2)
+	testing.expect_value(t, notices2[0].title, "anna mentioned you in #dev on example.org:7777")
+}
+
+@(test)
+test_a_call_on_another_server_is_announced_once :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	f.v2.call = {id = 9, status = .Ringing_In, peer = 5}
+	frame(&f)
+	frame(&f)
+	notices := take_notices(&f.app)
+	defer free_notices(notices)
+	testing.expect_value(t, len(notices), 1)
+	testing.expect_value(t, notices[0].title, "zed is calling you on other.org:7777")
+}
+
+@(test)
+test_the_title_counts_every_server :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	f.v.channels[1].unread = 0
+	f.v.channels[2].unread = 0
+	f.v.channels[2].mentions = 0
+	frame(&f)
+	testing.expect_value(t, f.app.title, "yap")
+	second_server(&f)
+	frame(&f)
+	testing.expect_value(t, f.app.title, "(4) yap") // the other server's lobby
+	f.v2.channels[1].mentions = 2
+	f.v2.channels[1].unread = 2
+	frame(&f)
+	testing.expect_value(t, f.app.title, "(2 @) yap")
+}
+
+@(test)
+test_the_status_bar_and_list_follow_the_shown_server :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	app_switch(&f.app, 1)
+	frame(&f)
+	// Not the one that was shown: it has no members requested for its channel, etc.
+	cmds := f.c2.commands.commands
+	reading := false
+	for c in cmds {
+		if rd, is := c.(conn.Reading_Command); is && rd.conv == 11 {
+			reading = true
+		}
+	}
+	testing.expect(t, reading)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+	discard(&f)
+}
+
+@(test)
+test_a_login_dialog_does_not_trap_the_user :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	f.v2.login.state = .Needed
+	app_switch(&f.app, 1)
+	frame(&f)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Login)
+	type_text(&f, "ann")
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'p', mods = {.Ctrl}})
+	testing.expect_value(t, f.app.cur, 0)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	frame(&f)
+	// Back at the other, the dialog is asked for again, empty.
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'n', mods = {.Ctrl}})
+	frame(&f)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Login)
+	testing.expect_value(t, tui.editor_text(&f.app.dialog.fields[0]), "")
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+	discard(&f)
 }

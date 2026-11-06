@@ -31,6 +31,12 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		a.quit = true
 		return
 	}
+	// So does going to another server: a login asked for by one is no reason to
+	// be stuck there.
+	if k.key == .Rune && k.mods == {.Ctrl} && (k.rune == 'n' || k.rune == 'p') && len(a.servers) > 1 {
+		switch_server(a, 1 if k.rune == 'n' else -1)
+		return
+	}
 	if k.key == .F1 {
 		dialog_close(a)
 		a.dialog.kind = .Help
@@ -365,6 +371,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		open_thread(a, proto_msg(hit.id))
 	case .Close_Thread:
 		close_thread(a)
+	case .Server:
+		app_switch(a, int(hit.id))
 	case .Border:
 		a.drag = .Border
 	case .Reaction:

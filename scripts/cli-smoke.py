@@ -14,6 +14,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 SERVER = os.environ.get("YAP_SERVER", os.path.join(ROOT, "bin", "yap-server"))
 CLI = os.environ.get("YAP_CLI", os.path.join(ROOT, "bin", "yap-cli"))
 PORT = 18777
+PORT2 = 18790
 
 
 class Screen:
@@ -170,6 +171,12 @@ def main():
             sys.exit("could not make an account:\n" + add.stdout + add.stderr)
         password = m.group(1)
         server = subprocess.Popen([SERVER], cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # A second server, to connect to from the client.
+        tmp2 = os.path.join(tmp, "second")
+        os.makedirs(tmp2)
+        with open(os.path.join(tmp2, "config.json"), "w") as f:
+            f.write('{"port": %d, "name": "second"}' % PORT2)
+        server2 = subprocess.Popen([SERVER], cwd=tmp2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(1.5)
 
         args = [f"localhost:{PORT}", f"-key:{tmp}/c.key", f"-known-servers:{tmp}/known", f"-log-file:{tmp}/cli.log"]
@@ -223,6 +230,15 @@ def main():
         cli.pump(0.5)
         check(cli.screen.rows()[0] != "" and "hello from the pty" in cli.screen.text(), "redraws after a resize", cli)
 
+        # A second server: listed above the channels, switched to with Ctrl+N, and back.
+        cli.send(f"/connect localhost:{PORT2}\r")
+        check(cli.wait_for("second"), "connects to a second server with /connect", cli)
+        check(cli.wait_for("Log in"), "shows the second server (it doesn't know us)", cli)
+        rows = cli.screen.rows()
+        check(any("localhost:%d" % PORT in r or "smoke" in r for r in rows), "lists both servers", cli)
+        cli.send("\x10")  # Ctrl+P
+        check(cli.wait_for("hello from the pty"), "goes back to the first with Ctrl+P", cli)
+
         # Leaving.
         cli.send("\x03")
         status = cli.exit_status()
@@ -238,13 +254,30 @@ def main():
         status = cli.exit_status()
         check(status == 0 and "\x1b[?1049l" in cli.screen.raw[-200:], f"leaves cleanly on SIGTERM (status {status})")
 
+        # With no server on the command line: the servers joined in the window client,
+        # read from its settings and not written back.
+        cfg = os.path.join(tmp, "config")
+        os.makedirs(os.path.join(cfg, "yap"))
+        settings = os.path.join(cfg, "yap", "settings.json")
+        with open(settings, "w") as f:
+            f.write('{"joined_servers": [{"address": "localhost:%d", "password": "", "channel": ""}]}' % PORT)
+        before = open(settings).read()
+        os.environ["XDG_CONFIG_HOME"] = cfg
+        cli = Cli(args[1:])
+        check(cli.wait_for("# Lobby"), "connects to the joined servers when none is given", cli)
+        cli.send("\x03")
+        cli.exit_status()
+        check(open(settings).read() == before, "leaves the window client's settings as they were")
+        del os.environ["XDG_CONFIG_HOME"]
+
         # Not a terminal: says so.
         r = subprocess.run([CLI] + args, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=10)
         check(r.returncode != 0 and "needs a terminal" in r.stderr, "refuses to run without a terminal")
     finally:
-        if server:
-            server.terminate()
-            server.wait()
+        for srv in (server, locals().get("server2")):
+            if srv:
+                srv.terminate()
+                srv.wait()
         shutil.rmtree(tmp, ignore_errors=True)
     if failures:
         sys.exit(f"{len(failures)} failed")

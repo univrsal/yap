@@ -104,10 +104,14 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	name := v.server_name if v.server_name != "" else v.server
 	tui.put_string(b, r.x + 1, 0, name, {fg = theme.bar.fg, bg = theme.bar.bg, attrs = {.Bold}}, r.x + r.w - 1)
 
+	// With several servers they are listed first.
+	rail := rail_height(a)
+	draw_rail(a, b, {r.x, 1, r.w, rail})
+
 	rows := list_rows(v)
-	visible := r.h - 1
+	visible := r.h - 1 - rail
 	a.chan_scroll = clamp(a.chan_scroll, 0, max(len(rows) - visible, 0))
-	y := 1
+	y := 1 + rail
 	for row, i in rows {
 		if i < a.chan_scroll {
 			continue

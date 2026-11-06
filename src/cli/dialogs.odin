@@ -335,7 +335,7 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 			case 't', 'T':
 				kc := v.key_change
 				if conn.replace_server_key(a.known_servers, kc.server, kc.received) {
-					a.reconnect = true
+					request_reconnect(a)
 					dialog_close(a)
 				} else {
 					say(a, "Could not save the new key.", true)

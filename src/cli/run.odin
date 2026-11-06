@@ -10,6 +10,7 @@ import "core:time/timezone"
 
 import "client:conn"
 import "client:platform"
+import "client:settings"
 import "tui"
 
 // The terminal loop: draw, wait for a key, the mouse or the connection, handle
@@ -19,6 +20,17 @@ IDLE_MS :: 1000 // so that notices and typing indicators expire
 ESCAPE_MS :: 40 // how long a lone Escape waits for the rest of a sequence
 
 run_ui :: proc(opt: Options) -> bool {
+	targets := initial_targets(opt)
+	defer {
+		for &t in targets {
+			target_destroy(&t)
+		}
+		delete(targets)
+	}
+	if len(targets) == 0 {
+		fmt.eprintln("yap-cli needs a server: yap-cli host[:port], or join servers in the window client first.")
+		return false
+	}
 	term: tui.Terminal
 	if !tui.terminal_open(&term) {
 		fmt.eprintln("yap-cli needs a terminal on its input and output. Use -print to only list the channels.")
@@ -31,19 +43,20 @@ run_ui :: proc(opt: Options) -> bool {
 	defer tui.terminal_close(&term)
 	interrupt_install()
 
-	target := conn.Net_Target {
-		key_path      = opt.key,
-		server        = opt.server,
-		password      = opt.password,
-		known_servers = opt.known_servers,
-		channel       = opt.channel,
-	}
-	s := start_session(target, opt)
-	defer conn.session_free(s)
-
 	app: App
-	app_init(&app, &s.view, s.client)
 	defer app_destroy(&app)
+	for t, i in targets {
+		// The credentials on the command line are for the server given there.
+		connect_server(&app, t, opt, with_credentials = i == 0 && opt.server != "")
+	}
+	defer {
+		for s in app.servers {
+			if s.session != nil {
+				conn.session_free(s.session)
+			}
+		}
+	}
+	app.channel_w = CHANNEL_W_DEFAULT
 	app.known_servers = opt.known_servers
 	app.device = opt.device
 	app.tz, _ = timezone.region_load("local")
@@ -79,13 +92,7 @@ run_ui :: proc(opt: Options) -> bool {
 		tui.buffer_copy(&prev, &cur)
 		have_prev = true
 
-		if app.reconnect {
-			app.reconnect = false
-			conn.session_free(s)
-			s = start_session(target, opt)
-			app.view, app.client = &s.view, s.client
-			app.viewing, app.reading_told = 0, 0
-		}
+		handle_requests(&app, opt)
 
 		pending := len(decoder.buf) > 0
 		res := tui.terminal_wait(&term, ESCAPE_MS if pending else IDLE_MS)
@@ -112,19 +119,112 @@ run_ui :: proc(opt: Options) -> bool {
 	return true
 }
 
-// start_session opens a connection with the credentials from the command line,
-// which stay for a later one.
+// initial_targets are the servers to connect to: the one on the command line,
+// or else those joined in the window client (read from its settings, which this
+// client never writes).
 @(private = "file")
-start_session :: proc(target: conn.Net_Target, opt: Options) -> ^conn.Session {
-	s := conn.session_new(target, tui.terminal_wake)
+initial_targets :: proc(opt: Options) -> (targets: [dynamic]conn.Net_Target) {
+	if opt.server != "" {
+		append(
+			&targets,
+			conn.Net_Target {
+				key_path = opt.key,
+				known_servers = opt.known_servers,
+				server = strings.clone(opt.server),
+				password = strings.clone(opt.password),
+				channel = strings.clone(opt.channel),
+			},
+		)
+		return
+	}
+	path := platform.default_config_path("settings.json")
+	defer delete(path)
+	if path == "" {
+		return
+	}
+	st := settings.settings_load(path)
+	defer settings.settings_destroy(&st)
+	for j in st.joined_servers {
+		append(
+			&targets,
+			conn.Net_Target {
+				key_path = opt.key,
+				known_servers = opt.known_servers,
+				server = strings.clone(j.address),
+				password = strings.clone(j.password),
+				look_at = strings.clone(j.channel),
+			},
+		)
+	}
+	return
+}
+
+// connect_server opens a connection and adds the server to the app.
+@(private = "file")
+connect_server :: proc(a: ^App, t: conn.Net_Target, opt: Options, with_credentials: bool) -> int {
+	s := open_session(t, opt, with_credentials)
+	index := app_add_server(a, &s.view, s.client, s)
+	app_set_target(a, index, t)
+	return index
+}
+
+@(private = "file")
+open_session :: proc(t: conn.Net_Target, opt: Options, with_credentials: bool) -> ^conn.Session {
+	s := conn.session_new(t, tui.terminal_wake)
 	dir := opt.download_dir
 	if dir == "" {
 		dir = platform.downloads_dir(context.temp_allocator)
 	}
 	s.client.files.download_dir = strings.clone(dir)
-	conn.auth_credentials(s.client, opt.user, opt.user_password, opt.device)
+	if with_credentials {
+		conn.auth_credentials(s.client, opt.user, opt.user_password, opt.device)
+	}
 	conn.session_start(s)
 	return s
+}
+
+// handle_requests does what the app asked for the connections: connect to
+// another server, leave one, or connect again.
+@(private = "file")
+handle_requests :: proc(a: ^App, opt: Options) {
+	requests := a.requests
+	a.requests = nil
+	defer delete(requests)
+	for req in requests {
+		switch req.kind {
+		case .Connect:
+			target := conn.Net_Target {
+				key_path      = opt.key,
+				known_servers = opt.known_servers,
+				server        = req.address,
+				password      = req.password,
+			}
+			app_switch(a, connect_server(a, target, opt, false))
+		case .Disconnect:
+			if req.index >= 0 && req.index < len(a.servers) {
+				session := a.servers[req.index].session
+				if len(a.servers) == 1 {
+					a.quit = true
+				} else {
+					app_remove_server(a, req.index)
+				}
+				if session != nil {
+					conn.session_free(session)
+				}
+			}
+		case .Reconnect:
+			if req.index >= 0 && req.index < len(a.servers) {
+				t := a.servers[req.index].target
+				s := open_session(t, opt, req.index == 0 && opt.server != "")
+				old := app_replace_connection(a, req.index, &s.view, s.client, s)
+				if old != nil {
+					conn.session_free(old)
+				}
+			}
+		}
+		delete(req.address)
+		delete(req.password)
+	}
 }
 
 @(private = "file")

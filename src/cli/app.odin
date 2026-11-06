@@ -6,6 +6,7 @@ import "core:time"
 import "core:time/datetime"
 
 import "client:conn"
+import "client:script"
 import "common:proto"
 import "tui"
 
@@ -35,6 +36,7 @@ Hit_Kind :: enum {
 	Member, // id: the account
 	Reaction, // id: the message; text: the emoji
 	Close_Thread,
+	Server, // id: its index
 	List_Item, // id: its index in the list dialog
 	Completion, // id: its index in the completion list
 	Emoji, // id: its index in the picker
@@ -63,56 +65,68 @@ Drag :: enum {
 	Border,
 }
 
+// What the app keeps for the server it shows: where it is scrolled to, the
+// conversation, the thread, what is being written. With several servers each has
+// its own, and showing another swaps them (see app_switch), so the rest of the
+// code only ever sees the one server's.
+Server_UI :: struct {
+	attached:       [dynamic]string, // files for the next message (owned)
+	chan_scroll:    int,
+	members_scroll: int,
+	members_asked:  proto.Conv_Id, // the conversation whose members were requested
+	focus:          Focus,
+
+	// The conversation shown, and what the timeline knows about it.
+	viewing:        proto.Conv_Id,
+	layout:         Timeline_Layout,
+	thread:         proto.Msg_Id, // the root of the thread that is open, 0 for none
+	thread_layout:  Timeline_Layout,
+	thread_scroll:  int,
+	thread_asked:   proto.Msg_Id,
+	jump_conv:      proto.Conv_Id, // a message being gone to, and whether the page around it was asked for
+	jump_msg:       proto.Msg_Id,
+	jump_asked:     bool,
+	jump_at:        time.Tick,
+	scroll:         int, // rows above the newest that the bottom of the timeline is at
+	unread_from:    proto.Msg_Id, // the newest message read when the conversation was opened
+	cursor_msg:     proto.Msg_Id, // the message picked with the keys or the mouse
+	asked_older:    proto.Msg_Id,
+	asked_newer:    proto.Msg_Id,
+	appended:       int,
+	rows_before:    int,
+	reading_told:   proto.Conv_Id,
+
+	// The message box.
+	editor:         tui.Editor,
+	completion:     Completion,
+	reply_to:       proto.Msg_Id, // posting as a reply in this message's thread
+	reply_name:     string, // who that is, for the banner (owned)
+	editing:        proto.Msg_Id, // changing this message of ours
+	call_announced: proto.Call_Id,
+}
+
 App :: struct {
+	// The server shown (servers[cur]).
 	view:          ^conn.View,
 	client:        ^conn.Server_Conn, // what commands are queued for
-	attached:      [dynamic]string, // files for the next message (owned)
+	using ui:      Server_UI, // ... and what is kept for it
+	servers:       [dynamic]^Server,
+	cur:           int,
+	requests:      [dynamic]Server_Request, // asked of the loop, which owns the connections
+	scripts:       ^script.Runtime, // nil if there are none
+
 	known_servers: string, // the file of trusted server keys, to trust a new key into
 	device:        string, // what to call this device when logging in
 	tz:            ^datetime.TZ_Region,
-	// Asked of the loop: end the program, or connect again (after a key was
-	// trusted or a login).
 	quit:          bool,
-	reconnect:     bool,
 
 	size:          [2]int,
 	channel_w:     int,
-	chan_scroll:   int,
 	hide_members:  bool, // the member list is on unless asked off
-	members_scroll: int,
-	members_asked: proto.Conv_Id, // the conversation whose members were requested
-	focus:         Focus,
 	drag:          Drag,
 	sel:           Selection,
 	press:         Maybe(Press), // a click on a message that may turn into a drag
 	frame:         ^tui.Buffer, // the screen as last drawn, for copying from
-
-	// The conversation shown, and what the timeline knows about it.
-	viewing:       proto.Conv_Id,
-	layout:        Timeline_Layout,
-	thread:        proto.Msg_Id, // the root of the thread that is open, 0 for none
-	thread_layout: Timeline_Layout,
-	thread_scroll: int,
-	thread_asked:  proto.Msg_Id,
-	jump_conv:     proto.Conv_Id, // a message being gone to, and whether the page around it was asked for
-	jump_msg:      proto.Msg_Id,
-	jump_asked:    bool,
-	jump_at:       time.Tick,
-	scroll:        int, // rows above the newest that the bottom of the timeline is at
-	unread_from:   proto.Msg_Id, // the newest message read when the conversation was opened
-	cursor_msg:    proto.Msg_Id, // the message picked with the keys or the mouse
-	asked_older:   proto.Msg_Id,
-	asked_newer:   proto.Msg_Id,
-	appended:      int,
-	rows_before:   int,
-	reading_told:  proto.Conv_Id,
-
-	// The message box.
-	editor:        tui.Editor,
-	completion:    Completion,
-	reply_to:      proto.Msg_Id, // posting as a reply in this message's thread
-	reply_name:    string, // who that is, for the banner (owned)
-	editing:       proto.Msg_Id, // changing this message of ours
 	notice:        string, // owned
 	notice_error:  bool,
 	notice_at:     time.Tick,
@@ -127,7 +141,6 @@ App :: struct {
 	cursor_shown:  bool,
 	notices:       [dynamic]Notice, // for the loop to announce
 	title:         string, // the window's title (owned)
-	call_announced: proto.Call_Id,
 	clipboard:     string, // asked to be copied (owned); the loop writes it out
 }
 
@@ -140,26 +153,27 @@ CHANNEL_W_MIN :: 12
 // Under this width the channel list is hidden.
 NARROW :: 60
 
+// app_init starts the app with a first server, whose View and connection are
+// owned by the caller (or by the loop).
 app_init :: proc(a: ^App, v: ^conn.View, client: ^conn.Server_Conn) {
-	a.view, a.client = v, client
 	a.channel_w = CHANNEL_W_DEFAULT
 	a.size = {80, 24}
+	app_add_server(a, v, client)
 }
 
 app_destroy :: proc(a: ^App) {
-	layout_destroy(&a.layout)
-	layout_destroy(&a.thread_layout)
-	completion_destroy(&a.completion)
-	tui.editor_destroy(&a.editor)
-	delete(a.reply_name)
+	server_ui_destroy(&a.ui)
+	for s in a.servers {
+		server_ui_destroy(&s.ui)
+		target_destroy(&s.target)
+		free(s)
+	}
+	delete(a.servers)
+	delete(a.requests)
 	delete(a.notice)
 	delete(a.clipboard)
 	notices_destroy(a)
 	delete(a.hits)
-	for f in a.attached {
-		delete(f)
-	}
-	delete(a.attached)
 	dialog_close(a)
 	menu_close(a)
 }
@@ -303,6 +317,7 @@ app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 	sync.guard(&v.mutex)
 	a.size = {b.w, b.h}
 	app_sync(a, mentions)
+	notices_background(a)
 	tui.buffer_clear(b)
 	clear(&a.hits)
 	a.cursor_shown = false
