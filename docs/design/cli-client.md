@@ -2,200 +2,220 @@
 
 Planned 2026-11-06 on `master` (1308c92). Nothing here is built yet.
 
-The goal is a second client for the terminal that reuses as much of the GUI
-client as can be reused, **without changing any file in `src/client`**. The
-GUI stays exactly as it is; the new client lives beside it and only imports
-from it.
+The goal is a full chat client for the terminal, in the style of irssi or
+WeeChat, made for yap: every text feature the GUI has, voice for those who
+want it, and keyboard-only. It shares as much code with the GUI client as
+can sensibly be shared. Where logic is stuck inside the GUI's `package
+client`, it is **moved out into packages both clients import**, in small
+commits that do not change what the GUI does.
 
 ## What the code already gives us
 
-The client is already split the way this needs:
-
-- **`client:conn` is the whole protocol client with no UI** (62 files, plus tests:
-  handshake, auth, channels, messages, DMs, groups, reactions, threads, pins,
-  bookmarks, search, files, roles, bans, invites, calls, presence, voice,
-  ...). It imports no window, GLFW or microui code (checked: the imports of
-  `conn` and `headless` are only `proto`, `wlog`, `audio`, `video`,
-  `settings`, `richtext`, `platform`, `script`, `imaging`, `memtrack`).
-- **It already has two kinds of front end.** `Server_Conn.view` is either a
-  `^View` (the GUI: one mutex-guarded snapshot of everything, plus a `wake`
-  callback called when it changes; `conn/view.odin`) or `nil` (`-headless`:
-  every `publish_*` does nothing, and `conn/headless_log.odin` logs what
-  happened instead). The UI talks back only through
-  `conn.push_command(&c.commands, ...)`.
+- **`client:conn` is the whole protocol client with no UI** (62 files, plus
+  tests: handshake, auth, channels, messages, DMs, groups, reactions,
+  threads, pins, bookmarks, search, files, roles, bans, invites, calls,
+  presence, voice, ...). It imports no window, GLFW or microui code (the
+  imports of `conn` and `headless` are only `proto`, `wlog`, `audio`,
+  `video`, `settings`, `richtext`, `platform`, `script`, `imaging`,
+  `memtrack`).
+- **It has two kinds of front end already.** `Server_Conn.view` is either a
+  `^View` (the GUI: one mutex-guarded snapshot of everything, and a `wake`
+  callback; `conn/view.odin`) or `nil` (`-headless`: every `publish_*` does
+  nothing and `conn/headless_log.odin` logs what happened). Front ends talk
+  back only through `conn.push_command`.
 - **Scripts hear about a connection through `Server_Conn.events`**
   (`conn/events.odin`), which any front end can set.
-- **Everything below the UI is importable:** `settings` (settings.json,
-  joined servers), `richtext` (markdown and mention parsing), `audio`
-  (voice, Opus, RNNoise, sound packs), `script` (Lua), `platform`
-  (config/download paths, links), `imaging`, `clipboard`.
-- `src/client/headless` is a finished line-based CLI (`yap -headless`, about
-  1,300 lines, 100+ `/commands`). It is part of the `yap` binary, reads
-  stdin, and **logs** instead of showing a screen.
+- **The layers below the UI are importable:** `settings`, `richtext`
+  (markdown, mentions), `audio`, `script` (Lua), `platform`, `imaging`,
+  `clipboard`.
+- `src/client/headless` is a line-based CLI (`yap -headless`, about 1,300
+  lines, 100+ `/commands`). It is part of `yap`, reads stdin and logs. It is
+  the model for the command set, but it is not a screen that can be redrawn.
 
-What cannot be reused: everything in `package client` itself (`main.odin`,
-`ui_*.odin`, `buddies.odin`, `theme.odin`, about 35k lines). Odin cannot
-import a `main` package, and the file is not meant to be a library. This
-includes some logic that is not drawing: `Net_Session` and the multi-server
-list (`ui.odin`, `ui_servers.odin`, `ui_sessions.odin`), the buddy list
-(`buddies.odin`), timeline layout and grouping (`ui_timeline.odin`),
-completion (`ui_completion.odin`), the command palette (`ui_palette.odin`),
-notices (`ui_notices.odin`) and the composer's text editing
-(`ui_text_area.odin`). Likewise `headless.handle_line` is `@(private)`.
+What is not importable is `package client` itself (about 35k lines: Odin
+cannot import a `main` package). Most of it is drawing, but some is logic a
+terminal client needs too. A first read of it found:
 
-So "porting" here means **a new front end on `conn`**, with the logic that
-lives in `package client` rewritten (or copied and trimmed) rather than
-shared. That is the price of not touching the GUI; section "Duplication"
-says how to keep it small and what to propose later.
+| Logic | Where | State |
+| --- | --- | --- |
+| Buddy, DM and group list: entries, ordering, unread | `buddies.odin` | Takes only `Settings` and `View` (`buddy_list(s, v)`); only `inbox_list` and `unhide_stale` touch `UI` / `Net_Session` |
+| Text of system messages (calls, joins, ...) | `ui_timeline.odin` `system_line` | Needs only the `View` |
+| Undo history of a text field | `ui_text_history.odin` | No UI dependency at all |
+| Completion: which `/command`, `@name`, `:emoji:` fits the text before the cursor | `ui_completion.odin` (`command_items`, `role_items`, `emoji_items`, `word_char`) | Matching is mixed with the popup window; takes `^UI` for the `View` |
+| Which messages get a day line, are merged under the previous author, or show a reply line | `ui_timeline.odin` `message_flags`, `thread_head` | Pure decisions, interleaved with pixel layout |
+| Unread of the conversation being viewed | `ui_timeline.odin` `viewed_unread` | Needs only the `View` |
+| When to raise a notice (mention, DM not being read, call) | `ui_notices.odin` `session_notices`, `dm_open` | Decision mixed with the tray call |
+| Connection lifecycle: open, step loop on a thread, stop, reconnect | `ui.odin` `Net_Session`, `net_native.odin`, `ui_sessions.odin` | GUI state (`stash`, web slots, push) mixed in |
+| The `/command` parser | `headless/commands.odin` | `handle_line` is `@(private)` and bound to a stdin reader and the log |
+| Composer text editing, cursor, selection | `ui_text_area.odin` | Tied to microui. **Not moved**: a terminal edits differently (see below) |
 
 ## Decisions
 
 | | Decision | Why |
 | --- | --- | --- |
-| D1 | New package `src/cli` (`package main`), binary `bin/yap-cli`. | Separate from `src/client`; imports with the existing `client:`, `common:`, `lib:` collections, so no collection or build-flag changes. |
-| D2 | Not a mode of `yap`. `src/client/main.odin` is not touched, and `yap -headless` stays as it is. | The brief. |
-| D3 | Use the **View**, not the log mode. | The View is the same data the GUI draws (timelines, unread counts, members, typing, voice state). A TUI is a second reader of it. The log mode only prints events, which cannot be redrawn. |
-| D4 | The terminal UI is **our own small TUI layer** (raw mode, ANSI, a cell grid, diff redraw) in `src/cli/tui`, no ncurses. | Keeps the "single binary, minimal runtime dependencies" goal. Needs only `core:sys/posix` (and the Win32 console API on Windows, later). |
-| D5 | Linux and macOS first. Windows and the web are out of scope. | Matches how the headless client is used and keeps D4 small. |
-| D6 | Build with a new `build-cli.sh`; `build.sh`, `build.bat`, `scripts/run-tests.sh` and CI are not edited. | Same reason as D2. The C libraries (miniaudio, RNNoise, Lua, ...) are already built by `./build.sh`; the new script runs it first if they are missing, then `odin build src/cli`. |
-| D7 | Voice is optional. `-no-audio` builds a connection without a `Voice` (as `headless` does with the fake audio); the first milestones are text only. | Text covers most of what people want a terminal client for, and audio devices over SSH are not a given. |
+| D1 | New package `src/cli` (`package main`), binary `bin/yap-cli`, in the existing `client:` / `common:` / `lib:` collections. | Separate from the GUI; no build-flag changes. |
+| D2 | **Extract before copy.** When the CLI needs logic that lives in `package client`, it is moved to a shared package first and the GUI is switched to the shared one. Copying is only for what is truly presentation. | One copy of the rules; fixes land in both clients. |
+| D3 | Extraction commits are move-only: no behavior change, GUI tests (`src/client`, `src/client/conn`) green before and after, each commit one move. | Keeps the GUI risk small and reviewable on its own. |
+| D4 | Use the **View**, not the log mode. | The View is what the GUI draws from (timelines, unread, members, typing, voice state). A terminal UI is a second reader of it. |
+| D5 | The terminal layer is our own, small (`src/cli/tui`): raw mode, input decoding, cell grid, diff redraw. No ncurses. | Keeps "single binary, minimal runtime dependencies". Needs `core:sys/posix`. |
+| D6 | Linux and macOS first; Windows later. | Keeps D5 small. |
+| D7 | Build with `build-cli.sh` (runs `build.sh` first if the C libraries are missing, then `odin build src/cli`). `build.sh`, `build.bat` and CI are only touched when `yap-cli` ships. | Do not slow down or risk the normal build while it is being built. |
+| D8 | Text first, voice optional (`-no-audio`). | Most of a terminal client's use is text, and audio devices over SSH are not a given. |
+
+## How it looks and works (irssi-style)
+
+```
+ #general  Welcome to yap                                   (topic bar)
+ 12:01 <anna> morning                           ┌─ members ────┐ (optional,
+ 12:02 <ben>  @anna did you see this? ↩ #a41f   │ @anna  online│  toggle)
+ 12:02 ── reply to anna: "morning" ──────────   │  ben   away  │
+ 12:03 <you>  yes                                │  ...         │
+ [12:04] [you(+online)] [yap.example: #general] [Act: 2,4,dm:ben] (status line)
+ [#general] _                                                   (input line)
+```
+
+- **One window per conversation**: a channel, a DM, a group, plus a status
+  window per server (log lines, server notices). This is irssi's model and
+  maps directly onto `View.channels`, the DM list and `Timeline_Key`.
+- **Switching:** `Alt+1..9`, `Alt+←/→`, `Ctrl+P/N`, `/win 3`, `/join #x`,
+  `/query ben`, `/close`, a fuzzy `Ctrl+K` jump (what `ui_palette.odin` does
+  for the GUI). Many servers: `/server` and `Alt+Shift+N`.
+- **Activity bar** in the status line with irssi's levels: traffic, messages,
+  highlights (mentions of you, built on `richtext/mentions`), DMs. Unread
+  counts and the "read up to" marker come from the View as in the GUI.
+- **Scrollback:** `PgUp/PgDn`; at the top it asks the server for older
+  messages (`conn/messages.odin`'s windows), `/jump <id>`, `/unread`.
+- **Messages:** timestamps, per-author colours, markdown as ANSI
+  (bold/italic/underline/code), threads shown inline with a `↩` marker or
+  opened in their own window, reactions as `👍2`, edit and delete marks,
+  system lines, file attachments as `[file name.zip 3.1 MB #id.1]`.
+- **Input line:** emacs keys, history (`Up/Down`), word and `/command` tab
+  completion, `Ctrl+W/U/K`, bracketed paste, multi-line with `Alt+Enter`,
+  `Up` on an empty line edits the last message, `/me`. Terminals have no
+  mouse-and-selection editing, so this is a plain line editor with the
+  GUI's completion and history behind it, and `ui_text_area.odin` stays GUI
+  only.
+- **Everything else is a `/command`** with the headless client's names
+  (`/react`, `/pin`, `/search`, `/ban`, `/invite`, `/roles`, ...) so
+  documentation and habits carry over. Output goes to the current window,
+  not a log.
+- **Notices:** terminal bell, OSC 9/777 desktop notification, window/tab
+  title with the unread count.
+- **Scripts:** the same Lua runtime and script folder as the GUI.
+- **Config:** the GUI's `settings.json` (joined servers, devices, quality)
+  plus a small `cli.json` for keys and colours (new, CLI only).
+- **Out, because they don't mean anything in a terminal:** screen sharing,
+  cameras, tray, titlebar, themes, hotkeys, Web Push. Profile pictures and
+  chat images are out until an optional late phase (kitty graphics/sixel).
 
 ## Layout
 
 ```
+src/client/<new shared packages>     see "Extractions" (imported by yap and yap-cli)
 src/cli/
-  main.odin            flags (reuses client:platform paths), sets up logging, runs the app
-  app.odin             the event loop: one thread reads keys, one runs conn.client_step
-  session.odin         joined servers: a list of {Server_Conn, View, thread}  (replaces Net_Session)
-  state.odin           what the CLI keeps besides the View: focus, scroll, composer, open overlays
-  tui/                 terminal layer: raw mode, input decoding, cell buffer, diff flush, resize
-  view/                screens (see below), each a proc that draws a View into a cell region
-  compose.odin         the message box: editing, history, @mention / :emoji: / /command completion
-  commands.odin        `/commands` -> conn.Command  (see "Duplication")
-  notify.odin          bell and OSC 9/777 desktop notices
-  *_test.odin          tests (see "Testing")
+  main.odin         flags, logging, config paths (client:platform), start
+  app.odin          event loop: key input, wake pipe, redraw
+  windows.odin      the window list, activity levels, switching
+  session.odin      the joined servers (uses the shared Session, below)
+  tui/              raw mode, input decoding, cell buffer, diff flush, resize
+  screens/          timeline, status line, topic bar, member list, overlays
+  input.odin        the line editor; completion and history come from shared packages
+  commands.odin     /command handling: the shared parser, plus how results are shown
+  notify.odin       bell, OSC notices, title
+  *_test.odin
+build-cli.sh
 ```
 
 Threads follow the GUI's: a network thread per server runs
-`client_open` / `client_step` (as in `net_native.odin`), and the main thread
-reads input and redraws when `view.wake` fires. `wake` is `proc "c" ()`, so
-it can only write a byte to a self-pipe that the input loop polls.
+`client_open` / `client_step`; the main thread reads input and redraws when
+`view.wake` (a `proc "c" ()`, so it only writes a byte to a self-pipe the
+input loop polls) fires.
 
-## What gets ported, by GUI feature
+## Extractions
 
-"Source" is the GUI file that holds the behavior to copy. The CLI draws it
-as text.
+Done as needed, in this order, each its own commit (D2, D3). New package
+names are proposals; they live under `src/client/` and are imported as
+`client:<name>`. The GUI files named are changed to call the new package and
+nothing else.
 
-| Feature | Source | CLI form | Phase |
-| --- | --- | --- | --- |
-| Connect, login, trust a new server key, register | `ui_join.odin`, `ui_account.odin`, `ui_gate.odin` | Prompts before the TUI starts; later a line in the status bar | 1 |
-| Channel list with unread and mention badges | `ui_channels.odin` | Left pane | 1 |
-| Timeline: messages, day lines, replies, system lines, edit marks | `ui_timeline.odin` (1,490) | Scroll region; plain-text layout (no pixel measuring, so far simpler) | 1 |
-| Markdown, mentions, links, emoji | `client:richtext` (reused as is), `ui_rich_text.odin` | ANSI bold/italic/underline/code; emoji as characters or `:name:` | 1 |
-| Composer, send, edit, delete, reply | `ui_message_bar.odin`, `ui_text_area.odin` | Bottom line(s); `Up` edits the last message | 1 |
-| Older / newer history, jump to unread | `conn/messages.odin` windows | `PgUp` at the top asks for older | 1 |
-| Typing indicator, presence | `ui_users.odin` | Status line, member pane | 2 |
-| Unread, mentions, notices | `ui_notices.odin` | Bell + OSC desktop notice; the window title | 2 |
-| Reactions | `ui_timeline.odin`, `ui_message_menu.odin` | Message cursor + `r`; chips shown as `👍 2` | 2 |
-| Threads, pins, bookmarks, search | `ui_threads`, `ui_pins`, `ui_bookmarks`, `ui_search` | Overlays; `headless/commands.odin` already shows which `Command`s to send | 2 |
-| DMs, groups, buddies | `buddies.odin`, `ui_buddies.odin`, `ui_groups.odin` | Pane section; **`buddy_list` is rewritten** (it takes `^Net_Session`) | 2 |
-| Several servers | `ui_servers.odin`, `ui_sessions.odin` | A session list; `Alt+1..9` | 2 |
-| Attachments | `ui_attachments.odin`, `conn/attachments.odin` | `/attach path`, `/save id n`; no inline pictures | 2 |
-| Command palette, tab navigation | `ui_palette.odin`, `ui_nav.odin` | `Ctrl+K` fuzzy switcher | 3 |
-| Voice: join, mute, deafen, who is talking | `ui_voice_panel.odin`, `client:audio` | Keys and a status line; devices from `settings` | 3 |
-| Calls | `ui_calls.odin`, `conn/calls.odin` | Incoming-call prompt, `/answer`, `/hangup` | 3 |
-| Settings (the ones that matter in a terminal) | `ui_settings.odin` | Edits `settings.json` through `client:settings`; same file as the GUI | 3 |
-| Scripts | `ui_scripts.odin`, `client:script` | Same Lua runtime and folder; `headless/scripts.odin` is the model | 3 |
-| Moderation and admin: roles, bans, invites, channel settings | `ui_manage`, `ui_roles`, `ui_bans`, `ui_invites`, `ui_channel_settings` | Command line only (`/roles`, `/ban`, ...) | 3 |
-| Profiles, avatars, server pictures, images in chat | `ui_profiles`, `ui_avatars`, `ui_images` | Out, except an optional kitty/sixel preview, behind a later phase | 4 |
-| Screen sharing, cameras, video | `ui_video`, `ui_camera`, `client:video` | **Out.** Not meaningful in a terminal. The connection just never asks for video | - |
-| Tray, titlebar, hotkeys, themes, window icon, Web Push, install | `ui_tray`, `ui_titlebar*`, `theme.odin`, `hotkeys` | **Out** (a 16/256-colour palette follows the terminal) | - |
+| # | Move | To | Needed by | Size |
+| --- | --- | --- | --- | --- |
+| E1 | `ui_text_history.odin` | `client:compose` (history) | input line | XS |
+| E2 | Connection lifecycle from `net_native.odin` / `ui_sessions.odin`: a `Session` that owns `Server_Conn`, `View`, thread and stop flag, with `open`, `step_loop`, `close`, `reconnect`. The GUI's `Net_Session` embeds it and keeps `stash`, web slots, push. | `client:conn` (or `client:session`) | phase 0 | M. The web build keeps its own stepping (`net_web.odin`) |
+| E3 | `system_line`, `viewed_unread`, the pure part of `message_flags` / `thread_head` (day lines, merging, reply lines) as `timeline_layout(msgs, tz) -> []Row_Info` | `client:conn` (view helpers) | timeline | M. The risky one: GUI row heights are computed from these flags, so the GUI tests for the timeline (`ui_timeline_test.odin`) must pass unchanged |
+| E4 | `buddies.odin` (`buddy_list`, `buddy_entry`, `group_entry`, `dm_name`, `dm_closed`, `dm_unread`, ordering); `inbox_list` and `unhide_stale` stay in the GUI as they use `Net_Session` | `client:conn` (`inbox`) | DMs, groups | S. `buddies_test.odin` moves with it |
+| E5 | The matching half of `ui_completion.odin` (`command_items`, `role_items`, `emoji_items`, `role_word_start`, `word_char`) as `complete(view, text, cursor) -> []Item`; popup stays in the GUI | `client:compose` | tab completion | M |
+| E6 | `headless/commands.odin`: `handle_line` becomes `parse_line(line) -> (conn.Command, Reply)` returning what to queue and what to tell the user, instead of queuing and logging. `-headless` and `yap-cli` both call it. | `client:cmdline` (`headless` keeps the stdin reader and printing) | every `/command` | L. Its tests (`commands_test.odin`) move with it and must pass unchanged for headless |
+| E7 | The decision half of `session_notices` / `dm_open` as `pending_notices(view, state) -> []Notice`; the tray call stays | `client:conn` | notices | S |
+
+Each extraction is only done when its phase starts, and is dropped if the
+terminal version turns out to need something different enough that sharing
+would bend the GUI's code for it (then copy, with the source file named in a
+comment).
 
 ## Phases
 
-Each phase ends with something runnable and has its own commits.
+Each ends with something runnable.
 
-**Phase 0: scaffolding (S).** `src/cli` with `main.odin`, flags, and
-`build-cli.sh`. Connects with `View` set, logs `view.status`, and exits on
-`Ctrl+C`. Proves the build and that `conn` works with a `View` and no window.
-Exit: `bin/yap-cli host:7777` connects and prints the channel list once.
+**Phase 0: scaffolding (S).** E2. `src/cli` with `main.odin`, `build-cli.sh`,
+a `Session` with a `View`, no screen: connects, prints the channel list,
+exits on `Ctrl+C`. Settles the open question about `View` (below) and the
+binary size.
 
-**Phase 1: read and write text in one server (L).** `tui` layer, the
-channel pane, the timeline, the composer, send/edit/delete/reply, history
-paging, unread. This is the first usable client. Exit: chat with a GUI user
-on a dev server, both directions, with markdown rendering and a resize.
+**Phase 1: one server, text (L).** `tui`, windows, status line, E3, E1,
+timeline, input line, send/edit/delete/reply, history paging, unread, E6
+(the first `/commands`: `/join`, `/msg`, `/me`, `/win`, `/quit`, `/help`).
+First usable client; chat with a GUI user in both directions.
 
-**Phase 2: the rest of text chat (L).** Reactions, threads, pins,
-bookmarks, search, DMs and groups, attachments, typing and presence, notices,
-several servers.
+**Phase 2: all of text chat (L).** E4, E5, E7. DMs and groups, buddies,
+reactions, threads, pins, bookmarks, search, attachments (`/attach`,
+`/save`), typing and presence, notices, member list, tab completion, several
+servers, scripts.
 
-**Phase 3: voice and administration (M).** Voice with the real audio device
-(the `-tone` / `-input-file` fakes from headless stay available for
-testing), calls, settings, scripts, admin commands, command palette.
+**Phase 3: voice, calls and administration (M).** Join/leave voice, mute,
+deafen, who is talking, devices from `settings`, calls, the admin `/commands`
+(roles, bans, invites, channel settings, purge), `cli.json`, the `Ctrl+K`
+jump. The headless client's `-tone` / `-input-file` stay available for
+tests.
 
-**Phase 4: optional.** Inline picture preview (kitty graphics, sixel) using
-`client:imaging`; Windows support; maybe a `--plain` output mode for
-pipes. Each is its own decision.
-
-## Duplication, and how to keep it small
-
-Two kinds of copy come out of the "don't touch the GUI" rule:
-
-1. **Logic in `package client`** (buddy list ordering, completion, mention
-   detection for notices, timeline grouping, read-position handling).
-   Copy the pure part, drop the microui and pixel parts, and put a comment
-   with the source file at the top of the copy so drift is findable. Each
-   is small once layout is gone (the 1,490-line timeline is mostly pixel
-   heights).
-2. **The `/command` parser** (`headless/commands.odin`, 991 lines). Its
-   `handle_line` is `@(private)` and tied to a stdin reader. The CLI
-   reimplements the parse in `commands.odin`; its tests are the same lines
-   `headless/commands_test.odin` uses, so the two are held to the same
-   behavior.
-
-**Proposal for later, not part of this work:** the clean fix is to move
-those pure pieces into packages under `src/client` that both front ends
-import (as `richtext` and `conn` already are). It needs edits to
-`src/client`, so it is a separate decision for after the CLI works and it is
-clear which copies hurt.
+**Phase 4: optional.** Image preview (kitty/sixel) with `client:imaging`;
+Windows; packaging and CI (`scripts/package/`, `release.yml`, adding
+`src/cli` to `scripts/run-tests.sh`).
 
 ## Testing
 
-- `conn` has a loopback harness (`conn/harness_test.odin`, the `*_flow_test`
-  files) that runs a real server in process. The CLI's session code is
-  tested against the same kind of harness (an in-process server and a
-  `Server_Conn` with a `View`), asserting on the **cell buffer** the screens
-  draw into. The `tui` layer takes a plain `[]Cell` target, so no terminal
-  is needed for these.
-- `tui` input decoding (escape sequences, UTF-8, bracketed paste) and the
-  composer have unit tests, like `ui_text_area_test.odin`.
-- A pty smoke test (`script`/`expect`-style) in `scripts/` for resize,
-  raw-mode restore on exit and on a crash.
-- Tests are run with `odin test src/cli ...` (D6: not added to
-  `scripts/run-tests.sh`).
+- **Extractions:** the GUI's existing tests are the safety net (D3). Run
+  `scripts/run-tests.sh` before and after each move; a moved test file keeps
+  its assertions.
+- **Session and screens:** `conn` has a loopback harness
+  (`harness_test.odin`, `*_flow_test.odin`) that runs a real server in
+  process. The CLI tests use the same kind with a `View`, and assert on the
+  **cell buffer** the screens draw into (the `tui` layer draws to a plain
+  `[]Cell`, so no terminal is needed).
+- **`tui` input decoding** (escape sequences, UTF-8, bracketed paste) and
+  the line editor have unit tests.
+- **A pty smoke test** (`script`/`expect`) for resize, and that the terminal
+  is restored on exit and on a crash.
 
 ## Risks and open questions
 
-- **Drift.** The CLI copies logic that will change in the GUI. Mitigation:
-  source comments, and the shared-package proposal above once it hurts.
-- **Does `View` do what a second reader needs?** It is designed for one
-  reader that holds the mutex while drawing a frame, and some fields are
-  "taken" by the UI (`mentioned` is drained, `unread` counters are reset by
-  the UI, `View_Timeline` windows need the reader to say what it shows). We
-  need to confirm in phase 0/1 that the CLI can do the same things the GUI
-  does to them, using only `conn` procs and not by editing `conn`. If some
-  hook only exists inside `package client`, that goes on the list for the
-  shared-package proposal and the CLI works around it meanwhile.
+- **Does `View` serve a second reader?** It is designed for one reader that
+  holds the mutex while drawing a frame, and some fields are consumed by the
+  UI (`mentioned` is drained, unread counters are reset by the UI, a
+  `View_Timeline` window follows what the reader shows). Phase 0 and 1 must
+  confirm the CLI can do what the GUI does to them. If a hook only exists in
+  `package client`, it becomes another extraction.
 - **Linking.** `conn` imports `client:video`, which on Linux links
-  `libyap_video.a` and a static `libstdc++` (`video/native.odin`). `yap-cli`
-  inherits that, so the binary is larger than needed and `build.sh` must
-  have run. Phase 0 checks the size. If it is a problem, the fix is a
-  build tag in `video`, i.e. an edit outside the CLI, so it is raised then.
-- **Which kind of "CLI"?** This plan makes a full-screen terminal UI. If
-  what is wanted is a smaller thing (a pipe-friendly `yap-cli send` /
-  `yap-cli tail` for scripts), that is a short phase of its own on the same
-  session code and could come first.
-- **Windows.** The console API differs enough that D5 postpones it.
-- **Name and packaging.** `yap-cli` is a placeholder; it also would need a
-  line in `scripts/package/` and the release workflow, both outside
-  `src/client` and left for when it ships.
+  `libyap_video.a` and a static `libstdc++`. `yap-cli` inherits that.
+  Phase 0 measures it; the fix would be a build tag in `video`.
+- **The web build.** Extractions touch files the web client compiles
+  (`net_web.odin`, anything under `conn`). E2 and E3 must still build with
+  `web/build.sh`; CI's web job is the check.
+- **E3 is the risky extraction**, since pixel layout depends on it. If it
+  proves invasive, the CLI computes its own day lines and merging (a few
+  dozen lines once heights are gone) and the plan notes the copy.
+- **Terminal differences.** Wide characters and emoji widths, terminals
+  that don't do bracketed paste or OSC 9. D5 means these are ours to get
+  right; the `tui` tests carry a table of widths.
+- **Windows** (D6) needs its own console input and output code.
+- **Name.** `yap-cli` is a placeholder.
