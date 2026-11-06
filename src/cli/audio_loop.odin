@@ -17,6 +17,9 @@ Audio_Host :: struct {
 	audio: audio.Audio,
 	tried: bool, // an attempt to start the audio system was made
 	ok:    bool,
+	// For testing without a sound system: a sine tone of this many Hz is the
+	// microphone, and what is played is only counted (see audio.Fake_Audio).
+	tone_hz: f32,
 }
 
 audio_host_destroy :: proc(h: ^Audio_Host) {
@@ -59,6 +62,14 @@ service_audio :: proc(a: ^App, h: ^Audio_Host) {
 		want := in_voice(s.view)
 		sync.mutex_unlock(&s.view.mutex)
 		switch {
+		case h.tone_hz > 0:
+			if want && !s.audio_on {
+				audio.fake_audio_start(&s.fake, &s.client.voice, h.tone_hz)
+				s.audio_on = true
+			} else if !want && s.audio_on {
+				audio.fake_audio_stop(&s.fake)
+				s.audio_on = false
+			}
 		case want && !s.audio_on:
 			if !audio_host_ensure(a, h) {
 				continue
@@ -81,6 +92,7 @@ service_audio :: proc(a: ^App, h: ^Audio_Host) {
 // stop_audio closes what a connection has open, before it goes.
 stop_audio :: proc(s: ^Server) {
 	if s.audio_on && s.client != nil {
+		audio.fake_audio_stop(&s.fake) // (does nothing if it was not started)
 		audio.close_streams(&s.streams, &s.client.voice)
 		s.audio_on = false
 	}

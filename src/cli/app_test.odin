@@ -3781,3 +3781,64 @@ test_forms_can_be_cancelled_and_clicked :: proc(t: ^testing.T) {
 	app_event(&f.app, tui.Paste_Event{"pasted\nline"})
 	testing.expect_value(t, tui.editor_text(&f.app.dialog.form.fields[0].edit), "pasted")
 }
+
+@(test)
+test_on_a_narrow_screen_the_channel_list_is_an_overlay :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 50, 16)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "# dev"))
+	testing.expect(t, screen_has(&f, "^B channels"))
+	discard(&f)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'b', mods = {.Ctrl}})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "# dev"))
+	testing.expect(t, screen_has(&f, "example.org"))
+	// The messages did not move over to make room: it is on top of them.
+	g := geometry(&f.app)
+	testing.expect_value(t, g.timeline.x, 0)
+	testing.expect(t, g.overlay)
+	// Clicking a channel switches and closes it.
+	click(&f, 6, row_of(&f, "# dev"))
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.View_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 2)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "# dev"))
+}
+
+@(test)
+test_the_overlay_closes_with_escape_or_a_click_outside :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 50, 16)
+	defer fixture_destroy(&f)
+	frame(&f)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'b', mods = {.Ctrl}})
+	frame(&f)
+	testing.expect(t, f.app.list_overlay)
+	press(&f, .Escape)
+	testing.expect(t, !f.app.list_overlay)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'b', mods = {.Ctrl}})
+	frame(&f)
+	click(&f, 45, 8) // to the right of the list
+	testing.expect(t, !f.app.list_overlay)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'b', mods = {.Ctrl}})
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'b', mods = {.Ctrl}}) // toggles
+	testing.expect(t, !f.app.list_overlay)
+	discard(&f)
+}
+
+@(test)
+test_a_wide_screen_has_no_overlay :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'b', mods = {.Ctrl}})
+	frame(&f)
+	g := geometry(&f.app)
+	testing.expect(t, !g.overlay)
+	testing.expect_value(t, g.channels.w, CHANNEL_W_DEFAULT)
+}

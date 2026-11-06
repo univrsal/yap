@@ -62,6 +62,14 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F10, .F11, .F12:
 		}
 	}
+	if k.key == .Rune && k.mods == {.Ctrl} && k.rune == 'b' && a.dialog.kind == .None {
+		a.list_overlay = !a.list_overlay
+		return
+	}
+	if k.key == .Escape && a.list_overlay && a.dialog.kind == .None && !a.menu.open {
+		a.list_overlay = false
+		return
+	}
 	if k.key == .Rune && k.mods == {.Ctrl} && k.rune == 'k' && a.dialog.kind != .Palette {
 		open_palette(a)
 		return
@@ -412,6 +420,7 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	switch hit.kind {
 	case .Channel:
 		push(a, conn.View_Command{conv = proto_conv(hit.id)})
+		a.list_overlay = false
 	case .Message:
 		// A click opens the menu, but a drag selects text: it is told apart when
 		// the button comes up.
@@ -435,6 +444,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	case .Completion:
 		completion_choose(a, int(hit.id))
 	case .Palette_Item, .Form_Field:
+	case .Overlay_Close:
+		a.list_overlay = false
 	case .Setting_Row:
 		a.dialog.sel = int(hit.id)
 		setting_change(a, Setting(hit.id), 1)

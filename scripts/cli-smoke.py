@@ -179,7 +179,7 @@ def main():
         server2 = subprocess.Popen([SERVER], cwd=tmp2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(1.5)
 
-        args = [f"localhost:{PORT}", f"-key:{tmp}/c.key", f"-known-servers:{tmp}/known", f"-log-file:{tmp}/cli.log"]
+        args = [f"localhost:{PORT}", f"-key:{tmp}/c.key", f"-known-servers:{tmp}/known", f"-log-file:{tmp}/cli.log", "-tone:440"]
         cli = Cli(args)
         check(cli.wait_for("Log in"), "asks for a login", cli)
         check(cli.screen.alt and cli.screen.mouse and cli.screen.paste, "uses its own screen, with mouse and paste on")
@@ -219,6 +219,11 @@ def main():
         cli.send("\x1b[18~")  # F7
         check(cli.wait_for("♪ #Lobby"), "joins the voice room", cli)
         check(cli.wait_for("▸ tester"), "lists who is in the room", cli)
+        # (the tone is the microphone, so the level meter in the status bar moves)
+        end = time.time() + 6
+        while time.time() < end and not any(c in cli.screen.rows()[-1] for c in "▂▃▄▅▆▇█"):
+            cli.pump(0.2)
+        check(any(c in cli.screen.rows()[-1] for c in "▂▃▄▅▆▇█"), "shows the microphone level while in voice", cli)
         cli.send("\x1b[15~")  # F5
         check(cli.wait_for("muted"), "mutes", cli)
         cli.send("\x1b[20~")  # F9

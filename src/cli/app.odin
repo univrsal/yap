@@ -40,6 +40,7 @@ Hit_Kind :: enum {
 	Voice_Join, // id: the channel whose voice room to join or leave
 	Setting_Row, // id: the setting
 	Palette_Item, // id: its index
+	Overlay_Close, // anywhere outside the channel list when it is an overlay
 	Form_Field, // id: its index
 	List_Item, // id: its index in the list dialog
 	Completion, // id: its index in the completion list
@@ -138,6 +139,7 @@ App :: struct {
 	size:          [2]int,
 	channel_w:     int,
 	hide_members:  bool, // the member list is on unless asked off
+	list_overlay:  bool, // on a narrow screen, the channel list is shown over the messages
 	drag:          Drag,
 	sel:           Selection,
 	press:         Maybe(Press), // a click on a message that may turn into a drag
@@ -229,6 +231,7 @@ tick_since :: proc(t: time.Tick) -> time.Duration {
 
 Geometry :: struct {
 	channels: tui.Rect, // empty when hidden
+	overlay:  bool, // the list is over the messages, not beside them
 	border:   tui.Rect,
 	thread:   tui.Rect, // the open thread, empty when none
 	thread_border: tui.Rect,
@@ -270,6 +273,14 @@ geometry :: proc(a: ^App) -> Geometry {
 	lines := make([dynamic]tui.Line, context.temp_allocator)
 	tui.wrap(tui.editor_text(&a.editor), max(rw - 2, 1), &lines)
 	ch := clamp(len(lines), 1, min(COMPOSER_MAX, max(h / 3, 1)))
+	// On a narrow screen the list is a window over the messages, for when it is
+	// wanted, instead of a column that takes their room.
+	if w < NARROW && a.list_overlay {
+		ow := min(w - 2, 32)
+		g.channels = {0, 0, ow, h - 1}
+		g.border = {ow, 0, 1, h - 1}
+		g.overlay = true
+	}
 	g.status = {0, h - 1, w, 1}
 	g.composer = {cw, h - 1 - ch, rw, ch}
 	g.info = {cw, h - 2 - ch, rw, 1}
@@ -347,11 +358,19 @@ app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 	clear(&a.hits)
 	a.cursor_shown = false
 	g := geometry(a)
-	draw_channels(a, b, g)
+	if !g.overlay {
+		draw_channels(a, b, g)
+	}
 	draw_chat(a, b, g)
 	draw_members(a, b, g)
 	draw_completion(a, b, g)
 	draw_status(a, b, g)
+	if g.overlay {
+		// Over everything else; a click outside it closes it.
+		append(&a.hits, Hit{{0, 0, b.w, b.h}, .Overlay_Close, 0, ""})
+		tui.fill(b, g.channels, {})
+		draw_channels(a, b, g)
+	}
 	draw_selection(a, b)
 	draw_overlays(a, b)
 	a.frame = b

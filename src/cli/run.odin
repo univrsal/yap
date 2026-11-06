@@ -55,7 +55,9 @@ run_ui :: proc(opt: Options) -> bool {
 	gui_path := platform.default_config_path("settings.json")
 	app.voice_settings = voice_settings_load(app.cli_path, gui_path)
 	delete(gui_path)
-	host: Audio_Host
+	host := Audio_Host {
+		tone_hz = opt.tone,
+	}
 	defer audio_host_destroy(&host)
 	// The scripts first, so that each connection is attached to them as it is made.
 	app.scripts = start_scripts()

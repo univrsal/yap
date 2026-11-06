@@ -315,6 +315,7 @@ HELP_LINES :: [?]string {
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
+	"Ctrl+B          the channel list, on a narrow screen",
 	"Ctrl+K          go to a conversation or do something (also new channel, ban, ...)",
 	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  F9 settings",
 	"/pins /bookmarks /search [all] <words>   lists of messages",

@@ -245,6 +245,9 @@ draw_status :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	if elsewhere > 0 {
 		right = fmt.tprintf("%d unread%s   F1 help", elsewhere, fmt.tprintf(" (%d @)", mentions) if mentions > 0 else "")
 	}
+	if a.size.x < NARROW {
+		right = fmt.tprintf("^B channels  %s", right)
+	}
 	tui.put_string(b, r.x + r.w - tui.string_width(right) - 1, r.y, right, theme.bar, r.x + r.w)
 }
 

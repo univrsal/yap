@@ -27,6 +27,7 @@ Server :: struct {
 	ui:      Server_UI, // what the app kept for it while it isn't shown
 	streams:  audio.Audio_Streams, // its sound devices, open while it is in voice (audio_loop.odin)
 	audio_on: bool,
+	fake:     audio.Fake_Audio, // the test microphone, when -tone is given
 }
 
 Server_Request_Kind :: enum {

@@ -29,6 +29,7 @@ Options :: struct {
 	log_level:     common.Log_Level `usage:"Log level (debug, info, warn, error)."`,
 	log_file:      string `usage:"Append the log to this file (default: cli.log in the config folder, unless -print)."`,
 	download_dir:  string `usage:"Save files from messages to this folder (default: the downloads folder)."`,
+	tone:          f32 `usage:"For testing: use a sine tone of this frequency (Hz) as the microphone, instead of the sound system."`,
 	print:         bool `usage:"No screen: print the channels and what is unread in them, as they change, until Ctrl+C."`,
 }
 

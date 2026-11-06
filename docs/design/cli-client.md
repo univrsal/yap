@@ -470,3 +470,48 @@ Still missing: emoji completion, argument completion, hover highlighting, a
 screen for the rest of the list commands (`/server-memory`, `/seen`, ...),
 saving joined servers. Next in the plan: voice, calls, settings and the admin
 screens (phase 3).
+
+**Phase 3 (2026-11-06).** Voice, calls, settings, the admin forms, the palette
+and the narrow layout. 175 tests in `src/cli`; 712 across the suites; the pty
+smoke test now also joins a voice room, mutes, opens the settings and watches
+the microphone level move. No change to `src/client`.
+
+- **Voice.** Channels with a voice room get a `♪` door (a click of its own,
+  apart from the channel's), and the people in a room are listed under the
+  channel, the ones talking in bold green, muted or deaf ones marked. `F7` (or
+  `/voice [channel]`, `/novoice`) joins or leaves, `F5` mutes, `F6` deafens
+  (muting too, and giving mute back as it was), the way the window client does;
+  these are the user's, so they apply to every server, and joining a room leaves
+  the one on another server. The status bar shows the room or call, muted or
+  deafened, and a level meter.
+- **Devices.** They belong to the loop, not the screen: opened while a
+  connection is in a room or a call, closed after, so a chat-only session never
+  touches the sound system. With no sound system everything else still works and
+  the settings say why. `-tone <hz>` makes a sine tone the microphone, for
+  testing without a card (the headless client's `-tone`).
+- **Calls.** An incoming call opens a dialog (`A`/`D`); an outgoing or active one
+  is in the status bar; `F8` ends it; `/call name` is the headless command.
+- **Settings** (`F9`, `/settings`): microphone, speakers, quality, noise
+  suppression, voice gate and its thresholds, applied at once. They come from the
+  window client's `settings.json` (read only) until one is changed here, and are
+  then kept in this client's own `cli.json`; a test checks the window client's
+  file is not touched.
+- **Palette** (`Ctrl+K`): conversations, servers, and the things that have a
+  command or a form, matched by letters in order.
+- **Forms** for a new channel, a channel's settings (only what changed is sent),
+  a ban (with removing their recent messages) and an invite code, from the
+  palette. They send what the matching commands would, so the server decides who
+  may.
+- **Narrow screens**: under 60 columns the channel list is a window over the
+  messages on `Ctrl+B` (a click on a channel, outside it, or `Esc` closes it).
+
+Found on the way: `Alt+D` and `Ctrl+K` are emacs keys in the message box, so the
+voice keys are function keys, and `Ctrl+K` is the palette (the box still has
+`Ctrl+U` and `Ctrl+W`). `store_read` logs an error for a file that does not
+exist, so the settings check first.
+
+Not done: colours and key bindings in `cli.json` (only the voice settings are
+there), a picture preview, Windows, screen sharing and cameras (out of scope),
+a screen for roles beyond reading them (`/mkrole`, `/setrole` work as commands),
+and testing the real sound devices on a machine that has them: the code that
+opens them is the window client's, but it was only run here without a card.
