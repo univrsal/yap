@@ -1880,3 +1880,193 @@ test_the_menu_pins_and_bookmarks :: proc(t: ^testing.T) {
 	testing.expect(t, pinned && pin.on)
 	testing.expect_value(t, pin.id, 10)
 }
+
+@(test)
+test_completing_a_mention :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_account(&f.v, 3, "annabel")
+	add_account(&f.v, 4, "bob")
+	f.v.users[7] = {account = 3} // annabel is here, anna is not
+	frame(&f)
+	type_text(&f, "hi @an")
+	frame(&f)
+	testing.expect(t, f.app.completion.active)
+	testing.expect_value(t, len(f.app.completion.items), 2)
+	// Those who are here first.
+	testing.expect_value(t, f.app.completion.items[0].insert, "@annabel ")
+	testing.expect(t, screen_has(&f, "@anna   anna"))
+	press(&f, .Down)
+	testing.expect_value(t, f.app.completion.selected, 1)
+	press(&f, .Up)
+	press(&f, .Up) // wraps
+	testing.expect_value(t, f.app.completion.selected, 1)
+	press(&f, .Tab)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "hi @anna ")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active)
+	// Not ourselves, and not in the middle of a word.
+	type_text(&f, "@m")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active)
+	type_text(&f, "x")
+	press(&f, .Backspace)
+	press(&f, .Backspace)
+	type_text(&f, "mail@b")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active)
+}
+
+@(test)
+test_escape_closes_the_list_for_that_word :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	type_text(&f, "@an")
+	frame(&f)
+	testing.expect(t, f.app.completion.active)
+	press(&f, .Escape)
+	testing.expect(t, !f.app.completion.active)
+	frame(&f)
+	testing.expect(t, !f.app.completion.active) // it stays closed for that word
+	// The word changes: the list is back.
+	type_text(&f, "n")
+	frame(&f)
+	testing.expect(t, f.app.completion.active)
+}
+
+@(test)
+test_completing_with_enter_does_not_send :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "@an")
+	frame(&f)
+	press(&f, .Enter)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "@anna ")
+	for c in take(&f) {
+		if _, is_chat := c.(conn.Chat_Command); is_chat {
+			testing.fail_now(t, "a message was sent")
+		}
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_clicking_a_completion :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	type_text(&f, "@an")
+	frame(&f)
+	for h in f.app.hits {
+		if h.kind == .Completion {
+			click(&f, h.rect.x + 2, h.rect.y)
+		}
+	}
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "@anna ")
+}
+
+@(test)
+test_completing_commands_and_roles :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	append(&f.v.roles, conn.View_Role{id = 5, name = strings.clone("Team Leads"), flags = {.Mentionable}})
+	append(&f.v.roles, conn.View_Role{id = 6, name = strings.clone("Teapots")})
+	f.v.permissions += {.Mention_Everyone}
+	frame(&f)
+	type_text(&f, "/pi")
+	frame(&f)
+	labels := make([dynamic]string, context.temp_allocator)
+	for it in f.app.completion.items {
+		append(&labels, it.label)
+	}
+	testing.expect(t, slice_has(labels[:], "/pin"))
+	testing.expect(t, slice_has(labels[:], "/pins"))
+	testing.expect(t, !slice_has(labels[:], "/join"))
+	press(&f, .Tab)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "/pin ")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active) // past the first word
+
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "@te")
+	frame(&f)
+	testing.expect_value(t, len(f.app.completion.items), 1) // the role that can be mentioned
+	testing.expect_value(t, f.app.completion.items[0].insert, "@Team Leads ")
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "@eve")
+	frame(&f)
+	testing.expect_value(t, f.app.completion.items[0].insert, "@everyone ")
+	// A role with a space in its name goes on being completed past it.
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "@Team L")
+	frame(&f)
+	testing.expect(t, f.app.completion.active)
+	testing.expect_value(t, f.app.completion.items[0].insert, "@Team Leads ")
+	press(&f, .Enter)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "@Team Leads ")
+}
+
+@(private = "file")
+slice_has :: proc(s: []string, what: string) -> bool {
+	for x in s {
+		if x == what {
+			return true
+		}
+	}
+	return false
+}
+
+@(test)
+test_bot_commands_are_offered :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	append(
+		&f.v.bot_commands,
+		conn.Bot_Command_Entry{account = 9, bot = strings.clone("robo"), name = strings.clone("roll"), description = strings.clone("roll a die")},
+	)
+	frame(&f)
+	type_text(&f, "/ro")
+	frame(&f)
+	found := false
+	for it in f.app.completion.items {
+		found ||= strings.contains(it.label, "roll a die (robo)")
+	}
+	testing.expect(t, found)
+	// In a DM only the bots in it are offered.
+	tui.editor_clear(&f.app.editor)
+	append(&f.v.dms, conn.View_DM{id = 50, with = 2, last = 1})
+	f.v.viewing = 50
+	frame(&f)
+	type_text(&f, "/ro")
+	frame(&f)
+	for it in f.app.completion.items {
+		testing.expect(t, !strings.contains(it.label, "robo"))
+	}
+}
+
+@(test)
+test_a_finished_word_does_not_hold_back_enter :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "hi @anna")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active)
+	press(&f, .Enter)
+	cmds := take(&f)
+	chat, ok := find_cmd(conn.Chat_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, chat.text, "hi @anna")
+	conn.command_destroy(chat)
+}

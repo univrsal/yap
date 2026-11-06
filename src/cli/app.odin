@@ -36,6 +36,7 @@ Hit_Kind :: enum {
 	Reaction, // id: the message; text: the emoji
 	Close_Thread,
 	List_Item, // id: its index in the list dialog
+	Completion, // id: its index in the completion list
 	Emoji, // id: its index in the picker
 	Composer,
 	Menu_Item, // id: its index
@@ -99,6 +100,7 @@ App :: struct {
 
 	// The message box.
 	editor:        tui.Editor,
+	completion:    Completion,
 	reply_to:      proto.Msg_Id, // posting as a reply in this message's thread
 	reply_name:    string, // who that is, for the banner (owned)
 	editing:       proto.Msg_Id, // changing this message of ours
@@ -135,6 +137,7 @@ app_init :: proc(a: ^App, v: ^conn.View, client: ^conn.Server_Conn) {
 app_destroy :: proc(a: ^App) {
 	layout_destroy(&a.layout)
 	layout_destroy(&a.thread_layout)
+	completion_destroy(&a.completion)
 	tui.editor_destroy(&a.editor)
 	delete(a.reply_name)
 	delete(a.notice)
@@ -292,6 +295,7 @@ app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 	draw_channels(a, b, g)
 	draw_chat(a, b, g)
 	draw_members(a, b, g)
+	draw_completion(a, b, g)
 	draw_status(a, b, g)
 	draw_overlays(a, b)
 }
@@ -315,6 +319,7 @@ app_sync :: proc(a: ^App) {
 		a.unread_from = read if unread > 0 else 0
 	}
 	dialog_update(a)
+	completion_update(a)
 	// Who is here, for the member list.
 	if g.members.w > 0 && a.members_asked != a.viewing && a.viewing != 0 {
 		a.members_asked = a.viewing

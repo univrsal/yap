@@ -63,6 +63,17 @@ editor_insert :: proc(e: ^Editor, s: string) {
 	e.browse = len(e.history)
 }
 
+// editor_replace puts `s` in place of the bytes from..to and the cursor after it.
+editor_replace :: proc(e: ^Editor, start, end: int, s: string) {
+	from, to := clamp(start, 0, len(e.text)), clamp(end, 0, len(e.text))
+	if to > from {
+		remove_range(&e.text, from, to)
+	}
+	inject_at(&e.text, from, ..transmute([]u8)s)
+	e.cursor = from + len(s)
+	e.browse = len(e.history)
+}
+
 // editor_remember adds the text to the history, as sent, and clears the field.
 editor_remember :: proc(e: ^Editor) {
 	text := editor_text(e)

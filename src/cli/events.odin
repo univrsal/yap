@@ -53,6 +53,9 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		timeline_key(a, k)
 		return
 	}
+	if completion_key(a, k) {
+		return
+	}
 	composer_key(a, k)
 }
 
@@ -358,6 +361,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		if can_react(a.view) {
 			react(a, proto_msg(hit.id), hit.text)
 		}
+	case .Completion:
+		completion_choose(a, int(hit.id))
 	case .Emoji, .List_Item:
 	case .Member:
 		// Writing to someone starts with their DM.

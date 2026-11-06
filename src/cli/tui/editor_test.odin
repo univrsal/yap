@@ -243,3 +243,18 @@ test_layout_cursor :: proc(t: ^testing.T) {
 	testing.expect_value(t, cx, 0)
 	testing.expect_value(t, cy, 0)
 }
+
+@(test)
+test_replace_a_range :: proc(t: ^testing.T) {
+	e: Editor
+	defer editor_destroy(&e)
+	editor_set(&e, "hello @an and more")
+	editor_replace(&e, 6, 9, "@anna ")
+	testing.expect_value(t, editor_text(&e), "hello @anna  and more")
+	testing.expect_value(t, e.cursor, 12)
+	// Out of range is cut to the text.
+	editor_replace(&e, 15, 400, "!")
+	testing.expect_value(t, editor_text(&e), "hello @anna  an!")
+	editor_replace(&e, 0, 0, ">")
+	testing.expect_value(t, editor_text(&e), ">hello @anna  an!")
+}
