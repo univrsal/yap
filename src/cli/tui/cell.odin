@@ -17,11 +17,11 @@ Color :: struct {
 	r, g, b: u8, // an Index is in r
 }
 
-color_index :: proc(i: u8) -> Color {
+color_index :: proc "contextless" (i: u8) -> Color {
 	return {kind = .Index, r = i}
 }
 
-color_rgb :: proc(r, g, b: u8) -> Color {
+color_rgb :: proc "contextless" (r, g, b: u8) -> Color {
 	return {kind = .RGB, r = r, g = g, b = b}
 }
 
