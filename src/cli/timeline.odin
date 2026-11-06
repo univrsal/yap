@@ -99,6 +99,9 @@ layout_update :: proc(
 	}
 	l.key = want
 	clear(&l.rows)
+	// The array of rows is not in the arena (the arena is emptied for each
+	// layout), so it gets its memory before the allocator is switched.
+	reserve(&l.rows, 64)
 	if l.arena.curr_block == nil {
 		_ = virtual.arena_init_growing(&l.arena)
 	} else {
