@@ -21,6 +21,7 @@ Dialog_Kind :: enum {
 	Picker, // an emoji to react to a message with
 	List, // pinned messages, bookmarks or a search
 	Info, // roles, bans, invites or devices
+	Call, // somebody is calling us
 }
 
 Dialog :: struct {
@@ -55,6 +56,8 @@ dialog_update :: proc(a: ^App) {
 		return
 	case v.key_change.changed:
 		want = .Key_Change
+	case v.call.status == .Ringing_In:
+		want = .Call
 	case v.login.state == .Needed && v.status == .Connected:
 		want = .Login
 	case:
@@ -248,6 +251,12 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		draw_list(a, b)
 	case .Info:
 		draw_info(a, b)
+	case .Call:
+		r := dialog_rect(b, 46, 7)
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
+		draw_box(b, r, "Incoming call")
+		tui.put_string(b, r.x + 2, r.y + 2, fmt.tprintf("📞 %s is calling you.", call_peer_name(v)), {attrs = {.Bold}}, r.x + r.w - 1)
+		tui.put_string(b, r.x + 2, r.y + 4, "A / Enter: answer   D / Esc: decline", {}, r.x + r.w - 1)
 	case .Picker:
 		rows := (len(PICKER_EMOJI) + PICKER_COLUMNS - 1) / PICKER_COLUMNS
 		r := dialog_rect(b, PICKER_COLUMNS * PICKER_CELL + 3, rows + 4)
@@ -296,6 +305,7 @@ HELP_LINES :: [?]string {
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
+	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  (or the ♪ in the list)",
 	"/pins /bookmarks /search [all] <words>   lists of messages",
 	"/join <channel>  look at a channel      /help   this list",
 	"/quit            leave                  Ctrl+C  leave",
@@ -355,6 +365,13 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 			dialog_close(a)
 		case k.key == .Escape, k.key == .Rune && (k.rune == 'n' || k.rune == 'N'):
 			dialog_close(a)
+		}
+	case .Call:
+		switch {
+		case k.key == .Enter, k.key == .Rune && (k.rune == 'a' || k.rune == 'A'):
+			push(a, conn.Call_Answer_Command{})
+		case k.key == .Escape, k.key == .Rune && (k.rune == 'd' || k.rune == 'D'):
+			hang_up(a)
 		}
 	case .Help, .Output, .Info:
 		dialog_close(a)

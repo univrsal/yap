@@ -37,6 +37,7 @@ Hit_Kind :: enum {
 	Reaction, // id: the message; text: the emoji
 	Close_Thread,
 	Server, // id: its index
+	Voice_Join, // id: the channel whose voice room to join or leave
 	List_Item, // id: its index in the list dialog
 	Completion, // id: its index in the completion list
 	Emoji, // id: its index in the picker
@@ -119,6 +120,11 @@ App :: struct {
 	device:        string, // what to call this device when logging in
 	tz:            ^datetime.TZ_Region,
 	quit:          bool,
+	// What the user chose for their voice, on every server.
+	muted:         bool,
+	deafened:      bool,
+	muted_before_deafen: bool,
+	audio_error:   string, // why there is no sound, if there is none (owned)
 
 	size:          [2]int,
 	channel_w:     int,
@@ -172,6 +178,7 @@ app_destroy :: proc(a: ^App) {
 	delete(a.requests)
 	delete(a.notice)
 	delete(a.clipboard)
+	delete(a.audio_error)
 	notices_destroy(a)
 	delete(a.hits)
 	dialog_close(a)

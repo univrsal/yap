@@ -14,6 +14,7 @@ import "tui"
 List_Row_Kind :: enum {
 	Header,
 	Channel,
+	Voice_User, // someone in the voice room of the channel above
 	Direct, // a DM
 	Group,
 }
@@ -25,6 +26,11 @@ List_Row :: struct {
 	unread:   int,
 	mentions: int,
 	online:   bool,
+	// A channel's voice room: whether it has one, whether we are in it; or for a
+	// Voice_User, how they are.
+	voice:    bool,
+	in_room:  bool,
+	user:     Voice_User,
 }
 
 // list_rows is what the list shows, in order. Call with the View locked.
@@ -32,7 +38,21 @@ list_rows :: proc(v: ^conn.View) -> []List_Row {
 	rows := make([dynamic]List_Row, context.temp_allocator)
 	append(&rows, List_Row{kind = .Header, name = "Channels"})
 	for ch in v.channels {
-		append(&rows, List_Row{kind = .Channel, conv = ch.id, name = ch.name, unread = ch.unread, mentions = ch.mentions})
+		append(
+			&rows,
+			List_Row {
+				kind = .Channel,
+				conv = ch.id,
+				name = ch.name,
+				unread = ch.unread,
+				mentions = ch.mentions,
+				voice = has_voice(ch),
+				in_room = ch.id == v.my_room,
+			},
+		)
+		for u in voice_users(v, ch) {
+			append(&rows, List_Row{kind = .Voice_User, conv = ch.id, name = u.name, user = u})
+		}
 	}
 	// DMs and groups that have had something said in them, newest first. The one
 	// with ourselves is the notes, and is not here.
@@ -80,7 +100,7 @@ list_rows :: proc(v: ^conn.View) -> []List_Row {
 conversations_in_order :: proc(v: ^conn.View) -> []proto.Conv_Id {
 	out := make([dynamic]proto.Conv_Id, context.temp_allocator)
 	for r in list_rows(v) {
-		if r.kind != .Header {
+		if r.kind != .Header && r.kind != .Voice_User {
 			append(&out, r.conv)
 		}
 	}
@@ -124,6 +144,20 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 			y += 1
 			continue
 		}
+		if row.kind == .Voice_User {
+			style := tui.Style{fg = theme.online.fg, attrs = {.Bold}} if row.user.speaking else theme.dim
+			mark := "▸ "
+			text := row.name
+			if row.user.deafened {
+				text = fmt.tprintf("%s (deaf)", row.name)
+			} else if row.user.muted {
+				text = fmt.tprintf("%s (muted)", row.name)
+			}
+			tui.put_string(b, r.x + 4, y, mark, style, r.x + r.w)
+			tui.put_string(b, r.x + 6, y, tui.cut_to_width(text, r.w - 7), style, r.x + r.w)
+			y += 1
+			continue
+		}
 		picked := row.conv == v.viewing
 		style := theme.selected if picked else tui.Style{}
 		tui.fill(b, {r.x, y, r.w, 1}, style)
@@ -142,14 +176,26 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 			mark_style = style if picked else (theme.online if row.online else theme.dim)
 		case .Group:
 			mark = "◆"
-		case .Header, .Channel:
+		case .Header, .Channel, .Voice_User:
 		}
 		tui.put_string(b, r.x + 1, y, mark, mark_style, r.x + r.w)
+		// The voice room's door, a click of its own, on top of the row's.
+		door_hit: Maybe(Hit)
+		if row.voice && row.kind == .Channel {
+			name_w -= 2
+			door := tui.Style{fg = theme.online.fg, bg = style.bg, attrs = {.Bold}} if row.in_room else tui.Style{fg = theme.dim.fg, bg = style.bg}
+			dx := r.x + 3 + min(tui.string_width(row.name), name_w) + 1
+			tui.put_string(b, dx, y, "♪", door, r.x + r.w)
+			door_hit = Hit{{dx - 1, y, 3, 1}, .Voice_Join, u64(row.conv), ""}
+		}
 		tui.put_string(b, r.x + 3, y, tui.cut_to_width(row.name, name_w), name_style, r.x + r.w)
 		if badge_w > 0 {
 			tui.put_string(b, r.x + r.w - badge_w - 1, y, badge, badge_style)
 		}
 		append(&a.hits, Hit{{r.x, y, r.w, 1}, .Channel, u64(row.conv), ""})
+		if door, has := door_hit.?; has {
+			append(&a.hits, door)
+		}
 		y += 1
 	}
 }

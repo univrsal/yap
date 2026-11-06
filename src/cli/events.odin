@@ -42,6 +42,23 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		a.dialog.kind = .Help
 		return
 	}
+	if a.dialog.kind == .None || a.dialog.kind == .Call {
+		switch k.key {
+		case .F5:
+			set_muted(a, !a.muted)
+			return
+		case .F6:
+			set_deafened(a, !a.deafened)
+			return
+		case .F7:
+			toggle_voice(a)
+			return
+		case .F8:
+			hang_up(a)
+			return
+		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F9, .F10, .F11, .F12:
+		}
+	}
 	if k.key == .F2 && a.dialog.kind == .None {
 		a.hide_members = !a.hide_members
 		a.members_asked = 0
@@ -381,6 +398,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 	case .Completion:
 		completion_choose(a, int(hit.id))
+	case .Voice_Join:
+		toggle_voice_of(a, proto_conv(hit.id))
 	case .Emoji, .List_Item:
 	case .Member:
 		// Writing to someone starts with their DM.
@@ -479,4 +498,19 @@ selection_mouse :: proc(a: ^App, m: tui.Mouse_Event, g: Geometry) -> bool {
 	case .Press, .Move, .Wheel_Up, .Wheel_Down:
 	}
 	return false
+}
+
+// toggle_voice_of joins the voice room of a channel, or leaves it if we are in it.
+@(private = "file")
+toggle_voice_of :: proc(a: ^App, conv: proto.Conv_Id) {
+	if a.view.my_room == conv {
+		leave_voice(a)
+		return
+	}
+	for ch in a.view.channels {
+		if ch.id == conv && has_voice(ch) {
+			join_voice(a, ch)
+			return
+		}
+	}
 }

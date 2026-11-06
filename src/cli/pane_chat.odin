@@ -227,6 +227,9 @@ draw_status :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	tui.fill(b, r, theme.bar)
 	left := fmt.tprintf(" %s", v.my_name if v.my_name != "" else "not logged in")
 	x := tui.put_string(b, r.x, r.y, left, theme.bar, r.x + r.w)
+	if text, style := voice_status(a); text != "" {
+		x = tui.put_string(b, x + 2, r.y, text, style, r.x + r.w)
+	}
 	if v.status != .Connected {
 		tui.put_string(b, x + 2, r.y, connection_text(v), {fg = theme.error.fg, bg = theme.bar.bg}, r.x + r.w)
 	}
@@ -238,7 +241,7 @@ draw_status :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 			mentions += row.mentions
 		}
 	}
-	right := "F1 help"
+	right := "F5 mute  F1 help" if in_voice(v) else "F1 help"
 	if elsewhere > 0 {
 		right = fmt.tprintf("%d unread%s   F1 help", elsewhere, fmt.tprintf(" (%d @)", mentions) if mentions > 0 else "")
 	}

@@ -3108,3 +3108,268 @@ test_bans_invites_and_devices_fill_in_when_they_arrive :: proc(t: ^testing.T) {
 	testing.expect(t, screen_has(&f, "phone  (online)"))
 	discard(&f)
 }
+
+// in_the_room puts us and others into the voice room of the first channel.
+@(private = "file")
+voice_room :: proc(f: ^Fixture) {
+	f.v.my_num = 1
+	f.v.users[1] = {account = 1, room = 1, in_voice = true}
+	f.v.users[7] = {account = 2, room = 1, in_voice = true}
+	f.v.users[8] = {account = 3, room = 1, in_voice = true, muted = true}
+	add_account(&f.v, 3, "ben")
+	delete(f.v.channels[0].members)
+	f.v.channels[0].members = make([]proto.User_Num, 3)
+	f.v.channels[0].members[0], f.v.channels[0].members[1], f.v.channels[0].members[2] = 1, 7, 8
+}
+
+@(test)
+test_channels_with_voice_have_a_door_and_show_who_is_in_it :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	voice_room(&f)
+	f.v.channels[1].flags += {.Text_Only} // #dev has no voice
+	f.v.channels[2].rights = {.See, .Write} // and we may not use #ops's
+	frame(&f)
+	rows := screen(&f)
+	testing.expect(t, strings.contains(rows[2], "# general ♪"), rows[2])
+	testing.expect(t, strings.contains(rows[3], "▸ me"), rows[3])
+	testing.expect(t, strings.contains(rows[4], "▸ anna"), rows[4])
+	testing.expect(t, strings.contains(rows[5], "▸ ben (muted)"), rows[5])
+	testing.expect(t, !strings.contains(rows[6], "♪"), rows[6])
+	testing.expect(t, !strings.contains(rows[7], "♪"), rows[7])
+}
+
+@(test)
+test_a_speaker_is_picked_out :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	voice_room(&f)
+	f.v.speaking[7] = time.tick_now()
+	frame(&f)
+	x := col_of(&f, 4, "anna")
+	testing.expect(t, .Bold in tui.cell_at(&f.buf, x, 4).style.attrs)
+	testing.expect(t, tui.cell_at(&f.buf, x, 3).style == theme.dim || tui.cell_at(&f.buf, col_of(&f, 3, "me"), 3).style == theme.dim)
+}
+
+@(test)
+test_clicking_the_door_joins_and_leaves_voice :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	door := col_of(&f, 2, "♪")
+	click(&f, door, 2)
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.Voice_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 1)
+	// The channel is not switched to by that.
+	_, switched := find_cmd(conn.View_Command, cmds)
+	testing.expect(t, !switched)
+	// In the room, the same click leaves.
+	f.v.my_room = 1
+	frame(&f)
+	click(&f, door, 2)
+	cmds = take(&f)
+	vc, ok = find_cmd(conn.Voice_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 0)
+	// Clicking the name still switches.
+	click(&f, 6, 3)
+	cmds = take(&f)
+	_, switched = find_cmd(conn.View_Command, cmds)
+	testing.expect(t, switched)
+}
+
+@(test)
+test_joining_voice_leaves_it_on_other_servers :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	f.v2.my_room = 11
+	frame(&f)
+	discard(&f)
+	press(&f, .F7) // the shown channel has a voice room
+	cmds := take(&f)
+	_, joined := find_cmd(conn.Voice_Command, cmds)
+	testing.expect(t, joined)
+	left := false
+	for c in f.c2.commands.commands {
+		if vc, is := c.(conn.Voice_Command); is && vc.conv == 0 {
+			left = true
+		}
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+	testing.expect(t, left)
+}
+
+@(test)
+test_f7_leaves_the_room_we_are_in :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	f.v.my_room = 1
+	discard(&f)
+	press(&f, .F7)
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.Voice_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 0)
+	// A conversation without a voice room says so.
+	f.v.my_room = 0
+	add_dm(&f, 50, 2, 9)
+	f.v.viewing = 50
+	frame(&f)
+	press(&f, .F7)
+	testing.expect(t, strings.contains(f.app.notice, "no voice room"))
+}
+
+@(test)
+test_mute_and_deafen_apply_to_every_server :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	frame(&f)
+	discard(&f)
+	press(&f, .F5)
+	testing.expect(t, f.app.muted)
+	cmds := take(&f)
+	mc, ok := find_cmd(conn.Mute_Command, cmds)
+	testing.expect(t, ok && mc.muted && mc.feedback) // the shown server plays the sound
+	other, ok2 := f.c2.commands.commands[0].(conn.Mute_Command)
+	testing.expect(t, ok2 && other.muted && !other.feedback)
+	clear(&f.c2.commands.commands)
+
+	// Deafening mutes too, and undeafening gives mute back as it was.
+	press(&f, .F5) // unmute
+	discard(&f)
+	press(&f, .F6)
+	testing.expect(t, f.app.deafened && f.app.muted)
+	press(&f, .F6)
+	testing.expect(t, !f.app.deafened && !f.app.muted)
+	// Unmuting while deafened undeafens.
+	press(&f, .F6)
+	press(&f, .F5)
+	testing.expect(t, !f.app.deafened && !f.app.muted)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_the_status_bar_shows_voice :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	testing.expect(t, !strings.contains(screen(&f)[f.buf.h - 1], "♪"))
+	f.v.my_room = 1
+	f.v.mic_open = true
+	f.v.mic_level = -20
+	frame(&f)
+	last := screen(&f)[f.buf.h - 1]
+	testing.expect(t, strings.contains(last, "♪ #general"), last)
+	testing.expect(t, strings.contains(last, "▆") || strings.contains(last, "▅"), last)
+	f.app.muted = true
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[f.buf.h - 1], "muted"))
+	f.app.muted, f.app.deafened = false, true
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[f.buf.h - 1], "deafened"))
+}
+
+@(test)
+test_voice_commands :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/mute")
+	press(&f, .Enter)
+	testing.expect(t, f.app.muted)
+	type_text(&f, "/unmute")
+	press(&f, .Enter)
+	testing.expect(t, !f.app.muted)
+	type_text(&f, "/voice #dev")
+	press(&f, .Enter)
+	type_text(&f, "/novoice")
+	press(&f, .Enter)
+	cmds := take(&f)
+	names := make([dynamic]string, context.temp_allocator)
+	for c in cmds {
+		if vc, is := c.(conn.Voice_Command); is {
+			append(&names, vc.name)
+		}
+	}
+	testing.expect_value(t, len(names), 2)
+	testing.expect_value(t, names[0], "dev")
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_an_incoming_call_can_be_answered_or_declined :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	f.v.call = {id = 4, status = .Ringing_In, peer = 2}
+	frame(&f)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Call)
+	testing.expect(t, screen_has(&f, "anna is calling you"))
+	discard(&f)
+	type_text(&f, "a")
+	cmds := take(&f)
+	_, answered := find_cmd(conn.Call_Answer_Command, cmds)
+	testing.expect(t, answered)
+	// Once answered, the dialog goes and the status bar says so; F8 hangs up.
+	f.v.call.status = .Active
+	frame(&f)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect(t, strings.contains(screen(&f)[f.buf.h - 1], "in a call with anna"))
+	press(&f, .F8)
+	cmds = take(&f)
+	_, hung := find_cmd(conn.Call_Hangup_Command, cmds)
+	testing.expect(t, hung)
+	// Declining.
+	f.v.call = {id = 5, status = .Ringing_In, peer = 2}
+	frame(&f)
+	press(&f, .Escape)
+	cmds = take(&f)
+	_, declined := find_cmd(conn.Call_Hangup_Command, cmds)
+	testing.expect(t, declined)
+	discard(&f)
+}
+
+@(test)
+test_calls_can_be_made_with_the_headless_commands :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/call anna")
+	press(&f, .Enter)
+	cmds := take(&f)
+	cc, ok := find_cmd(conn.Call_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, cc.name, "anna")
+	conn.command_destroy(cc)
+	f.v.call = {id = 4, status = .Ringing_Out, peer = 2}
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[f.buf.h - 1], "calling anna"))
+	// Nothing to hang up when there is no call.
+	f.v.call.status = .None
+	press(&f, .F8)
+	testing.expect_value(t, len(take(&f)), 0)
+}

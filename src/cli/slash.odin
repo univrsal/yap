@@ -19,6 +19,23 @@ run_command :: proc(a: ^App, line: string) {
 	case "help", "h", "?":
 		dialog_close(a)
 		a.dialog.kind = .Help
+	case "mute":
+		set_muted(a, true)
+	case "unmute":
+		set_muted(a, false)
+	case "deafen":
+		set_deafened(a, true)
+	case "undeafen":
+		set_deafened(a, false)
+	case "voice":
+		if rest == "" {
+			toggle_voice(a)
+		} else {
+			leave_voice_elsewhere(a)
+			push(a, conn.Voice_Command{name = strings.clone(strings.trim_left(rest, "#"))})
+		}
+	case "novoice":
+		leave_voice(a)
 	case "servers":
 		show_output(a, servers_text(a))
 	case "server":
@@ -112,3 +129,4 @@ switch_to_server :: proc(a: ^App, what: string) {
 		say(a, strings.concatenate({"There is no server ", what, ". /servers lists them."}, context.temp_allocator), true)
 	}
 }
+
