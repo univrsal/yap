@@ -6,6 +6,7 @@ import "core:strings"
 import "core:testing"
 import "core:time"
 
+import "client:audio"
 import "client:conn"
 import "client:script"
 import "common:proto"
@@ -3372,4 +3373,142 @@ test_calls_can_be_made_with_the_headless_commands :: proc(t: ^testing.T) {
 	f.v.call.status = .None
 	press(&f, .F8)
 	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(private = "file")
+with_voice_settings :: proc(f: ^Fixture) {
+	f.app.voice_settings = Voice_Settings {
+		input_device      = strings.clone("Mic A"),
+		output_device     = strings.clone(""),
+		quality           = strings.clone("voice"),
+		noise_suppression = true,
+		voice_gate        = true,
+		gate_open_db      = -45,
+		gate_close_db     = -55,
+	}
+	append(&f.app.input_devices, strings.clone("Mic A"), strings.clone("Mic B"))
+	append(&f.app.output_devices, strings.clone("Speakers"), strings.clone("Headset"))
+}
+
+@(test)
+test_the_settings_dialog_shows_and_changes_the_voice :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	with_voice_settings(&f)
+	dir, err := os.make_directory_temp("", "yap-cli-*", context.temp_allocator)
+	if err != nil {
+		testing.fail_now(t, "could not make a temporary directory")
+	}
+	defer os.remove_all(dir)
+	f.app.cli_path = strings.concatenate({dir, "/cli.json"}, context.temp_allocator)
+	frame(&f)
+	discard(&f)
+	press(&f, .F9)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Settings)
+	testing.expect(t, f.app.want_devices) // the loop lists the devices
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Microphone"))
+	testing.expect(t, screen_has(&f, "◂ Mic A ▸"))
+	testing.expect(t, screen_has(&f, "◂ (system default) ▸"))
+	testing.expect(t, screen_has(&f, "◂ voice ▸"))
+	// Right on the microphone: the next one; it is applied and saved.
+	press(&f, .Right)
+	testing.expect_value(t, f.app.voice_settings.input_device, "Mic B")
+	testing.expect(t, f.app.devices_changed)
+	press(&f, .Right) // wraps to the system's
+	testing.expect_value(t, f.app.voice_settings.input_device, "")
+	press(&f, .Left)
+	testing.expect_value(t, f.app.voice_settings.input_device, "Mic B")
+	// Quality, noise, gate.
+	press(&f, .Down)
+	press(&f, .Down)
+	press(&f, .Right)
+	testing.expect_value(t, f.app.voice_settings.quality, "high")
+	press(&f, .Down)
+	press(&f, .Right)
+	testing.expect(t, !f.app.voice_settings.noise_suppression)
+	press(&f, .Down)
+	press(&f, .Down)
+	press(&f, .Left) // gate opens at -50
+	testing.expect_value(t, f.app.voice_settings.gate_open_db, -50)
+	testing.expect_value(t, f.app.voice_settings.gate_close_db, -55)
+	press(&f, .Down)
+	press(&f, .Right) // closes at -50 at most
+	press(&f, .Right)
+	testing.expect_value(t, f.app.voice_settings.gate_close_db, -50)
+	// The connection was told.
+	cmds := take(&f)
+	// (every change tells it everything; the last one is the state at the end)
+	last_q: conn.Quality_Command
+	last_g: conn.Gate_Command
+	for c in cmds {
+		#partial switch v in c {
+		case conn.Quality_Command: last_q = v
+		case conn.Gate_Command: last_g = v
+		}
+	}
+	testing.expect_value(t, last_q.quality, audio.Quality.High)
+	testing.expect(t, last_g.enabled)
+	testing.expect_value(t, last_g.close_db, -50)
+	// And it is in the file, which loads back.
+	loaded := voice_settings_load(f.app.cli_path, "")
+	defer voice_settings_destroy(&loaded)
+	testing.expect_value(t, loaded.input_device, "Mic B")
+	testing.expect_value(t, loaded.quality, "high")
+	testing.expect(t, !loaded.noise_suppression)
+	testing.expect_value(t, loaded.gate_close_db, -50)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+}
+
+@(test)
+test_settings_with_the_mouse :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	with_voice_settings(&f)
+	frame(&f)
+	type_text(&f, "/settings")
+	press(&f, .Enter)
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "Voice gate")
+	click(&f, 40, y)
+	testing.expect(t, !f.app.voice_settings.voice_gate)
+	click(&f, 2, 2) // outside closes
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	discard(&f)
+}
+
+@(test)
+test_voice_settings_come_from_the_window_clients_until_changed :: proc(t: ^testing.T) {
+	dir, err := os.make_directory_temp("", "yap-cli-*", context.temp_allocator)
+	if err != nil {
+		testing.fail_now(t, "could not make a temporary directory")
+	}
+	defer os.remove_all(dir)
+	gui := strings.concatenate({dir, "/settings.json"}, context.temp_allocator)
+	cli := strings.concatenate({dir, "/cli.json"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(gui, `{"input_device": "Window Mic", "quality": "music", "noise_suppression": false}`) == nil)
+	v := voice_settings_load(cli, gui)
+	testing.expect_value(t, v.input_device, "Window Mic")
+	testing.expect_value(t, v.quality, "music")
+	testing.expect(t, !v.noise_suppression)
+	// Saved here, they win over the window client's.
+	delete(v.quality)
+	v.quality = strings.clone("high")
+	testing.expect(t, voice_settings_save(cli, v))
+	voice_settings_destroy(&v)
+	v2 := voice_settings_load(cli, gui)
+	defer voice_settings_destroy(&v2)
+	testing.expect_value(t, v2.quality, "high")
+	testing.expect_value(t, v2.input_device, "Window Mic")
+	// And the window client's file was not touched.
+	data, _ := os.read_entire_file(gui, context.temp_allocator)
+	testing.expect(t, strings.contains(string(data), `"music"`))
+	// Neither file: the defaults.
+	v3 := voice_settings_load("", "")
+	defer voice_settings_destroy(&v3)
+	testing.expect_value(t, v3.quality, "voice")
 }

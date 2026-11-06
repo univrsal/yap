@@ -56,7 +56,10 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		case .F8:
 			hang_up(a)
 			return
-		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F9, .F10, .F11, .F12:
+		case .F9:
+			open_settings(a)
+			return
+		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F10, .F11, .F12:
 		}
 	}
 	if k.key == .F2 && a.dialog.kind == .None {
@@ -370,6 +373,15 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 		return
 	}
+	if a.dialog.kind == .Settings {
+		if found && hit.kind == .Setting_Row {
+			a.dialog.sel = int(hit.id)
+			setting_change(a, Setting(hit.id), 1)
+		} else if !found || hit.kind != .Dialog {
+			dialog_close(a)
+		}
+		return
+	}
 	if a.dialog.kind != .None || !found {
 		return
 	}
@@ -398,6 +410,9 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 	case .Completion:
 		completion_choose(a, int(hit.id))
+	case .Setting_Row:
+		a.dialog.sel = int(hit.id)
+		setting_change(a, Setting(hit.id), 1)
 	case .Voice_Join:
 		toggle_voice_of(a, proto_conv(hit.id))
 	case .Emoji, .List_Item:

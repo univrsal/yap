@@ -38,6 +38,7 @@ Hit_Kind :: enum {
 	Close_Thread,
 	Server, // id: its index
 	Voice_Join, // id: the channel whose voice room to join or leave
+	Setting_Row, // id: the setting
 	List_Item, // id: its index in the list dialog
 	Completion, // id: its index in the completion list
 	Emoji, // id: its index in the picker
@@ -124,6 +125,12 @@ App :: struct {
 	muted:         bool,
 	deafened:      bool,
 	muted_before_deafen: bool,
+	voice_settings: Voice_Settings,
+	cli_path:      string, // cli.json, "" to not save
+	input_devices: [dynamic]string, // listed by the loop when the settings are opened
+	output_devices: [dynamic]string,
+	want_devices:  bool,
+	devices_changed: bool,
 	audio_error:   string, // why there is no sound, if there is none (owned)
 
 	size:          [2]int,
@@ -179,6 +186,15 @@ app_destroy :: proc(a: ^App) {
 	delete(a.notice)
 	delete(a.clipboard)
 	delete(a.audio_error)
+	voice_settings_destroy(&a.voice_settings)
+	for d in a.input_devices {
+		delete(d)
+	}
+	delete(a.input_devices)
+	for d in a.output_devices {
+		delete(d)
+	}
+	delete(a.output_devices)
 	notices_destroy(a)
 	delete(a.hits)
 	dialog_close(a)

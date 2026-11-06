@@ -214,6 +214,22 @@ def main():
         m = re.search(r"\x1b\]52;c;([A-Za-z0-9+/=]+)\x07", cli.screen.raw[before:])
         check(m is not None and base64.b64decode(m.group(1)).decode() == "hello", "copies a dragged selection to the clipboard", cli)
 
+        # Voice: join the room, mute, look at the settings, leave. (Without a sound
+        # system it has to carry on: the server is still told.)
+        cli.send("\x1b[18~")  # F7
+        check(cli.wait_for("♪ #Lobby"), "joins the voice room", cli)
+        check(cli.wait_for("▸ tester"), "lists who is in the room", cli)
+        cli.send("\x1b[15~")  # F5
+        check(cli.wait_for("muted"), "mutes", cli)
+        cli.send("\x1b[20~")  # F9
+        check(cli.wait_for("Microphone"), "opens the settings", cli)
+        cli.send("\x1b")
+        cli.pump(0.3)
+        cli.send("\x1b[18~")  # F7 again
+        cli.pump(1.0)
+        check("▸ tester" not in cli.screen.text(), "leaves the voice room", cli)
+        cli.send("\x1b[15~")  # unmute
+
         # A click on the channel in the list, and on the message for its menu.
         cli.send("\x1b[<0;5;3M\x1b[<0;5;3m")
         cli.pump(0.3)

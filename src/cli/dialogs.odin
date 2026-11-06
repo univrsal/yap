@@ -22,6 +22,7 @@ Dialog_Kind :: enum {
 	List, // pinned messages, bookmarks or a search
 	Info, // roles, bans, invites or devices
 	Call, // somebody is calling us
+	Settings,
 }
 
 Dialog :: struct {
@@ -52,7 +53,7 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List || a.dialog.kind == .Info:
+	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List || a.dialog.kind == .Info || a.dialog.kind == .Settings:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -188,7 +189,6 @@ draw_box :: proc(b: ^tui.Buffer, r: tui.Rect, title: string) {
 }
 
 // dialog_rect is where a dialog of this size goes: in the middle.
-@(private = "file")
 dialog_rect :: proc(b: ^tui.Buffer, want_w, want_h: int) -> tui.Rect {
 	w, h := min(want_w, b.w), min(want_h, b.h)
 	return {(b.w - w) / 2, (b.h - h) / 2, w, h}
@@ -251,6 +251,8 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		draw_list(a, b)
 	case .Info:
 		draw_info(a, b)
+	case .Settings:
+		draw_settings(a, b)
 	case .Call:
 		r := dialog_rect(b, 46, 7)
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
@@ -305,7 +307,7 @@ HELP_LINES :: [?]string {
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
-	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  (or the ♪ in the list)",
+	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  F9 settings",
 	"/pins /bookmarks /search [all] <words>   lists of messages",
 	"/join <channel>  look at a channel      /help   this list",
 	"/quit            leave                  Ctrl+C  leave",
@@ -366,6 +368,8 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		case k.key == .Escape, k.key == .Rune && (k.rune == 'n' || k.rune == 'N'):
 			dialog_close(a)
 		}
+	case .Settings:
+		settings_key(a, k)
 	case .Call:
 		switch {
 		case k.key == .Enter, k.key == .Rune && (k.rune == 'a' || k.rune == 'A'):

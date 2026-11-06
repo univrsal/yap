@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "core:sync"
 
+import "client:audio"
 import "client:conn"
 import "tui"
 
@@ -24,6 +25,8 @@ Server :: struct {
 	session: ^conn.Session, // nil when something else owns the connection (tests)
 	target:  conn.Net_Target, // where it goes; its server, password, channel and look_at are owned
 	ui:      Server_UI, // what the app kept for it while it isn't shown
+	streams:  audio.Audio_Streams, // its sound devices, open while it is in voice (audio_loop.odin)
+	audio_on: bool,
 }
 
 Server_Request_Kind :: enum {

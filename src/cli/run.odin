@@ -49,6 +49,14 @@ run_ui :: proc(opt: Options) -> bool {
 
 	app: App
 	defer app_destroy(&app)
+	// How the voice is set up: cli.json, or the window client's settings.
+	app.cli_path = platform.default_config_path("cli.json")
+	defer delete(app.cli_path)
+	gui_path := platform.default_config_path("settings.json")
+	app.voice_settings = voice_settings_load(app.cli_path, gui_path)
+	delete(gui_path)
+	host: Audio_Host
+	defer audio_host_destroy(&host)
 	// The scripts first, so that each connection is attached to them as it is made.
 	app.scripts = start_scripts()
 	defer stop_scripts(&app)
@@ -58,6 +66,7 @@ run_ui :: proc(opt: Options) -> bool {
 	}
 	defer {
 		for s in app.servers {
+			stop_audio(s)
 			if s.session != nil {
 				close_session(&app, s.session)
 			}
@@ -101,6 +110,7 @@ run_ui :: proc(opt: Options) -> bool {
 		have_prev = true
 
 		handle_requests(&app, opt)
+		service_audio(&app, &host)
 		if app.scripts != nil {
 			script.runtime_step(app.scripts, SCRIPT_BUDGET)
 			script_notices(&app)
@@ -198,6 +208,7 @@ open_session :: proc(a: ^App, t: conn.Net_Target, opt: Options, with_credentials
 	if a.scripts != nil {
 		script.runtime_attach(a.scripts, s.client)
 	}
+	start_voice(a, s.client)
 	conn.session_start(s)
 	return s
 }
@@ -254,6 +265,7 @@ handle_requests :: proc(a: ^App, opt: Options) {
 		case .Disconnect:
 			if req.index >= 0 && req.index < len(a.servers) {
 				session := a.servers[req.index].session
+				stop_audio(a.servers[req.index])
 				if len(a.servers) == 1 {
 					a.quit = true
 				} else {
@@ -266,6 +278,7 @@ handle_requests :: proc(a: ^App, opt: Options) {
 		case .Reconnect:
 			if req.index >= 0 && req.index < len(a.servers) {
 				t := a.servers[req.index].target
+				stop_audio(a.servers[req.index])
 				s := open_session(a, t, opt, req.index == 0 && opt.server != "")
 				old := app_replace_connection(a, req.index, &s.view, s.client, s)
 				if old != nil {

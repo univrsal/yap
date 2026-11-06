@@ -19,6 +19,8 @@ run_command :: proc(a: ^App, line: string) {
 	case "help", "h", "?":
 		dialog_close(a)
 		a.dialog.kind = .Help
+	case "settings":
+		open_settings(a)
 	case "mute":
 		set_muted(a, true)
 	case "unmute":
