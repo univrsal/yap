@@ -261,6 +261,15 @@ jobs:
           odin test src/client $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 
+      # The terminal client (src/cli) is for Unix terminals only.
+      - name: Test the terminal client
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          . scripts/build/collections.sh
+          odin test src/cli/tui $collections -vet -strict-style
+          odin test src/cli $collections -vet -strict-style
+
       - uses: actions/download-artifact@v8
         with:
           name: web
