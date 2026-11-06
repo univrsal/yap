@@ -57,8 +57,8 @@ Layout_Key :: struct {
 	width:       int,
 	revision:    int,
 	unread_from: proto.Msg_Id,
-	accounts:    int,
-	roots:       int,
+	accounts:    u64, // how many, and how long their names are (a rename changes it)
+	roots:       u64, // what the thread roots in the View contain (roots_signature)
 	outbox:      int,
 	saves:       u64, // what is being saved, and how far
 	pictures:    int, // how many are decoded
@@ -110,8 +110,8 @@ layout_update :: proc(
 		root        = key.root,
 		width       = width,
 		unread_from = unread_from,
-		accounts    = len(v.accounts),
-		roots       = len(v.roots),
+		accounts    = accounts_signature(v),
+		roots       = roots_signature(v),
 		saves       = saves_signature(v),
 		pictures    = len(l.pictures.by_blob) if l.pictures != nil else 0,
 		outbox      = len(v.outbox),
@@ -519,4 +519,29 @@ saves_signature :: proc(v: ^conn.View) -> (sig: u64) {
 		}
 	}
 	return
+}
+
+// roots_signature is a number that changes when a message the View keeps as a
+// thread's root changes: its reactions, an edit, a delete, its replies. The View
+// replaces such a copy without anything else changing (the thread's own window is
+// only touched by its replies), so a layout that shows the root has to look.
+@(private = "file")
+roots_signature :: proc(v: ^conn.View) -> (sig: u64) {
+	for id, r in v.roots {
+		m := r.msg
+		h := u64(id) * 1000003 + u64(m.edited) + u64(transmute(u8)m.flags) * 31 + u64(len(m.text)) * 7 + u64(m.reply_count) * 13
+		for rx in m.reactions {
+			h = h * 31 + u64(rx.count) * 5 + u64(len(rx.emoji)) + (101 if rx.me else 0)
+		}
+		sig += h
+	}
+	return
+}
+
+@(private = "file")
+accounts_signature :: proc(v: ^conn.View) -> (sig: u64) {
+	for id, acc in v.accounts {
+		sig += u64(id) * 17 + u64(len(acc.display)) * 3 + u64(len(acc.username))
+	}
+	return sig * 1000 + u64(len(v.accounts))
 }

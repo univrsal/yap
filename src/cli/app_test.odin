@@ -4411,3 +4411,51 @@ test_the_picker_takes_back_our_own_reaction :: proc(t: ^testing.T) {
 	testing.expect(t, !rc.on)
 	conn.command_destroy(rc)
 }
+
+@(test)
+test_a_reaction_on_the_root_shows_in_the_thread_pane_at_once :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	count_chips :: proc(f: ^Fixture) -> int {
+		n := 0
+		for row in screen(f) {
+			n += 1 if strings.contains(row, "👍 1") else 0
+		}
+		return n
+	}
+	testing.expect_value(t, count_chips(&f), 0)
+	// The root is changed in the main window and in the copy the thread keeps of
+	// it, as the connection does when someone reacts; nothing else changes (no
+	// new reply, so the thread's own window is not touched).
+	root := f.v.timelines[{1, 0}].messages
+	append(&root[0].reactions, conn.Reaction{emoji = strings.clone("👍"), count = 1, me = true})
+	timeline_of(&f.v, 1).revision += 1
+	r := f.v.roots[10]
+	append(&r.msg.reactions, conn.Reaction{emoji = strings.clone("👍"), count = 1, me = true})
+	f.v.roots[10] = r
+	frame(&f)
+	// Once in the messages and once in the thread's pane.
+	testing.expect_value(t, count_chips(&f), 2)
+	discard(&f)
+}
+
+@(test)
+test_a_rename_shows_without_other_changes :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "anna hello there"))
+	acc := f.v.accounts[2]
+	delete(acc.display)
+	acc.display = strings.clone("Anna B")
+	f.v.accounts[2] = acc
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Anna B hello there"))
+}
