@@ -307,7 +307,7 @@ logged_in :: proc(t: ^testing.T, ts: ^Test_Server, username: string) -> ^Conn {
 test_dir :: proc(t: ^testing.T) -> string {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, err := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	testing.expect(t, err == nil)
+	testing.expectf(t, err == nil, "making a directory in %q: %v", base, err)
 	return dir
 }
 
