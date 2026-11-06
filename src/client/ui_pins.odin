@@ -6,7 +6,7 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
-import "client:richtext"
+import "client:render"
 import "common:proto"
 
 // The pinned messages of the conversation being looked at, in a floating
@@ -94,39 +94,76 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	for m, i in pins.messages {
 		mu.push_id(ctx, uintptr(m.id))
 		defer mu.pop_id(ctx)
-		name := "someone"
-		if acc, ok := v.accounts[m.sender]; ok {
-			name = acc.display
-		}
-		mu.layout_row(ctx, {-70, -1})
-		with_text_color(
-			ctx,
-			author_color(v, m.sender),
-			fmt.tprintf("%s  %s", chat_time(ui, proto.Unix_Time(m.time / 1000)), name),
-			label_proc,
-		)
-		if .SUBMIT in stable_button(ctx, "go", "Go to") {
-			ui.timeline.jump_to = m.id
-			ui.timeline.jump_asked = false
-			ui.timeline.jump_conv = 0
-		}
-		mu.layout_row(ctx, {-1})
-		shown, _ := richtext.mentions_display(m.text, v.accounts, v.roles[:], v.me)
-		text := richtext.markdown_plain(shown)
-		#partial switch m.kind {
-		case .File:
-			text = fmt.tprintf("the file %s", m.text)
-		case .Text:
-			if m.text == "" && len(m.files) > 0 {
-				text = files_said(m.files)
-			}
-		}
-		mu.text(ctx, richtext.one_line(text))
+		pinned_message(ui, m)
 		if i < len(pins.messages) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
 			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
 		}
 	}
+}
+
+// pinned_message draws one pin as the chat draws a message: the author's name
+// in their colour and the time dimmed after it, then the text with its
+// markdown, mentions and emoji. Pictures aren't drawn, files are named. A
+// button beside the header jumps to the message. Call with the View locked.
+@(private = "file")
+pinned_message :: proc(ui: ^UI, m: conn.View_Message) {
+	ctx := &ui.ctx
+	v := ui.view
+	name := "someone"
+	if acc, ok := v.accounts[m.sender]; ok {
+		name = acc.display
+	}
+	color := author_color(v, m.sender)
+	if .Persona in m.flags {
+		name = m.persona.name
+		color = theme.chat_name
+	}
+	stamp := chat_time(ui, proto.Unix_Time(m.time / 1000))
+	at := len(name) + 2
+	ui.header_sender, ui.header_bot = 0, 0
+	ui.header_name = {0, len(name)}
+	ui.header_time = {at, at + len(stamp)}
+	defer ui.header_name, ui.header_time = {}, {}
+	header := fmt.tprintf(
+		"%s  %s%s",
+		name,
+		stamp,
+		"  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "",
+	)
+
+	text: Rich
+	text_color := ctx.style.colors[.TEXT]
+	switch {
+	case .Deleted in m.flags:
+		text, text_color = rich_plain("message deleted"), theme.dim
+	case m.kind == .File:
+		text = rich_plain(fmt.tprintf("the file %s", m.text))
+	case m.kind == .Text:
+		if m.text == "" && len(m.files) > 0 {
+			text = rich_plain(files_said(m.files))
+		} else {
+			text = message_rich(ui, m.text)
+		}
+	case:
+		text, text_color = rich_plain("a note about the conversation"), theme.dim
+	}
+
+	// The message in the first cell, which grows with it, and the button in
+	// the second, level with the header.
+	button := render.ICON_SIZE + 2 * ctx.style.padding
+	mu.layout_row(ctx, {-(button + ctx.style.spacing), -1}, 0)
+	mu.layout_begin_column(ctx)
+	chat_message(ui, header, color, &text, text_color, false, i64(m.id) * ITEMS_PER_MESSAGE)
+	mu.layout_end_column(ctx)
+	mu.layout_begin_column(ctx)
+	mu.layout_row(ctx, {button}, button)
+	if .SUBMIT in icon_button(ui, "go", .Pop_Out, "Go to the message") {
+		ui.timeline.jump_to = m.id
+		ui.timeline.jump_asked = false
+		ui.timeline.jump_conv = 0
+	}
+	mu.layout_end_column(ctx)
 }
 
 // How long a message that was jumped to stays highlighted.
