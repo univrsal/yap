@@ -32,6 +32,7 @@ Hit_Kind :: enum {
 	Message, // id: the message
 	Thread, // id: the thread's root
 	Border, // between the channel list and the chat
+	Member, // id: the account
 	Composer,
 	Menu_Item, // id: its index
 	Dialog,
@@ -65,6 +66,9 @@ App :: struct {
 	size:          [2]int,
 	channel_w:     int,
 	chan_scroll:   int,
+	hide_members:  bool, // the member list is on unless asked off
+	members_scroll: int,
+	members_asked: proto.Conv_Id, // the conversation whose members were requested
 	focus:         Focus,
 	drag:          Drag,
 
@@ -100,6 +104,9 @@ App :: struct {
 	clipboard:     string, // asked to be copied (owned); the loop writes it out
 }
 
+// The member list needs this much room, and is this wide.
+WIDE :: 100
+MEMBERS_W :: 24
 CHANNEL_W_DEFAULT :: 26
 CHANNEL_W_MIN :: 12
 // Under this width the channel list is hidden.
@@ -144,6 +151,8 @@ NOTICE_SHOWN :: 8 * time.Second
 Geometry :: struct {
 	channels: tui.Rect, // empty when hidden
 	border:   tui.Rect,
+	members:  tui.Rect, // the list of who is here, empty when hidden
+	members_border: tui.Rect,
 	title:    tui.Rect,
 	timeline: tui.Rect,
 	info:     tui.Rect,
@@ -165,6 +174,11 @@ geometry :: proc(a: ^App) -> Geometry {
 		cw += 1
 	}
 	rw := w - cw
+	if w >= WIDE && !a.hide_members {
+		g.members = {w - MEMBERS_W, 0, MEMBERS_W, h - 1}
+		g.members_border = {w - MEMBERS_W - 1, 0, 1, h - 1}
+		rw -= MEMBERS_W + 1
+	}
 	// The message box is as tall as what is written in it.
 	lines := make([dynamic]tui.Line, context.temp_allocator)
 	tui.wrap(tui.editor_text(&a.editor), max(rw - 2, 1), &lines)
@@ -224,6 +238,7 @@ app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 	g := geometry(a)
 	draw_channels(a, b, g)
 	draw_chat(a, b, g)
+	draw_members(a, b, g)
 	draw_status(a, b, g)
 	draw_overlays(a, b)
 }
@@ -246,6 +261,11 @@ app_sync :: proc(a: ^App) {
 		a.unread_from = read if unread > 0 else 0
 	}
 	dialog_update(a)
+	// Who is here, for the member list.
+	if g.members.w > 0 && a.members_asked != a.viewing && a.viewing != 0 {
+		a.members_asked = a.viewing
+		push(a, conn.Members_Command{conv = a.viewing})
+	}
 	key := conn.Timeline_Key{a.viewing, 0}
 	layout_update(&a.layout, v, key, g.timeline.w, a.tz, a.unread_from)
 

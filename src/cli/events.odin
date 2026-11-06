@@ -36,6 +36,11 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		a.dialog.kind = .Help
 		return
 	}
+	if k.key == .F2 && a.dialog.kind == .None {
+		a.hide_members = !a.hide_members
+		a.members_asked = 0
+		return
+	}
 	if a.dialog.kind != .None {
 		dialog_key(a, k)
 		return
@@ -279,6 +284,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		case a.dialog.kind != .None:
 		case tui.rect_contains(g.channels, m.x, m.y):
 			a.chan_scroll = max(a.chan_scroll - dir * SCROLL_STEP, 0)
+		case tui.rect_contains(g.members, m.x, m.y):
+			a.members_scroll = max(a.members_scroll - dir * SCROLL_STEP, 0)
 		case:
 			scroll_by(a, dir * SCROLL_STEP)
 		}
@@ -311,6 +318,13 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		// Threads open in a later phase.
 	case .Border:
 		a.drag = .Border
+	case .Member:
+		// Writing to someone starts with their DM.
+		if hit.id != u64(a.view.me) {
+			if acc, ok := a.view.accounts[proto.Account_Id(hit.id)]; ok {
+				push(a, conn.DM_Command{name = strings.clone(acc.username)})
+			}
+		}
 	case .Composer:
 		a.focus = .Composer
 		a.cursor_msg = 0

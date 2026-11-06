@@ -246,6 +246,7 @@ HELP_LINES :: [?]string {
 	"                 Enter for its menu, Tab or Esc to leave)",
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
+	"F2              show or hide the member list (on wide screens)",
 	"/join <channel>  look at a channel      /help   this list",
 	"/quit            leave                  Ctrl+C  leave",
 }

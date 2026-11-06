@@ -1185,3 +1185,109 @@ test_dm_unread_counts_in_the_status_bar :: proc(t: ^testing.T) {
 	last := screen(&f)[f.buf.h - 1]
 	testing.expect(t, strings.contains(last, "9 unread"), last)
 }
+
+@(private = "file")
+with_members :: proc(f: ^Fixture) {
+	add_account(&f.v, 3, "ben")
+	add_account(&f.v, 4, "Zoe")
+	f.v.my_num = 1
+	f.v.users[7] = {account = 4} // Zoe is here
+	f.v.users[8] = {account = 3} // and ben
+	acc := f.v.accounts[3]
+	acc.activity = .Away
+	f.v.accounts[3] = acc
+	f.v.members = {
+		conv = 1,
+	}
+	append(&f.v.members.accounts, 1, 2, 3, 4)
+	append(&f.v.members.admins, 4)
+}
+
+@(test)
+test_the_member_list_shows_who_is_here_first :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 120, 20)
+	defer fixture_destroy(&f)
+	with_members(&f)
+	frame(&f)
+	rows := screen(&f)
+	testing.expect(t, strings.contains(rows[0], "Members  3/4"), rows[0])
+	// us (always here), then the others online by name, then those away.
+	testing.expect(t, strings.contains(rows[1], "● ben"), rows[1])
+	testing.expect(t, strings.contains(rows[2], "● me"), rows[2])
+	testing.expect(t, strings.contains(rows[3], "● Zoe ★"), rows[3])
+	testing.expect(t, strings.contains(rows[4], "○ anna"), rows[4])
+	// Away has its own colour, and gone is dim.
+	testing.expect(t, tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 1).style != tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 2).style)
+	testing.expect(t, tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 4).style == theme.dim)
+	// The chat gives way to it.
+	testing.expect_value(t, tui.cell_at(&f.buf, 120 - MEMBERS_W - 1, 5).r, '│')
+}
+
+@(test)
+test_members_are_asked_for_once_per_conversation :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 120, 20)
+	defer fixture_destroy(&f)
+	frame(&f)
+	cmds := take(&f)
+	m, ok := find_cmd(conn.Members_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, m.conv, 1)
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+	frame(&f)
+	frame(&f)
+	cmds = take(&f)
+	_, again := find_cmd(conn.Members_Command, cmds)
+	testing.expect(t, !again)
+	f.v.viewing = 2
+	frame(&f)
+	cmds = take(&f)
+	m, ok = find_cmd(conn.Members_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, m.conv, 2)
+	// While it hasn't come, the list is empty and says so.
+	testing.expect(t, screen_has(&f, "Members"))
+	testing.expect(t, !screen_has(&f, "anna"))
+}
+
+@(test)
+test_the_member_list_goes_with_f2_and_a_narrow_screen :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 120, 20)
+	defer fixture_destroy(&f)
+	with_members(&f)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Members"))
+	press(&f, .F2)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "Members"))
+	press(&f, .F2)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Members"))
+	// Not on a screen that is too narrow for it.
+	tui.buffer_resize(&f.buf, 90, 20)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "Members"))
+}
+
+@(test)
+test_clicking_a_member_opens_their_dm :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 120, 20)
+	defer fixture_destroy(&f)
+	with_members(&f)
+	frame(&f)
+	discard(&f)
+	click(&f, 120 - MEMBERS_W + 5, 4) // anna
+	cmds := take(&f)
+	dm, ok := find_cmd(conn.DM_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, dm.name, "anna")
+	conn.command_destroy(dm)
+	// Clicking oneself does nothing.
+	click(&f, 120 - MEMBERS_W + 5, 2)
+	testing.expect_value(t, len(take(&f)), 0)
+}
