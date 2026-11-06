@@ -203,10 +203,10 @@ nothing else.
 | E1 | `ui_text_history.odin` (undo history of a text field) | `client:compose` | input line | XS. **Not done**: the terminal's line editor (`tui/editor.odin`) has a history of sent messages but no undo yet. Do this when the editor gets undo |
 | E2 | The network loop and a front end's session: `net_run` (open, go to the conversation, step until stopped, close) and `Session` (client, View, thread, stop). The GUI's network thread now calls `net_run`. The GUI keeps its own `Net_Session` and `session_new`, which are mostly audio, scripts and rail state, and the web build, which has no threads. | `client:conn` (`session_native.odin`) | phase 0 | **Done (phase 0).** Narrower than first planned: sharing the whole `Net_Session` would have needed a `using` embed across about 40 GUI files and the web build for little gain |
 | E3 | `system_line`, `viewed_channel`, `viewed_unread` | `client:conn` (`view_helpers.odin`) | timeline | **Done (phase 1), narrower than planned.** `message_flags` (days, merging, reply lines) turned out to depend on `UI_Timeline`, `local_day`, the bookmarks and pixel heights, so moving it would have meant rewriting the GUI's layout cache. The CLI has its own rules in `timeline.odin`, with a comment saying where they come from |
-| E4 | `buddies.odin` (`buddy_list`, `buddy_entry`, `group_entry`, `dm_name`, `dm_closed`, `dm_unread`, ordering); `inbox_list` and `unhide_stale` stay in the GUI as they use `Net_Session` | `client:conn` (`inbox`) | DMs, groups | S. `buddies_test.odin` moves with it |
-| E5 | The matching half of `ui_completion.odin` (`command_items`, `role_items`, `emoji_items`, `role_word_start`, `word_char`) as `complete(view, text, cursor) -> []Item`; popup stays in the GUI | `client:compose` | tab completion | M |
-| E6 | `headless/commands.odin`: `handle_line` becomes `parse_line(line) -> (conn.Command, Reply)` returning what to queue and what to tell the user, instead of queuing and logging. `-headless` and `yap-cli` both call it. | `client:cmdline` (`headless` keeps the stdin reader and printing) | every `/command` | L. Its tests (`commands_test.odin`) move with it and must pass unchanged for headless. **Deferred to phase 2**: phase 1 has only `/join`, `/quit` and `/help`, in `slash.odin`; the shared parser pays off when most of the 100 commands are needed |
-| E7 | The decision half of `session_notices` / `dm_open` as `pending_notices(view, state) -> []Notice`; the tray call stays | `client:conn` | notices | S |
+| E4 | `dm_name` and `dm_closed` (the DM and group names, and whether one can still be written to) | `client:conn` (`view_helpers.odin`) | DMs, groups | **Done (phase 2), narrower than planned.** `buddy_list` and the rest of `buddies.odin` lean on `status_line` (`ui_avatars.odin`), `talking_of` (`ui_profiles.odin`), `Group_Members` (`ui_groups.odin`) and `Net_Session`, so they stay; the CLI lists the DMs and groups that have had something said in them itself (`pane_channels.odin`) |
+| E5 | The matching half of `ui_completion.odin` | `client:compose` | tab completion | **Not extracted (phase 2).** The GUI's matching writes into its widget state (`UI_Completion`, `Composer`), so the CLI has its own in `completion.odin`, with a comment pointing at the original. Emoji `:name:` completion is missing in both places that the CLI could share: the shortcode table is in `render` |
+| E6 | `headless/commands.odin`: `handle_line` and `Reader` made public, so `yap-cli` runs every line it doesn't handle itself through them. What they log (usage errors, the command list) is caught with a logger of its own and shown in the info line or a dialog. | `client:headless` | every `/command` | **Done (phase 2), in a smaller form than planned.** Not a parser that returns commands: the 991 lines stay as they are, with two words changed (`@(private)` removed). The commands that only print a list through `report_*` (e.g. `/roles`, `/bans`) show nothing yet, because with a View those reports are skipped; they get screens in phase 3 |
+| E7 | The headline of a mention's notice (`mention_title`) | `client:conn` | notices | **Done (phase 2), small.** The rest of `session_notices` (which mentions to announce) differs: the GUI asks if the window has the focus and goes through the tray |
 
 Each extraction is only done when its phase starts, and is dropped if the
 terminal version turns out to need something different enough that sharing
@@ -370,3 +370,55 @@ Found on the way:
 Not done yet: joining more servers, DMs and groups, search, pins, bookmarks,
 reactions (adding), threads (opening), attachments, a member list, completion,
 selecting text with the mouse, Windows.
+
+**Phase 2 (2026-11-06).** Most of text chat. 124 tests in `src/cli` (45 in
+`tui`), the pty smoke test, and the GUI, `conn`, `headless` and `richtext`
+suites all pass; `yap` still builds.
+
+Built:
+
+- **DMs and groups** under the channels (online marks, unread, newest first),
+  written to like channels; `/dm` and `/group` come from the headless commands.
+- **Member list** on screens 100 columns wide or more (`F2` toggles it): who is
+  here first, away/busy colours, admins marked; a click opens a DM.
+- **Reactions**: the chips are clickable (toggle ours), and "Add reaction" in
+  the message menu (or `a` with a message picked) opens an emoji picker.
+- **Threads**: "N replies" opens the thread in a pane in place of the member
+  list, or over the messages on narrow screens. The message box writes into
+  the open thread; older replies are asked for when scrolling up.
+- **Pins, bookmarks and search** (`/pins`, `/bookmarks`, `/search [all] ...`) as
+  a list dialog that follows the View, asks for the next page at the end,
+  and goes to the message, switching conversation and fetching the page around
+  it if needed. The menu pins and bookmarks.
+- **Completion** of `@names`, roles, `@everyone`/`@here` (with the permission)
+  and `/commands` (ours, the headless client's, and the bots'), in a popup.
+- **Notices**: bell, a desktop notice (OSC 777, or OSC 9 on iTerm2, WezTerm,
+  Windows Terminal and ghostty), the window title with the unread count, and
+  an incoming call on the info line.
+- **Files**: `/attach` then a message sends them (also in a thread);
+  "Save file" in the menu; progress of uploads and saves in the timeline;
+  `-download-dir`.
+- **Text selection**: a drag over messages selects and copies them with the
+  clipboard escape; a click that doesn't move still opens the menu.
+- **Every headless `/command`** that queues something (about 100) works from
+  the message box.
+
+Changes to `src/client`: `dm_name` and `dm_closed` (E4) and `mention_title`
+(E7) moved into `conn`; `headless.Reader` and `handle_line` made public (E6).
+No behavior change in the GUI.
+
+Found on the way:
+
+- A message that ends in a mention that is fully typed (`hi @anna`) kept
+  the completion open, so Enter chose it instead of sending. A word that is
+  already the only thing it could become no longer opens the list.
+- `conn.view_take_mentions` takes the View's lock itself, so it has to be
+  called before the frame takes it.
+- The logger's text is gone when the logging call returns, so what a command
+  logs is copied into a builder, not kept by reference.
+
+Not done, and left for a phase 2b: **several servers** (the app is written
+around one View; a session list needs the per-conversation state of `App`
+split out), **Lua scripts**, and screens for the commands that only print
+lists (`/roles`, `/bans`, `/invites`, `/devices`, ...). Also still missing:
+emoji completion, completion of `/command` arguments, hover highlighting.

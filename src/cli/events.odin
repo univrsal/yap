@@ -288,6 +288,9 @@ switch_channel :: proc(a: ^App, dir: int) {
 @(private = "file")
 mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	g := geometry(a)
+	if m.button == .Left && selection_mouse(a, m, g) {
+		return
+	}
 	if a.drag == .Border {
 		switch m.kind {
 		case .Drag, .Move, .Press:
@@ -351,7 +354,11 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	case .Channel:
 		push(a, conn.View_Command{conv = proto_conv(hit.id)})
 	case .Message:
-		if msg, ok := find_message(a, proto_msg(hit.id)); ok {
+		// A click opens the menu, but a drag selects text: it is told apart when
+		// the button comes up.
+		if m.button == .Left {
+			a.press = Press{m.x, m.y, hit.id}
+		} else if msg, ok := find_message(a, proto_msg(hit.id)); ok {
 			menu_open(a, msg^, m.x, m.y)
 		}
 	case .Thread:
@@ -421,4 +428,47 @@ proto_conv :: proc(id: u64) -> proto.Conv_Id {
 @(private = "file")
 proto_msg :: proc(id: u64) -> proto.Msg_Id {
 	return proto.Msg_Id(id)
+}
+
+// selection_mouse handles a drag that selects text and the release that ends a
+// click or a drag. It says whether the event was used up.
+@(private = "file")
+selection_mouse :: proc(a: ^App, m: tui.Mouse_Event, g: Geometry) -> bool {
+	switch m.kind {
+	case .Drag:
+		if p, ok := a.press.?; ok && (m.x != p.x || m.y != p.y) {
+			if pane, in_pane := sel_pane(g, p.x, p.y); in_pane {
+				a.sel = {true, pane, {p.x, p.y}, {m.x, m.y}}
+			}
+			a.press = nil
+		}
+		if a.sel.active {
+			a.sel.head = {
+				clamp(m.x, a.sel.pane.x, a.sel.pane.x + a.sel.pane.w - 1),
+				clamp(m.y, a.sel.pane.y, a.sel.pane.y + a.sel.pane.h - 1),
+			}
+			return true
+		}
+	case .Release:
+		if a.sel.active {
+			if a.frame != nil {
+				if text := sel_text(a.sel, a.frame); text != "" {
+					copy_text(a, text)
+				}
+			}
+			a.sel.active = false
+			return true
+		}
+		if p, ok := a.press.?; ok {
+			a.press = nil
+			if p.x == m.x && p.y == m.y {
+				if msg, found := find_message(a, proto_msg(p.msg)); found {
+					menu_open(a, msg^, m.x, m.y)
+				}
+			}
+			return true
+		}
+	case .Press, .Move, .Wheel_Up, .Wheel_Down:
+	}
+	return false
 }

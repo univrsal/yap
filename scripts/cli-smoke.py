@@ -188,6 +188,25 @@ def main():
         if os.environ.get("YAP_SMOKE_SHOW"):
             print("\n".join("      | " + r for r in cli.screen.rows()))
 
+        # Completion, a list dialog and copying a drag with the clipboard escape.
+        cli.send("/pi")
+        check(cli.wait_for("/pins"), "offers commands while typing one", cli)
+        cli.send("\x15")  # Ctrl+U clears the line
+        cli.pump(0.2)
+        cli.send("/pins\r")
+        check(cli.wait_for("Pinned messages"), "opens the pinned messages with /pins", cli)
+        cli.send("\x1b")
+        cli.pump(0.2)
+        y = next(i for i, r in enumerate(cli.screen.rows()) if "hello from the pty" in r)
+        x = cli.screen.rows()[y].index("hello from")
+        start, end = x + 1, x + 5
+        before = len(cli.screen.raw)
+        cli.send(f"\x1b[<0;{start};{y + 1}M\x1b[<32;{end};{y + 1}M\x1b[<0;{end};{y + 1}m")
+        cli.pump(0.4)
+        import base64
+        m = re.search(r"\x1b\]52;c;([A-Za-z0-9+/=]+)\x07", cli.screen.raw[before:])
+        check(m is not None and base64.b64decode(m.group(1)).decode() == "hello", "copies a dragged selection to the clipboard", cli)
+
         # A click on the channel in the list, and on the message for its menu.
         cli.send("\x1b[<0;5;3M\x1b[<0;5;3m")
         cli.pump(0.3)

@@ -2333,3 +2333,120 @@ test_uploads_show_how_far_they_are :: proc(t: ^testing.T) {
 	frame(&f)
 	testing.expect(t, screen_has(&f, "📎 big.zip  75%"))
 }
+
+@(private = "file")
+drag :: proc(f: ^Fixture, from, to: [2]int) {
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Left, x = from.x, y = from.y})
+	app_event(&f.app, tui.Mouse_Event{kind = .Drag, button = .Left, x = to.x, y = to.y})
+	frame(f)
+	app_event(&f.app, tui.Mouse_Event{kind = .Release, button = .Left, x = to.x, y = to.y})
+}
+
+@(test)
+test_dragging_over_messages_copies_their_text :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	y := row_of(&f, "hello there")
+	x0 := col_of(&f, y, "hello")
+	// From "hello" to the end of the next message's "hi".
+	drag(&f, {x0, y}, {x0 + 1, y + 1})
+	testing.expect_value(t, f.app.clipboard, "hello there\n22:15 me   hi")
+	testing.expect(t, !f.app.menu.open)
+	testing.expect(t, !f.app.sel.active)
+	testing.expect(t, strings.contains(f.app.notice, "Copied"))
+}
+
+@(test)
+test_the_selection_is_shown_reversed :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	y := row_of(&f, "hello there")
+	x0 := col_of(&f, y, "hello")
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Left, x = x0, y = y})
+	app_event(&f.app, tui.Mouse_Event{kind = .Drag, button = .Left, x = x0 + 4, y = y})
+	frame(&f)
+	testing.expect(t, .Reverse in tui.cell_at(&f.buf, x0, y).style.attrs)
+	testing.expect(t, .Reverse in tui.cell_at(&f.buf, x0 + 4, y).style.attrs)
+	testing.expect(t, .Reverse not_in tui.cell_at(&f.buf, x0 + 5, y).style.attrs)
+	testing.expect(t, .Reverse not_in tui.cell_at(&f.buf, x0 - 1, y).style.attrs)
+	app_event(&f.app, tui.Mouse_Event{kind = .Release, button = .Left, x = x0 + 4, y = y})
+	testing.expect_value(t, f.app.clipboard, "hello")
+	frame(&f)
+	testing.expect(t, .Reverse not_in tui.cell_at(&f.buf, x0, y).style.attrs)
+}
+
+@(test)
+test_a_selection_backwards_and_out_of_the_pane :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	y := row_of(&f, "hello there")
+	x0 := col_of(&f, y, "hello")
+	// Dragged left past the list: it stays in the messages.
+	drag(&f, {x0 + 4, y}, {2, y})
+	testing.expect(t, strings.has_suffix(f.app.clipboard, "hello"), f.app.clipboard)
+	testing.expect(t, !strings.contains(f.app.clipboard, "general"))
+}
+
+@(test)
+test_a_click_that_does_not_move_still_opens_the_menu :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	y := row_of(&f, "hello there")
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Left, x = 40, y = y})
+	testing.expect(t, !f.app.menu.open) // not before the button comes up
+	app_event(&f.app, tui.Mouse_Event{kind = .Release, button = .Left, x = 40, y = y})
+	testing.expect(t, f.app.menu.open)
+	testing.expect_value(t, f.app.clipboard, "")
+}
+
+@(test)
+test_the_right_button_opens_the_menu_at_once :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Right, x = 40, y = row_of(&f, "hello there")})
+	testing.expect(t, f.app.menu.open)
+}
+
+@(test)
+test_selecting_in_a_thread_pane :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	x := 130 - THREAD_W + 2
+	y := row_of(&f, "ok then")
+	// The row in the pane is the last one with that text.
+	for row, i in screen(&f) {
+		if strings.contains(row, "ok then") && i >= y {
+			y = i
+		}
+	}
+	drag(&f, {x, y}, {128, y})
+	testing.expect(t, strings.contains(f.app.clipboard, "ok then"), f.app.clipboard)
+	testing.expect(t, !strings.contains(f.app.clipboard, "\n"))
+}
+
+// col_of is the column that text starts at in a row of the screen.
+@(private = "file")
+col_of :: proc(f: ^Fixture, y: int, text: string) -> int {
+	row := screen(f)[y]
+	return tui.string_width(row[:strings.index(row, text)])
+}

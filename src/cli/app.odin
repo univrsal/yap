@@ -52,6 +52,12 @@ Hit :: struct {
 	text: string,
 }
 
+// A press on a message, which is a click if the button comes up where it went down.
+Press :: struct {
+	x, y: int,
+	msg:  u64,
+}
+
 Drag :: enum {
 	None,
 	Border,
@@ -77,6 +83,9 @@ App :: struct {
 	members_asked: proto.Conv_Id, // the conversation whose members were requested
 	focus:         Focus,
 	drag:          Drag,
+	sel:           Selection,
+	press:         Maybe(Press), // a click on a message that may turn into a drag
+	frame:         ^tui.Buffer, // the screen as last drawn, for copying from
 
 	// The conversation shown, and what the timeline knows about it.
 	viewing:       proto.Conv_Id,
@@ -303,7 +312,9 @@ app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 	draw_members(a, b, g)
 	draw_completion(a, b, g)
 	draw_status(a, b, g)
+	draw_selection(a, b)
 	draw_overlays(a, b)
+	a.frame = b
 }
 
 // app_sync follows what the View says. Call with it locked.
