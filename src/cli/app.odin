@@ -37,6 +37,7 @@ Hit_Kind :: enum {
 	Member, // id: the account
 	Reaction, // id: the message; text: the emoji
 	Close_Thread,
+	Call_Button, // id: the account to call
 	Server, // id: its index
 	Voice_Join, // id: the channel whose voice room to join or leave
 	Setting_Row, // id: the setting

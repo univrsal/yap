@@ -21,6 +21,12 @@ run_command :: proc(a: ^App, line: string) {
 		a.dialog.kind = .Help
 	case "settings":
 		open_settings(a)
+	case "call":
+		if rest == "" {
+			say(a, "Whom? /call <name>, or click someone in the member list or the Call button of a DM.", true)
+			return
+		}
+		run_headless_command(a, line)
 	case "mute":
 		set_muted(a, true)
 	case "unmute":

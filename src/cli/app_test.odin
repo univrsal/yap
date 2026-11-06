@@ -1285,7 +1285,7 @@ test_the_member_list_goes_with_f2_and_a_narrow_screen :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_clicking_a_member_opens_their_dm :: proc(t: ^testing.T) {
+test_clicking_a_member_offers_to_message_or_call_them :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture(&f, 120, 20)
 	defer fixture_destroy(&f)
@@ -1293,14 +1293,153 @@ test_clicking_a_member_opens_their_dm :: proc(t: ^testing.T) {
 	frame(&f)
 	discard(&f)
 	click(&f, 120 - MEMBERS_W + 5, 4) // anna
+	testing.expect(t, f.app.menu.open)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Message"))
+	testing.expect(t, screen_has(&f, "Call"))
+	// Message: their DM.
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y)
 	cmds := take(&f)
 	dm, ok := find_cmd(conn.DM_Command, cmds)
 	testing.expect(t, ok)
 	testing.expect_value(t, dm.name, "anna")
 	conn.command_destroy(dm)
+	testing.expect(t, !f.app.menu.open)
+	// Call: calls them.
+	frame(&f)
+	click(&f, 120 - MEMBERS_W + 5, 4)
+	frame(&f)
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + 1)
+	cmds = take(&f)
+	cc, called := find_cmd(conn.Call_Command, cmds)
+	testing.expect(t, called)
+	testing.expect_value(t, cc.account, 2)
+	testing.expect(t, strings.contains(f.app.notice, "Calling anna"))
 	// Clicking oneself does nothing.
+	frame(&f)
 	click(&f, 120 - MEMBERS_W + 5, 2)
+	testing.expect(t, !f.app.menu.open)
+}
+
+@(test)
+test_you_cannot_call_yourself_or_while_in_a_call :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 120, 20)
+	defer fixture_destroy(&f)
+	with_members(&f)
+	frame(&f)
+	testing.expect(t, !can_call(&f.app, 1)) // ourselves
+	testing.expect(t, !can_call(&f.app, 0))
+	testing.expect(t, !can_call(&f.app, 99)) // nobody
+	testing.expect(t, can_call(&f.app, 2))
+	f.v.call = {id = 4, status = .Active, peer = 3}
+	testing.expect(t, !can_call(&f.app, 2))
+	// The member menu has no Call then.
+	frame(&f)
+	click(&f, 120 - MEMBERS_W + 5, 4)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Message"))
+	testing.expect(t, !strings.contains(screen(&f)[f.app.menu.rect.y + 1], "Call"))
+	acc := f.v.accounts[2]
+	acc.flags += {.Deleted}
+	f.v.accounts[2] = acc
+	f.v.call.status = .None
+	testing.expect(t, !can_call(&f.app, 2))
+	discard(&f)
+}
+
+@(test)
+test_a_dm_has_a_call_button :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	add_message(&f.v, 50, 9, 2, T0, "hi")
+	f.v.viewing = 50
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[0], "📞 Call"))
+	discard(&f)
+	x := col_of(&f, 0, "📞")
+	click(&f, x + 3, 0)
+	cmds := take(&f)
+	cc, ok := find_cmd(conn.Call_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, cc.account, 2)
+	// None in a channel, in a group, or during a call.
+	f.v.viewing = 1
+	frame(&f)
+	testing.expect(t, !strings.contains(screen(&f)[0], "Call"))
+	dm := conn.View_DM{id = 60, last = 3, last_time = T0, count = 2}
+	dm.members[0], dm.members[1] = 2, 3
+	add_account(&f.v, 3, "ben")
+	append(&f.v.dms, dm)
+	f.v.viewing = 60
+	frame(&f)
+	testing.expect(t, !strings.contains(screen(&f)[0], "Call"))
+	f.v.viewing = 50
+	f.v.call = {id = 4, status = .Ringing_Out, peer = 2}
+	frame(&f)
+	testing.expect(t, !strings.contains(screen(&f)[0], "📞 Call"))
+}
+
+@(test)
+test_the_palette_calls_people :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	frame(&f)
+	discard(&f)
+	open_palette(&f.app)
+	type_text(&f, "call ann")
+	items := palette_shown(&f.app)
+	testing.expect(t, len(items) >= 1)
+	testing.expect_value(t, items[0].label, "Call anna")
+	press(&f, .Enter)
+	cmds := take(&f)
+	cc, ok := find_cmd(conn.Call_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, cc.account, 2)
+}
+
+@(test)
+test_call_without_a_name_says_how :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/call")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "Whom? /call <name>"))
 	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_names_are_completed_after_commands_that_take_a_person :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_account(&f.v, 3, "annabel")
+	f.v.users[7] = {account = 3} // annabel is here
+	frame(&f)
+	type_text(&f, "/call an")
+	frame(&f)
+	testing.expect(t, f.app.completion.active)
+	testing.expect_value(t, len(f.app.completion.items), 2)
+	testing.expect_value(t, f.app.completion.items[0].insert, "annabel") // here first
+	press(&f, .Down)
+	press(&f, .Tab)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "/call anna")
+	// Not for other commands, nor past the first word.
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "/pin an")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active)
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "/dm anna hel")
+	frame(&f)
+	testing.expect(t, !f.app.completion.active)
 }
 
 @(private = "file")

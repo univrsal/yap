@@ -16,6 +16,7 @@ Palette_Kind :: enum {
 	Conversation,
 	Server,
 	Command, // a /command line, run as if typed
+	Call, // call a person; index is their account
 	Form, // a form (see forms.odin); arg is its Form_Kind
 }
 
@@ -51,6 +52,28 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 			name := server_name(a.view) if i == a.cur else s.target.server
 			append(&items, Palette_Item{label = fmt.tprintf("Server: %s", name), kind = .Server, index = i})
 		}
+	}
+	// People who can be called: those we have a DM with, and those who are here.
+	callable := make(map[proto.Account_Id]bool, context.temp_allocator)
+	for dm in v.dms {
+		if dm.count == 0 && dm.with != v.me {
+			callable[dm.with] = true
+		}
+	}
+	for num, u in v.users {
+		if num != v.my_num {
+			callable[u.account] = true
+		}
+	}
+	people := make([dynamic]proto.Account_Id, context.temp_allocator)
+	for id in callable {
+		if can_call(a, id) {
+			append(&people, id)
+		}
+	}
+	slice.sort(people[:])
+	for id in people {
+		append(&items, Palette_Item{label = fmt.tprintf("Call %s", v.accounts[id].display), kind = .Call, index = int(id)})
 	}
 	command :: proc(items: ^[dynamic]Palette_Item, label, line: string) {
 		append(items, Palette_Item{label = label, kind = .Command, line = line})
@@ -200,6 +223,8 @@ palette_choose :: proc(a: ^App, i: int) {
 		app_switch(a, it.index)
 	case .Command:
 		run_command(a, line)
+	case .Call:
+		start_call(a, proto.Account_Id(it.index))
 	case .Form:
 		open_form(a, Form_Kind(it.index))
 	}

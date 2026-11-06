@@ -315,7 +315,20 @@ menu_choose :: proc(a: ^App, i: int) {
 		return
 	}
 	action, id, arg := a.menu.items[i].action, a.menu.msg, a.menu.items[i].arg
+	account := a.menu.account
 	menu_close(a)
+	if account != 0 {
+		// A person's menu.
+		#partial switch action {
+		case .Message:
+			if acc, known := a.view.accounts[account]; known {
+				push(a, conn.DM_Command{name = strings.clone(acc.username)})
+			}
+		case .Call:
+			start_call(a, account)
+		}
+		return
+	}
 	m, ok := find_message(a, id)
 	if !ok {
 		return
@@ -332,6 +345,7 @@ menu_choose :: proc(a: ^App, i: int) {
 	case .Edit: start_edit(a, m^)
 	case .Copy: copy_text(a, m.text)
 	case .Delete: a.dialog.kind, a.dialog.msg = .Confirm_Delete, id
+	case .Message, .Call: // (only in a person's menu)
 	}
 }
 
@@ -482,12 +496,12 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		toggle_voice_of(a, proto_conv(hit.id))
 	case .Emoji, .List_Item:
 	case .Member:
-		// Writing to someone starts with their DM.
+		// What to do with someone: write to them, call them.
 		if hit.id != u64(a.view.me) {
-			if acc, ok := a.view.accounts[proto.Account_Id(hit.id)]; ok {
-				push(a, conn.DM_Command{name = strings.clone(acc.username)})
-			}
+			member_menu_open(a, proto.Account_Id(hit.id), m.x, m.y)
 		}
+	case .Call_Button:
+		start_call(a, proto.Account_Id(hit.id))
 	case .Composer:
 		a.focus = .Composer
 		a.cursor_msg = 0

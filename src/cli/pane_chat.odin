@@ -41,6 +41,14 @@ draw_title :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 	} else if v.viewing == 0 {
 		tui.put_string(b, x, r.y, "no conversation", dim, r.x + r.w)
 	}
+	// A button to call the other person of a DM.
+	if peer := dm_peer(v); peer != 0 && can_call(a, peer) && v.status == .Connected {
+		label := " 📞 Call "
+		w := tui.string_width(label)
+		x0 := r.x + r.w - w - 1
+		tui.put_string(b, x0, r.y, label, {fg = theme.online.fg, bg = theme.bar.bg, attrs = {.Bold}}, r.x + r.w)
+		append(&a.hits, Hit{{x0, r.y, w, 1}, .Call_Button, u64(peer), ""})
+	}
 	// Something is wrong with the connection.
 	if v.status != .Connected {
 		text := connection_text(v)

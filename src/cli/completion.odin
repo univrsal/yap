@@ -74,6 +74,10 @@ completion_update :: proc(a: ^App) {
 	if strings.has_prefix(text, "/") && !strings.has_prefix(text, "//") && !strings.contains_any(text[:cursor], " \t\n") {
 		command_items(a, strings.to_lower(text[1:cursor], context.temp_allocator))
 		c.start, c.end = 0, cursor
+	} else if arg_start, is_user_arg := user_argument(text, cursor); is_user_arg {
+		// After a command that takes a person: /call an
+		c.start, c.end = arg_start, cursor
+		user_items(a, strings.to_lower(text[arg_start:cursor], context.temp_allocator))
 	} else {
 		start := cursor
 		for start > 0 && word_byte(text[start - 1]) {
@@ -315,5 +319,75 @@ draw_completion :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 		tui.fill(b, {g.composer.x, y, w, 1}, style)
 		tui.put_string(b, g.composer.x + 1, y, it.label, style, g.composer.x + w)
 		append(&a.hits, Hit{{g.composer.x, y, w, 1}, .Completion, u64(i), ""})
+	}
+}
+
+// The commands that take the name of a person as their first word.
+USER_COMMANDS := [?]string{"call", "dm", "buddy", "unbuddy", "seen", "ban", "unban", "banpurge", "kick", "invite", "admin", "unadmin", "assign", "disable", "enable", "deluser", "servermute", "serverunmute", "voicemove", "voicekick", "purgeuser"}
+
+// user_argument says whether the cursor is in the first word after such a
+// command, and where that word starts.
+@(private = "file")
+user_argument :: proc(text: string, cursor: int) -> (start: int, ok: bool) {
+	if !strings.has_prefix(text, "/") {
+		return
+	}
+	space := strings.index_byte(text, ' ')
+	if space < 0 || cursor <= space {
+		return
+	}
+	name := strings.to_lower(text[1:space], context.temp_allocator)
+	known := false
+	for c in USER_COMMANDS {
+		known ||= c == name
+	}
+	if !known || strings.contains_any(text[space + 1:cursor], " \t\n") {
+		return
+	}
+	return space + 1, true
+}
+
+// user_items lists the accounts that the typed start of a name could be: those who
+// are here first, then by user name.
+@(private = "file")
+user_items :: proc(a: ^App, prefix: string) {
+	v, c := a.view, &a.completion
+	Candidate :: struct {
+		insert, label, key: string,
+		here:               bool,
+	}
+	found := make([dynamic]Candidate, context.temp_allocator)
+	for id, acc in v.accounts {
+		if id == v.me || acc.flags & {.Disabled, .Deleted} != {} {
+			continue
+		}
+		if strings.has_prefix(acc.username, prefix) ||
+		   strings.has_prefix(strings.to_lower(acc.display, context.temp_allocator), prefix) {
+			here := false
+			for _, u in v.users {
+				here ||= u.account == id
+			}
+			append(
+				&found,
+				Candidate {
+					insert = acc.username,
+					label = strings.concatenate({acc.username, "   ", acc.display}, context.temp_allocator),
+					key = acc.username,
+					here = here,
+				},
+			)
+		}
+	}
+	slice.sort_by(found[:], proc(a, b: Candidate) -> bool {
+		if a.here != b.here {
+			return a.here
+		}
+		return a.key < b.key
+	})
+	for f, i in found {
+		if i >= COMPLETION_MAX {
+			break
+		}
+		append(&c.items, Completion_Item{f.insert, f.label})
 	}
 }

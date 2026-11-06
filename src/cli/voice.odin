@@ -3,6 +3,8 @@ package main
 import "core:fmt"
 import "core:strings"
 
+import "common:proto"
+
 import "client:conn"
 import "tui"
 
@@ -180,3 +182,33 @@ call_peer_name :: proc(v: ^conn.View) -> string {
 	return "someone"
 }
 
+
+// can_call says whether a person can be called now: someone else, with an
+// account that is there, and no call going on already. Call with the View locked.
+can_call :: proc(a: ^App, account: proto.Account_Id) -> bool {
+	v := a.view
+	if account == 0 || account == v.me || v.call.status != .None {
+		return false
+	}
+	acc, ok := v.accounts[account]
+	return ok && .Deleted not_in acc.flags
+}
+
+// start_call calls somebody. Call with the View locked.
+start_call :: proc(a: ^App, account: proto.Account_Id) {
+	if !can_call(a, account) {
+		say(a, "That person can't be called now." if a.view.call.status == .None else "You are in a call already.", true)
+		return
+	}
+	push(a, conn.Call_Command{account = account})
+	say(a, fmt.tprintf("Calling %s…", a.view.accounts[account].display))
+}
+
+// dm_peer is the other person of the DM being looked at (not a group); 0 if it is
+// not one. Call with the View locked.
+dm_peer :: proc(v: ^conn.View) -> proto.Account_Id {
+	if dm := viewed_dm(v); dm != nil && dm.count == 0 && dm.with != v.me {
+		return dm.with
+	}
+	return 0
+}

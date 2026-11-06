@@ -76,6 +76,8 @@ dialog_update :: proc(a: ^App) {
 
 Menu_Action :: enum {
 	Reply,
+	Message, // (a member) write to them
+	Call, // (a member) call them
 	Save, // a file of the message; Menu_Item.arg is which
 	Pin,
 	Bookmark,
@@ -95,13 +97,26 @@ Menu_Item :: struct {
 Menu :: struct {
 	open:  bool,
 	msg:   proto.Msg_Id,
+	account: proto.Account_Id, // for a member's menu, whose it is (and msg is 0)
 	items: [dynamic]Menu_Item,
 	at:    [2]int, // where it was asked for
 	rect:  tui.Rect, // where it is drawn, which is moved in to fit
 	sel:   int,
 }
 
+// member_menu_open lists what can be done with a person: write to them, call them.
+// Call with the View locked.
+member_menu_open :: proc(a: ^App, account: proto.Account_Id, x, y: int) {
+	menu_close(a)
+	append(&a.menu.items, Menu_Item{"Message", .Message, 0})
+	if can_call(a, account) {
+		append(&a.menu.items, Menu_Item{"Call", .Call, 0})
+	}
+	a.menu.open, a.menu.msg, a.menu.account, a.menu.at, a.menu.sel = true, 0, account, {x, y}, 0
+}
+
 menu_close :: proc(a: ^App) {
+	a.menu.account = 0
 	a.menu.open = false
 	clear(&a.menu.items)
 	delete(a.menu.items)
@@ -310,13 +325,14 @@ HELP_LINES :: [?]string {
 	"Esc              cancel a reply or edit; back to the newest",
 	"PgUp / PgDn      scroll the messages",
 	"Alt+Up / Down    previous / next channel (Alt+1..9: by number)",
-	"Tab              pick a message with the keys (Up/Down, then",
-	"                 Enter for its menu, Tab or Esc to leave)",
+	"Tab              pick a message with the keys (Up/Down, Enter for its menu,",
+	"                 r reply, e edit, d delete, a react, t thread; Tab: the thread)",
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
 	"Ctrl+B          the channel list, on a narrow screen",
 	"Ctrl+K          go to a conversation or do something (also new channel, ban, ...)",
+	"/call <name>     call someone (or click a member, or Call in a DM)",
 	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  F9 settings",
 	"/pins /bookmarks /search [all] <words>   lists of messages",
 	"/join <channel>  look at a channel      /help   this list",
