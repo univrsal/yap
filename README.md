@@ -5,9 +5,9 @@ A sloppy chat and VOIP application.
 - Single binary client and server (client about 10 MiB, server about 5 MiB)
 - Runs on Linux, Windows, macOS (and optionally in a browser)
 - Uses only UDP (WebSocket for web client)
-- Minimal runtime dependencies (Basically only Glfw, some optional ones for extra features)
+- Minimal runtime dependencies (Glfw on Linux)
 - Uses [noise protocol](https://noiseprotocol.org) for encryption between client and server\*
-- Uses [RNN](https://github.com/xiph/rnnoise) and Opus (three quality options)
+- Uses [RNN](https://github.com/xiph/rnnoise) and Opus
 - Channels to subscribe to, each with a voice room and persistent chat
 - Client can join multiple servers
 - File attachments, message reactions, custom emotes
