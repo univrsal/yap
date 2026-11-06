@@ -62,6 +62,7 @@ dialog_update :: proc(a: ^App) {
 
 Menu_Action :: enum {
 	Reply,
+	Thread,
 	React,
 	Edit,
 	Delete,
@@ -95,6 +96,9 @@ menu_open :: proc(a: ^App, m: conn.View_Message, x, y: int) {
 	items := &a.menu.items
 	if can_write(v) {
 		append(items, Menu_Item{"Reply", .Reply})
+	}
+	if .Has_Thread in m.flags || m.thread_root != 0 {
+		append(items, Menu_Item{"Open thread", .Thread})
 	}
 	if can_react(v) {
 		append(items, Menu_Item{"Add reaction", .React})

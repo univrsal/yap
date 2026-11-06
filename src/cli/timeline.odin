@@ -57,6 +57,7 @@ Layout_Key :: struct {
 	revision:    int,
 	unread_from: proto.Msg_Id,
 	accounts:    int,
+	roots:       int,
 	outbox:      int,
 	me:          proto.Account_Id,
 	loading:     bool,
@@ -95,6 +96,7 @@ layout_update :: proc(
 		width       = width,
 		unread_from = unread_from,
 		accounts    = len(v.accounts),
+		roots       = len(v.roots),
 		outbox      = len(v.outbox),
 		me          = v.me,
 		valid       = true,
@@ -187,11 +189,23 @@ build_rows :: proc(
 		add_row(l, .Notice, 0, 0, {{"loading older messages...", theme.dim}})
 	}
 
+	// A thread starts with the message it is about.
+	if in_thread {
+		if r, ok := v.roots[key.root]; ok {
+			lt := local_time(r.msg.time, tz)
+			add_message(l, v, r.msg, lt, false, name_w, text_x, text_w, true)
+			delete(lt.label)
+			word := "reply" if r.msg.reply_count == 1 else "replies"
+			add_row(l, .Day, 0, 0, {{rule_text(fmt.tprintf("%d %s", r.msg.reply_count, word), width), theme.dim}})
+		} else {
+			add_row(l, .Notice, 0, 0, {{"loading the message...", theme.dim}})
+		}
+	}
 	prev: conn.View_Message
 	prev_day := i64(-1)
 	for m, i in tl.messages {
 		lt := local_time(m.time, tz)
-		new_day := lt.day != prev_day
+		new_day := lt.day != prev_day && !in_thread
 		new_line := unread_from != 0 && i > 0 && prev.id <= unread_from && m.id > unread_from
 		if i == 0 && unread_from != 0 && tl.have_oldest && m.id > unread_from {
 			new_line = true

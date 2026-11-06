@@ -34,6 +34,7 @@ Hit_Kind :: enum {
 	Border, // between the channel list and the chat
 	Member, // id: the account
 	Reaction, // id: the message; text: the emoji
+	Close_Thread,
 	Emoji, // id: its index in the picker
 	Composer,
 	Menu_Item, // id: its index
@@ -78,6 +79,10 @@ App :: struct {
 	// The conversation shown, and what the timeline knows about it.
 	viewing:       proto.Conv_Id,
 	layout:        Timeline_Layout,
+	thread:        proto.Msg_Id, // the root of the thread that is open, 0 for none
+	thread_layout: Timeline_Layout,
+	thread_scroll: int,
+	thread_asked:  proto.Msg_Id,
 	scroll:        int, // rows above the newest that the bottom of the timeline is at
 	unread_from:   proto.Msg_Id, // the newest message read when the conversation was opened
 	cursor_msg:    proto.Msg_Id, // the message picked with the keys or the mouse
@@ -110,6 +115,7 @@ App :: struct {
 // The member list needs this much room, and is this wide.
 WIDE :: 100
 MEMBERS_W :: 24
+THREAD_W :: 46
 CHANNEL_W_DEFAULT :: 26
 CHANNEL_W_MIN :: 12
 // Under this width the channel list is hidden.
@@ -123,6 +129,7 @@ app_init :: proc(a: ^App, v: ^conn.View, client: ^conn.Server_Conn) {
 
 app_destroy :: proc(a: ^App) {
 	layout_destroy(&a.layout)
+	layout_destroy(&a.thread_layout)
 	tui.editor_destroy(&a.editor)
 	delete(a.reply_name)
 	delete(a.notice)
@@ -154,6 +161,9 @@ NOTICE_SHOWN :: 8 * time.Second
 Geometry :: struct {
 	channels: tui.Rect, // empty when hidden
 	border:   tui.Rect,
+	thread:   tui.Rect, // the open thread, empty when none
+	thread_border: tui.Rect,
+	thread_over: bool, // it covers the messages (on a screen too narrow to share)
 	members:  tui.Rect, // the list of who is here, empty when hidden
 	members_border: tui.Rect,
 	title:    tui.Rect,
@@ -177,7 +187,12 @@ geometry :: proc(a: ^App) -> Geometry {
 		cw += 1
 	}
 	rw := w - cw
-	if w >= WIDE && !a.hide_members {
+	if a.thread != 0 && w >= WIDE {
+		// Beside the messages, in place of the member list.
+		g.thread = {w - THREAD_W, 0, THREAD_W, h - 1}
+		g.thread_border = {w - THREAD_W - 1, 0, 1, h - 1}
+		rw -= THREAD_W + 1
+	} else if w >= WIDE && !a.hide_members {
 		g.members = {w - MEMBERS_W, 0, MEMBERS_W, h - 1}
 		g.members_border = {w - MEMBERS_W - 1, 0, 1, h - 1}
 		rw -= MEMBERS_W + 1
@@ -191,6 +206,11 @@ geometry :: proc(a: ^App) -> Geometry {
 	g.info = {cw, h - 2 - ch, rw, 1}
 	g.title = {cw, 0, rw, 1}
 	g.timeline = {cw, 1, rw, max(g.info.y - 1, 0)}
+	if a.thread != 0 && g.thread.w == 0 {
+		// No room beside: the thread covers the messages.
+		g.thread = {g.timeline.x, g.timeline.y - 1, g.timeline.w, g.timeline.h + 1}
+		g.thread_over = true
+	}
 	return g
 }
 
@@ -207,7 +227,23 @@ hit_at :: proc(a: ^App, x, y: int) -> (Hit, bool) {
 // find_message gives the message with that id in the conversation shown. Call
 // with the View locked.
 find_message :: proc(a: ^App, id: proto.Msg_Id) -> (^conn.View_Message, bool) {
-	tl, have := &a.view.timelines[{a.view.viewing, 0}]
+	if m, ok := find_in(a.view, {a.view.viewing, 0}, id); ok {
+		return m, true
+	}
+	if a.thread != 0 {
+		if m, ok := find_in(a.view, {a.view.viewing, a.thread}, id); ok {
+			return m, true
+		}
+		if r, ok := &a.view.roots[id]; ok {
+			return &r.msg, true
+		}
+	}
+	return nil, false
+}
+
+@(private = "file")
+find_in :: proc(v: ^conn.View, key: conn.Timeline_Key, id: proto.Msg_Id) -> (^conn.View_Message, bool) {
+	tl, have := &v.timelines[key]
 	if !have {
 		return nil, false
 	}
@@ -260,6 +296,7 @@ app_sync :: proc(a: ^App) {
 		cancel_reply(a)
 		cancel_edit(a)
 		menu_close(a)
+		a.thread, a.thread_scroll, a.thread_asked = 0, 0, 0
 		unread, read, _ := conn.viewed_unread(v)
 		a.unread_from = read if unread > 0 else 0
 	}
@@ -283,6 +320,18 @@ app_sync :: proc(a: ^App) {
 	}
 	a.rows_before = rows
 	a.scroll = clamp(a.scroll, 0, max(rows - g.timeline.h, 0))
+	if a.thread != 0 {
+		tkey := conn.Timeline_Key{a.viewing, a.thread}
+		layout_update(&a.thread_layout, v, tkey, g.thread.w - 1, a.tz, 0)
+		trows := len(a.thread_layout.rows)
+		a.thread_scroll = clamp(a.thread_scroll, 0, max(trows - (g.thread.h - 1), 0))
+		if ttl, ok := &v.timelines[tkey]; ok && !ttl.loading && len(ttl.messages) > 0 && !ttl.have_oldest {
+			if a.thread_scroll + g.thread.h - 1 >= trows && a.thread_asked != ttl.messages[0].id {
+				a.thread_asked = ttl.messages[0].id
+				push(a, conn.History_Command{conv = a.viewing, root = a.thread})
+			}
+		}
+	}
 
 	// What is read is what is in view at the newest message.
 	reading := a.viewing if a.scroll == 0 else 0

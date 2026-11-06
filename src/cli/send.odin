@@ -3,6 +3,7 @@ package main
 import "core:strings"
 
 import "client:conn"
+import "common:proto"
 import "client:richtext"
 import "tui"
 
@@ -29,12 +30,13 @@ submit :: proc(a: ^App) {
 	case a.viewing == 0:
 		say(a, "Pick a channel first.", true)
 		return
-	case a.reply_to != 0:
+	case a.reply_to != 0 || a.thread != 0:
+		root := a.reply_to if a.reply_to != 0 else a.thread
 		push(
 			a,
 			conn.Chat_Command {
 				text = strings.clone(text),
-				thread = {a.viewing, a.reply_to},
+				thread = {a.viewing, root},
 				typed = true,
 			},
 		)
@@ -101,3 +103,28 @@ copy_text :: proc(a: ^App, text: string) {
 	say(a, "Copied.")
 }
 
+
+// open_thread shows a thread beside the messages (or over them) and writes to it.
+// Opening another closes the first. Call with the View locked.
+open_thread :: proc(a: ^App, root: proto.Msg_Id) {
+	if a.thread == root || a.viewing == 0 {
+		return
+	}
+	close_thread(a)
+	a.thread, a.thread_scroll, a.thread_asked = root, 0, 0
+	push(a, conn.Thread_Command{thread = {a.viewing, root}, open = true})
+}
+
+close_thread :: proc(a: ^App) {
+	if a.thread != 0 {
+		push(a, conn.Thread_Command{thread = {a.viewing, a.thread}, open = false})
+		a.thread, a.thread_scroll, a.thread_asked = 0, 0, 0
+		layout_destroy(&a.thread_layout)
+		a.members_asked = 0
+	}
+}
+
+// thread_root_of is the root of the thread a message belongs to or starts.
+thread_root_of :: proc(m: conn.View_Message) -> proto.Msg_Id {
+	return m.thread_root if m.thread_root != 0 else m.id
+}

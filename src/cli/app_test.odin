@@ -1433,3 +1433,205 @@ test_the_picker_takes_back_our_own_reaction :: proc(t: ^testing.T) {
 	testing.expect(t, !rc.on)
 	conn.command_destroy(rc)
 }
+
+// a_thread has a root with replies, the window of the thread and the root as the
+// thread's pane wants them.
+@(private = "file")
+a_thread :: proc(f: ^Fixture) {
+	root := add_message(&f.v, 1, 10, 2, T0, "shall we ship?")
+	root.flags += {.Has_Thread}
+	root.reply_count = 2
+	r1 := add_message(&f.v, 1, 11, 1, T0 + MINUTE, "yes")
+	r1.thread_root = 10
+	r2 := add_message(&f.v, 1, 12, 2, T0 + 2 * MINUTE, "ok then")
+	r2.thread_root = 10
+	f.v.roots[10] = {
+		conv = 1,
+		msg  = {id = 10, sender = 2, time = T0, text = strings.clone("shall we ship?"), reply_count = 2},
+	}
+	tl := timeline_of(&f.v, 1, 10)
+	append(&tl.messages, conn.View_Message{id = 11, sender = 1, time = T0 + MINUTE, thread_root = 10, text = strings.clone("yes")})
+	append(&tl.messages, conn.View_Message{id = 12, sender = 2, time = T0 + 2 * MINUTE, thread_root = 10, text = strings.clone("ok then")})
+}
+
+@(test)
+test_clicking_the_replies_opens_the_thread :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	discard(&f)
+	click(&f, 60, row_of(&f, "↩ 2 replies"))
+	testing.expect_value(t, f.app.thread, 10)
+	cmds := take(&f)
+	tc, ok := find_cmd(conn.Thread_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect(t, tc.open)
+	testing.expect_value(t, tc.thread, conn.Timeline_Key{1, 10})
+	frame(&f)
+	// The pane is at the right, in place of the member list, with the root and its replies.
+	rows := screen(&f)
+	testing.expect(t, strings.contains(rows[0], "Thread"), rows[0])
+	testing.expect(t, !screen_has(&f, "Members"))
+	testing.expect(t, screen_has(&f, "2 replies ─"))
+	testing.expect(t, screen_has(&f, "ok then"))
+	// The root is in the messages, in the reply line of its first reply, and in the pane.
+	count := 0
+	for r in rows {
+		count += 1 if strings.contains(r, "shall we ship?") else 0
+	}
+	testing.expect_value(t, count, 3)
+}
+
+@(test)
+test_a_narrow_screen_shows_the_thread_instead :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 80, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	count := 0
+	for r in screen(&f) {
+		count += 1 if strings.contains(r, "shall we ship?") else 0
+	}
+	testing.expect_value(t, count, 1) // the thread's root; the messages are covered
+	testing.expect(t, screen_has(&f, "Thread"))
+	testing.expect(t, screen_has(&f, "✕ close"))
+	// The message box is still there.
+	testing.expect(t, f.app.cursor_shown)
+}
+
+@(test)
+test_writing_in_an_open_thread :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	discard(&f)
+	testing.expect(t, screen_has(&f, "Writing in the thread"))
+	type_text(&f, "agreed")
+	press(&f, .Enter)
+	cmds := take(&f)
+	chat, ok := find_cmd(conn.Chat_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, chat.thread, conn.Timeline_Key{1, 10})
+	testing.expect_value(t, chat.text, "agreed")
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+	testing.expect_value(t, f.app.thread, 10) // it stays open
+}
+
+@(test)
+test_closing_a_thread :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	discard(&f)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.thread, 0)
+	cmds := take(&f)
+	tc, ok := find_cmd(conn.Thread_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect(t, !tc.open)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Members"))
+	// With the button.
+	open_thread(&f.app, 10)
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "✕ close")
+	click(&f, 130 - 4, y)
+	testing.expect_value(t, f.app.thread, 0)
+}
+
+@(test)
+test_the_menu_opens_threads_and_other_threads_replace :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	other := add_message(&f.v, 1, 20, 2, T0 + 5 * MINUTE, "another topic")
+	other.flags += {.Has_Thread}
+	other.reply_count = 1
+	frame(&f)
+	click(&f, 40, row_of(&f, "another topic"))
+	frame(&f)
+	found := false
+	for it in f.app.menu.items {
+		found ||= it.action == .Thread
+	}
+	testing.expect(t, found)
+	// A message without replies has no thread to open.
+	menu_close(&f.app)
+	open_thread(&f.app, 10)
+	discard(&f)
+	open_thread(&f.app, 20)
+	cmds := take(&f)
+	testing.expect_value(t, len(cmds), 2)
+	first, is_close := cmds[0].(conn.Thread_Command)
+	testing.expect(t, is_close && !first.open && first.thread.root == 10)
+	second, is_open := cmds[1].(conn.Thread_Command)
+	testing.expect(t, is_open && second.open && second.thread.root == 20)
+	testing.expect_value(t, f.app.thread, 20)
+}
+
+@(test)
+test_a_reply_has_a_thread_to_open :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	click(&f, 40, row_of(&f, "ok then"))
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Open thread"))
+	press(&f, .Escape)
+	press(&f, .Tab)
+	// Keys: t on a reply opens its thread.
+	press(&f, .Up)
+	type_text(&f, "t")
+	testing.expect_value(t, f.app.thread, 10)
+}
+
+@(test)
+test_older_replies_are_asked_for :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	timeline_of(&f.v, 1, 10).have_oldest = false
+	frame(&f)
+	open_thread(&f.app, 10)
+	discard(&f)
+	frame(&f)
+	cmds := take(&f)
+	hist, ok := find_cmd(conn.History_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, hist.root, 10)
+	testing.expect_value(t, hist.conv, 1)
+}
+
+@(test)
+test_switching_conversation_closes_the_thread_pane :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	f.v.viewing = 2
+	frame(&f)
+	testing.expect_value(t, f.app.thread, 0)
+}
