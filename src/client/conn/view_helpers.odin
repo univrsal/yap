@@ -92,3 +92,16 @@ dm_closed :: proc(v: ^View, dm: ^View_DM) -> bool {
 	}
 	return true
 }
+
+// mention_title is the headline of the notice for a mention, or for a DM or a
+// message in a group: who said it and where. `on` is " on <server>" when there
+// are several servers, else "".
+mention_title :: proc(m: View_Mention, on: string) -> string {
+	switch {
+	case m.group:
+		return fmt.tprintf("%s wrote in %s%s", m.name, m.place, on)
+	case m.dm:
+		return fmt.tprintf("%s messaged you%s", m.name, on)
+	}
+	return fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on)
+}
