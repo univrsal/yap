@@ -172,7 +172,7 @@ back_from_dms :: proc(ui: ^UI) {
 	if v.viewing == 0 && v.channel == 0 {
 		return // none reported yet
 	}
-	if v.viewing == 0 || (viewed_channel(v) == nil && !viewing_notes(v)) {
+	if v.viewing == 0 || (conn.viewed_channel(v) == nil && !viewing_notes(v)) {
 		keep_viewing(ui, 0, back = true)
 	}
 }

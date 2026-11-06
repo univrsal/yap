@@ -180,7 +180,7 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	ctx := &ui.ctx
 	v := ui.view
 	m := &ui.manage
-	ch := viewed_channel(v)
+	ch := conn.viewed_channel(v)
 	if ch == nil || (.Invite not_in v.permissions && !ch.admin) {
 		return
 	}
