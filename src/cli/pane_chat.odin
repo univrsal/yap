@@ -154,6 +154,8 @@ draw_info :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 	case a.reply_to != 0:
 		text := fmt.tprintf("↪ Replying to %s (Esc to cancel)", a.reply_name)
 		tui.put_string(b, x, r.y, text, theme.mention, max_x)
+	case incoming_call_text(v) != "":
+		tui.put_string(b, x, r.y, incoming_call_text(v), theme.mention_me, max_x)
 	case a.notice != "":
 		tui.put_string(b, x, r.y, a.notice, theme.error if a.notice_error else theme.dim, max_x)
 	case a.scroll > 0:

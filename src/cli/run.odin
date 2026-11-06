@@ -3,6 +3,7 @@ package main
 
 import "core:encoding/base64"
 import "core:fmt"
+import "core:os"
 import "core:strings"
 import "core:sys/posix"
 import "core:time/timezone"
@@ -57,6 +58,9 @@ run_ui :: proc(opt: Options) -> bool {
 	out: strings.Builder
 	defer strings.builder_destroy(&out)
 	have_prev := false
+	style := notify_style()
+	title_told: string
+	defer delete(title_told)
 	input: [4096]u8
 
 	for !app.quit && !interrupted() {
@@ -69,6 +73,7 @@ run_ui :: proc(opt: Options) -> bool {
 		tui.render_diff(&out, &prev if have_prev else nil, &cur)
 		write_cursor(&out, &app)
 		write_clipboard(&out, &app)
+		write_notices(&out, &app, style, &title_told)
 		tui.terminal_flush(&out)
 		tui.buffer_copy(&prev, &cur)
 		have_prev = true
@@ -149,4 +154,68 @@ redirect_stderr :: proc(path: string) {
 		posix.dup2(fd, posix.STDERR_FILENO)
 		posix.close(fd)
 	}
+}
+
+// How the terminal is told to announce something.
+Notify_Style :: enum {
+	Bell, // only the bell
+	OSC_777, // VTE, foot, Konsole, ...
+	OSC_9, // iTerm2, WezTerm, Windows Terminal, ...
+}
+
+// notify_style picks the desktop notification the terminal is likely to
+// understand, from what it says it is.
+notify_style :: proc() -> Notify_Style {
+	program := os_getenv("TERM_PROGRAM")
+	switch {
+	case program == "iTerm.app", program == "WezTerm", program == "ghostty", os_getenv("WT_SESSION") != "":
+		return .OSC_9
+	case os_getenv("TERM") == "linux" || os_getenv("TERM") == "dumb":
+		return .Bell
+	}
+	return .OSC_777
+}
+
+// write_notices announces what the app collected, and keeps the title current.
+@(private = "file")
+write_notices :: proc(out: ^strings.Builder, a: ^App, style: Notify_Style, told: ^string) {
+	for n in take_notices(a) {
+		strings.write_byte(out, 0x07)
+		switch style {
+		case .OSC_777:
+			fmt.sbprintf(out, "\x1b]777;notify;%s;%s\x07", sanitize(n.title), sanitize(n.body))
+		case .OSC_9:
+			fmt.sbprintf(out, "\x1b]9;%s: %s\x07", sanitize(n.title), sanitize(n.body))
+		case .Bell:
+		}
+		delete(n.title)
+		delete(n.body)
+	}
+	if a.title != told^ {
+		fmt.sbprintf(out, "\x1b]2;%s\x07", sanitize(a.title))
+		delete(told^)
+		told^ = strings.clone(a.title)
+	}
+}
+
+// sanitize takes out what would end the sequence early or be taken for a part of it.
+@(private = "file")
+sanitize :: proc(s: string) -> string {
+	b: strings.Builder
+	strings.builder_init(&b, context.temp_allocator)
+	for r in s {
+		if r >= 0x20 && r != 0x7f && r != ';' {
+			strings.write_rune(&b, r)
+		} else if r == ';' {
+			strings.write_rune(&b, ',')
+		} else {
+			strings.write_byte(&b, ' ')
+		}
+	}
+	return strings.to_string(b)
+}
+
+@(private = "file")
+os_getenv :: proc(name: string) -> string {
+	return os.get_env(name, context.temp_allocator)
 }

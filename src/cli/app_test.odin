@@ -2070,3 +2070,129 @@ test_a_finished_word_does_not_hold_back_enter :: proc(t: ^testing.T) {
 	testing.expect_value(t, chat.text, "hi @anna")
 	conn.command_destroy(chat)
 }
+
+@(private = "file")
+mention :: proc(f: ^Fixture, name, place, text: string, conv: proto.Conv_Id, dm := false, group := false) {
+	append(
+		&f.v.mentioned,
+		conn.View_Mention {
+			name = strings.clone(name),
+			place = strings.clone(place),
+			text = strings.clone(text),
+			conv = conv,
+			dm = dm,
+			group = group,
+		},
+	)
+}
+
+@(private = "file")
+free_notices :: proc(n: [dynamic]Notice) {
+	for x in n {
+		delete(x.title)
+		delete(x.body)
+	}
+	delete(n)
+}
+
+@(test)
+test_a_mention_makes_a_notice :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	mention(&f, "anna", "#dev", "**hey** @me", 2)
+	frame(&f)
+	notices := take_notices(&f.app)
+	defer free_notices(notices)
+	testing.expect_value(t, len(notices), 1)
+	testing.expect_value(t, notices[0].title, "anna mentioned you in #dev")
+	testing.expect_value(t, notices[0].body, "hey @me")
+	// Taken once.
+	frame(&f)
+	testing.expect_value(t, len(f.app.notices), 0)
+}
+
+@(test)
+test_a_dm_that_is_being_read_makes_no_notice :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	f.v.viewing = 50
+	frame(&f)
+	mention(&f, "anna", "anna", "psst", 50, dm = true)
+	frame(&f)
+	testing.expect_value(t, len(f.app.notices), 0)
+	// One in another DM does, titled as a DM, and a group's as a group's.
+	mention(&f, "ben", "ben", "hello", 51, dm = true)
+	mention(&f, "cy", "ben, cy", "yo", 52, dm = true, group = true)
+	frame(&f)
+	notices := take_notices(&f.app)
+	defer free_notices(notices)
+	testing.expect_value(t, len(notices), 2)
+	testing.expect_value(t, notices[0].title, "ben messaged you")
+	testing.expect_value(t, notices[1].title, "cy wrote in ben, cy")
+}
+
+@(test)
+test_scrolled_back_the_dm_is_not_being_read :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 80, 12)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	for i in 0 ..< 30 {
+		add_message(&f.v, 50, proto.Msg_Id(10 + i), 2, T0, "line")
+	}
+	f.v.viewing = 50
+	frame(&f)
+	press(&f, .Page_Up)
+	frame(&f)
+	mention(&f, "anna", "anna", "psst", 50, dm = true)
+	frame(&f)
+	testing.expect_value(t, len(f.app.notices), 1)
+}
+
+@(test)
+test_an_incoming_call_makes_one_notice_and_shows_on_the_info_line :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	f.v.call = {
+		id     = 4,
+		status = .Ringing_In,
+		peer   = 2,
+	}
+	frame(&f)
+	frame(&f)
+	notices := take_notices(&f.app)
+	defer free_notices(notices)
+	testing.expect_value(t, len(notices), 1)
+	testing.expect_value(t, notices[0].title, "anna is calling you")
+	testing.expect(t, screen_has(&f, "anna is calling — /answer or /hangup"))
+	// A later call is announced again once this one is over.
+	f.v.call.status = .None
+	frame(&f)
+	f.v.call = {
+		id     = 5,
+		status = .Ringing_In,
+		peer   = 2,
+	}
+	frame(&f)
+	testing.expect_value(t, len(f.app.notices), 1)
+}
+
+@(test)
+test_the_title_says_what_is_unread :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	testing.expect_value(t, f.app.title, "(1 @) yap") // the fixture's #ops has a mention
+	f.v.channels[2].mentions = 0
+	frame(&f)
+	testing.expect_value(t, f.app.title, "(4) yap")
+	f.v.channels[1].unread = 0
+	f.v.channels[2].unread = 0
+	frame(&f)
+	testing.expect_value(t, f.app.title, "yap")
+}

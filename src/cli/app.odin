@@ -116,6 +116,9 @@ App :: struct {
 	hits:          [dynamic]Hit,
 	cursor:        [2]int, // where the text cursor goes
 	cursor_shown:  bool,
+	notices:       [dynamic]Notice, // for the loop to announce
+	title:         string, // the window's title (owned)
+	call_announced: proto.Call_Id,
 	clipboard:     string, // asked to be copied (owned); the loop writes it out
 }
 
@@ -142,6 +145,7 @@ app_destroy :: proc(a: ^App) {
 	delete(a.reply_name)
 	delete(a.notice)
 	delete(a.clipboard)
+	notices_destroy(a)
 	delete(a.hits)
 	for f in a.attached {
 		delete(f)
@@ -285,9 +289,11 @@ find_in :: proc(v: ^conn.View, key: conn.Timeline_Key, id: proto.Msg_Id) -> (^co
 // View is locked while it does.
 app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 	v := a.view
+	// (This takes the lock itself.)
+	mentions := conn.view_take_mentions(v)
 	sync.guard(&v.mutex)
 	a.size = {b.w, b.h}
-	app_sync(a)
+	app_sync(a, mentions)
 	tui.buffer_clear(b)
 	clear(&a.hits)
 	a.cursor_shown = false
@@ -301,7 +307,7 @@ app_frame :: proc(a: ^App, b: ^tui.Buffer) {
 }
 
 // app_sync follows what the View says. Call with it locked.
-app_sync :: proc(a: ^App) {
+app_sync :: proc(a: ^App, mentions: []conn.View_Mention) {
 	v := a.view
 	g := geometry(a)
 	if v.viewing != a.viewing {
@@ -319,6 +325,7 @@ app_sync :: proc(a: ^App) {
 		a.unread_from = read if unread > 0 else 0
 	}
 	dialog_update(a)
+	notices_update(a, mentions)
 	completion_update(a)
 	// Who is here, for the member list.
 	if g.members.w > 0 && a.members_asked != a.viewing && a.viewing != 0 {
