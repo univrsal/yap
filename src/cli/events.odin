@@ -62,6 +62,10 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F10, .F11, .F12:
 		}
 	}
+	if k.key == .Rune && k.mods == {.Ctrl} && k.rune == 'k' && a.dialog.kind != .Palette {
+		open_palette(a)
+		return
+	}
 	if k.key == .F2 && a.dialog.kind == .None {
 		a.hide_members = !a.hide_members
 		a.members_asked = 0
@@ -373,6 +377,26 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 		return
 	}
+	if a.dialog.kind == .Palette {
+		if found && hit.kind == .Palette_Item {
+			palette_choose(a, int(hit.id))
+		} else if !found || hit.kind != .Dialog {
+			dialog_close(a)
+		}
+		return
+	}
+	if a.dialog.kind == .Form {
+		if found && hit.kind == .Form_Field {
+			a.dialog.form.sel = int(hit.id)
+			fl := &a.dialog.form.fields[hit.id]
+			if fl.kind != .Text {
+				form_key(a, tui.Key_Event{key = .Right})
+			}
+		} else if !found || hit.kind != .Dialog {
+			dialog_close(a)
+		}
+		return
+	}
 	if a.dialog.kind == .Settings {
 		if found && hit.kind == .Setting_Row {
 			a.dialog.sel = int(hit.id)
@@ -410,6 +434,7 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 	case .Completion:
 		completion_choose(a, int(hit.id))
+	case .Palette_Item, .Form_Field:
 	case .Setting_Row:
 		a.dialog.sel = int(hit.id)
 		setting_change(a, Setting(hit.id), 1)

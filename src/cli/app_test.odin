@@ -3512,3 +3512,272 @@ test_voice_settings_come_from_the_window_clients_until_changed :: proc(t: ^testi
 	defer voice_settings_destroy(&v3)
 	testing.expect_value(t, v3.quality, "voice")
 }
+
+@(test)
+test_the_palette_goes_to_a_conversation :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	frame(&f)
+	discard(&f)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'k', mods = {.Ctrl}})
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Palette)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Go to / do"))
+	testing.expect(t, screen_has(&f, "# general"))
+	type_text(&f, "ops")
+	frame(&f)
+	items := palette_shown(&f.app)
+	testing.expect(t, len(items) >= 1)
+	testing.expect_value(t, items[0].label, "# ops")
+	press(&f, .Enter)
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.View_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 3)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	// People by name, with the @.
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'k', mods = {.Ctrl}})
+	type_text(&f, "ann")
+	press(&f, .Enter)
+	cmds = take(&f)
+	vc, ok = find_cmd(conn.View_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 50)
+}
+
+@(test)
+test_the_palette_matches_letters_in_order :: proc(t: ^testing.T) {
+	testing.expect(t, palette_match("Pinned messages", "pm") > 0)
+	testing.expect(t, palette_match("Pinned messages", "pin") > palette_match("Pinned messages", "pgs"))
+	testing.expect_value(t, palette_match("Pinned messages", "mp"), 0)
+	testing.expect_value(t, palette_match("Pinned messages", "xyz"), 0)
+	testing.expect(t, palette_match("Pinned messages", "") > 0)
+	// The start of a word counts for more than the middle.
+	testing.expect(t, palette_match("# dev", "dev") > palette_match("# xdevx", "dev"))
+	testing.expect(t, palette_match("# dev ops", "d o") > 0)
+}
+
+@(test)
+test_the_palette_runs_commands_and_switches_servers :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	frame(&f)
+	discard(&f)
+	open_palette(&f.app)
+	type_text(&f, "settings")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Settings)
+	press(&f, .Escape)
+	open_palette(&f.app)
+	type_text(&f, "mute")
+	press(&f, .Enter)
+	testing.expect(t, f.app.muted)
+	open_palette(&f.app)
+	type_text(&f, "other.org")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.cur, 1)
+	// Nothing matching: Enter does nothing, Escape closes.
+	open_palette(&f.app)
+	type_text(&f, "zzzzzz")
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Nothing matches."))
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Palette)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_the_palette_with_the_mouse :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	open_palette(&f.app)
+	frame(&f)
+	discard(&f)
+	want := -1
+	for it, i in palette_shown(&f.app) {
+		if it.label == "# dev" {
+			want = i
+		}
+	}
+	for h in f.app.hits {
+		if h.kind == .Palette_Item && int(h.id) == want {
+			click(&f, h.rect.x + 4, h.rect.y)
+		}
+	}
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.View_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 2)
+}
+
+@(test)
+test_a_new_channel_form :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	open_form(&f.app, .New_Channel)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "New channel"))
+	// Nothing without a name.
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Form)
+	testing.expect(t, strings.contains(f.app.notice, "needs a name"))
+	type_text(&f, "#design")
+	press(&f, .Tab)
+	type_text(&f, "pixels")
+	press(&f, .Tab)
+	type_text(&f, " ") // private
+	press(&f, .Tab)
+	press(&f, .Right) // for new members
+	press(&f, .Enter)
+	cmds := take(&f)
+	cc, ok := find_cmd(conn.Create_Channel_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, cc.name, "design")
+	testing.expect_value(t, cc.topic, "pixels")
+	testing.expect(t, cc.private)
+	testing.expect_value(t, cc.flags, proto.Conv_Flags{.Default})
+	conn.command_destroy(cc)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+}
+
+@(test)
+test_the_channel_settings_form_sends_only_what_changed :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	open_form(&f.app, .Channel_Settings)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Welcome to yap")) // the topic as it is
+	// Change the topic only.
+	press(&f, .Tab)
+	for _ in 0 ..< len("Welcome to yap") {
+		press(&f, .Backspace)
+	}
+	type_text(&f, "New topic")
+	press(&f, .Enter)
+	cmds := take(&f)
+	// (the topic command is the headless client's)
+	found := false
+	for c in cmds {
+		if cu, is := c.(conn.Conv_Update_Command); is {
+			found = cu.topic == "New topic"
+			conn.command_destroy(c)
+		} else {
+			conn.command_destroy(c)
+		}
+	}
+	testing.expect(t, found)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	// Without changes nothing is sent.
+	open_form(&f.app, .Channel_Settings)
+	press(&f, .Enter)
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_channel_settings_need_a_channel :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	f.v.viewing = 50
+	frame(&f)
+	open_form(&f.app, .Channel_Settings)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect(t, f.app.notice_error)
+}
+
+@(test)
+test_the_ban_form :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	open_form(&f.app, .Ban_User)
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Form) // needs a name
+	type_text(&f, "spammer")
+	press(&f, .Tab)
+	type_text(&f, "spam")
+	press(&f, .Tab)
+	press(&f, .Right) // and the last hour
+	press(&f, .Enter)
+	cmds := take(&f)
+	bc, ok := find_cmd(conn.Ban_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, bc.name, "spammer")
+	testing.expect_value(t, bc.reason, "spam")
+	testing.expect_value(t, bc.purge, proto.Ban_Purge.Hour)
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_the_invite_form :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	open_form(&f.app, .New_Invite)
+	// Both are numbers.
+	press(&f, .Backspace)
+	type_text(&f, "x")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Form)
+	testing.expect(t, strings.contains(f.app.notice, "whole numbers"))
+	press(&f, .Backspace)
+	type_text(&f, "5")
+	press(&f, .Enter)
+	cmds := take(&f)
+	ic, ok := find_cmd(conn.Invite_Create_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, ic.max_uses, 5)
+	testing.expect(t, ic.expires != 0)
+	_, listed := find_cmd(conn.Invites_Command, cmds)
+	testing.expect(t, listed)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Info) // the codes
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_forms_can_be_cancelled_and_clicked :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	open_form(&f.app, .New_Channel)
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "Private")
+	click(&f, 40, y)
+	testing.expect(t, f.app.dialog.form.fields[2].on)
+	testing.expect_value(t, f.app.dialog.form.sel, 2)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect_value(t, len(take(&f)), 0)
+	// Pasting into a field.
+	open_form(&f.app, .New_Channel)
+	app_event(&f.app, tui.Paste_Event{"pasted\nline"})
+	testing.expect_value(t, tui.editor_text(&f.app.dialog.form.fields[0].edit), "pasted")
+}

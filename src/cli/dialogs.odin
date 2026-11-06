@@ -23,6 +23,8 @@ Dialog_Kind :: enum {
 	Info, // roles, bans, invites or devices
 	Call, // somebody is calling us
 	Settings,
+	Palette, // go to a conversation or do something
+	Form, // fill in and submit (forms.odin)
 }
 
 Dialog :: struct {
@@ -34,12 +36,14 @@ Dialog :: struct {
 	sel:    int, // the emoji picked in a Picker, the entry in a List
 	list:   List_Kind,
 	info:   Info_Kind,
+	form:   Form,
 	all:    bool, // a search of all conversations
 	asked_more: int, // how many entries there were when the next page was asked for
 }
 
 dialog_close :: proc(a: ^App) {
 	delete(a.dialog.text)
+	form_destroy(&a.dialog.form)
 	for &f in a.dialog.fields {
 		tui.editor_destroy(&f)
 	}
@@ -53,7 +57,7 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List || a.dialog.kind == .Info || a.dialog.kind == .Settings:
+	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List || a.dialog.kind == .Info || a.dialog.kind == .Settings || a.dialog.kind == .Palette || a.dialog.kind == .Form:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -253,6 +257,10 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		draw_info(a, b)
 	case .Settings:
 		draw_settings(a, b)
+	case .Palette:
+		draw_palette(a, b)
+	case .Form:
+		draw_form(a, b)
 	case .Call:
 		r := dialog_rect(b, 46, 7)
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
@@ -307,6 +315,7 @@ HELP_LINES :: [?]string {
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
+	"Ctrl+K          go to a conversation or do something (also new channel, ban, ...)",
 	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  F9 settings",
 	"/pins /bookmarks /search [all] <words>   lists of messages",
 	"/join <channel>  look at a channel      /help   this list",
@@ -370,6 +379,10 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		}
 	case .Settings:
 		settings_key(a, k)
+	case .Palette:
+		palette_key(a, k)
+	case .Form:
+		form_key(a, k)
 	case .Call:
 		switch {
 		case k.key == .Enter, k.key == .Rune && (k.rune == 'a' || k.rune == 'A'):
@@ -433,6 +446,19 @@ react :: proc(a: ^App, id: proto.Msg_Id, emoji: string) {
 
 // dialog_paste puts pasted text in the field of a dialog that has one.
 dialog_paste :: proc(a: ^App, text: string) {
+	if a.dialog.kind == .Palette {
+		line, _, _ := strings.partition(text, "\n")
+		tui.editor_insert(&a.dialog.fields[0], strings.trim_right_space(line))
+		return
+	}
+	if a.dialog.kind == .Form {
+		fl := &a.dialog.form.fields[a.dialog.form.sel]
+		if fl.kind == .Text {
+			line, _, _ := strings.partition(text, "\n")
+			tui.editor_insert(&fl.edit, strings.trim_right_space(line))
+		}
+		return
+	}
 	if a.dialog.kind == .List && a.dialog.list == .Search {
 		line, _, _ := strings.partition(text, "\n")
 		tui.editor_insert(&a.dialog.fields[0], strings.trim_right_space(line))

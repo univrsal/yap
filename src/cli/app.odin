@@ -39,6 +39,8 @@ Hit_Kind :: enum {
 	Server, // id: its index
 	Voice_Join, // id: the channel whose voice room to join or leave
 	Setting_Row, // id: the setting
+	Palette_Item, // id: its index
+	Form_Field, // id: its index
 	List_Item, // id: its index in the list dialog
 	Completion, // id: its index in the completion list
 	Emoji, // id: its index in the picker
