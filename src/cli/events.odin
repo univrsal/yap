@@ -247,7 +247,7 @@ menu_choose :: proc(a: ^App, i: int) {
 	if i < 0 || i >= len(a.menu.items) {
 		return
 	}
-	action, id := a.menu.items[i].action, a.menu.msg
+	action, id, arg := a.menu.items[i].action, a.menu.msg, a.menu.items[i].arg
 	menu_close(a)
 	m, ok := find_message(a, id)
 	if !ok {
@@ -256,6 +256,9 @@ menu_choose :: proc(a: ^App, i: int) {
 	switch action {
 	case .Reply: start_reply(a, m^)
 	case .React: open_picker(a, id)
+	case .Save:
+		push(a, conn.Attach_Save_Command{msg = id, index = arg})
+		say(a, "Saving...")
 	case .Thread: open_thread(a, thread_root_of(m^))
 	case .Bookmark: push(a, conn.Bookmark_Command{id = id, on = !a.view.bookmarks.ids[id]})
 	case .Pin: push(a, conn.Pin_Command{id = id, on = .Pinned not_in m.flags})

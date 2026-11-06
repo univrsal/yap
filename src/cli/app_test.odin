@@ -2196,3 +2196,140 @@ test_the_title_says_what_is_unread :: proc(t: ^testing.T) {
 	frame(&f)
 	testing.expect_value(t, f.app.title, "yap")
 }
+
+@(test)
+test_attached_files_go_with_the_next_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/attach /tmp/a.png")
+	press(&f, .Enter)
+	type_text(&f, "/attach /tmp/b.zip")
+	press(&f, .Enter)
+	frame(&f)
+	delete(f.app.notice) // the answer to /attach would hide the reminder
+	f.app.notice = ""
+	frame(&f)
+	testing.expect_value(t, len(f.app.attached), 2)
+	type_text(&f, "see these")
+	press(&f, .Enter)
+	cmds := take(&f)
+	sc, ok := find_cmd(conn.Attach_Send_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, sc.text, "see these")
+	testing.expect_value(t, len(sc.files), 2)
+	testing.expect_value(t, sc.files[0].path, "/tmp/a.png")
+	testing.expect_value(t, sc.files[1].path, "/tmp/b.zip")
+	testing.expect(t, sc.typed)
+	testing.expect_value(t, len(f.app.attached), 0)
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_files_can_go_without_text_and_into_a_thread :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/attach /tmp/a.png")
+	press(&f, .Enter)
+	press(&f, .Enter) // an empty box, but there is a file
+	cmds := take(&f)
+	sc, ok := find_cmd(conn.Attach_Send_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, sc.text, "")
+	testing.expect_value(t, sc.thread, conn.Timeline_Key{1, 10})
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_unattach_forgets_the_files :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	type_text(&f, "/attach /tmp/a.png")
+	press(&f, .Enter)
+	type_text(&f, "/unattach")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.attached), 0)
+	discard(&f)
+	press(&f, .Enter) // nothing to send now
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_saving_a_file_of_a_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	m := add_message(&f.v, 1, 10, 2, T0, "files")
+	m.files = make([]conn.Msg_File, 2)
+	m.files[0] = {blob = 71, name = strings.clone("a.png"), size = 1000}
+	m.files[1] = {blob = 72, name = strings.clone("b.zip"), size = 2000}
+	frame(&f)
+	discard(&f)
+	click(&f, 40, row_of(&f, "files"))
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Save a.png"))
+	testing.expect(t, screen_has(&f, "Save b.zip"))
+	for it, i in f.app.menu.items {
+		if it.label == "Save b.zip" {
+			click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + i)
+		}
+	}
+	cmds := take(&f)
+	sv, ok := find_cmd(conn.Attach_Save_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, sv.msg, 10)
+	testing.expect_value(t, sv.index, 1)
+}
+
+@(test)
+test_files_show_how_saving_goes :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	m := add_message(&f.v, 1, 10, 2, T0, "files")
+	m.files = make([]conn.Msg_File, 1)
+	m.files[0] = {blob = 71, name = strings.clone("a.png"), size = 1000}
+	frame(&f)
+	testing.expect(t, screen_has(&f, "📎 a.png  1000 B"))
+	testing.expect(t, !screen_has(&f, "⇩"))
+	f.v.saves[71] = {state = .Receiving, size = 1000, done = 500}
+	frame(&f)
+	testing.expect(t, screen_has(&f, "⇩ 50%"))
+	f.v.saves[71] = {state = .Done, size = 1000, done = 1000, path = strings.clone("/tmp/a.png")}
+	frame(&f)
+	testing.expect(t, screen_has(&f, "✔ saved to /tmp/a.png"))
+	delete(f.v.saves[71].path)
+	f.v.saves[71] = {state = .Failed}
+	frame(&f)
+	testing.expect(t, screen_has(&f, "could not be saved"))
+}
+
+@(test)
+test_uploads_show_how_far_they_are :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	files := make([]conn.View_Pending_File, 1)
+	files[0] = {name = strings.clone("big.zip"), size = 4000, done = 1000}
+	some_chat(&f)
+	append(&f.v.outbox, conn.View_Pending{conv = 1, text = strings.clone("here"), files = files})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "📎 big.zip  25%"))
+	f.v.outbox[0].files[0].done = 3000
+	frame(&f)
+	testing.expect(t, screen_has(&f, "📎 big.zip  75%"))
+}

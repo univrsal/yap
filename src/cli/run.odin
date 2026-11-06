@@ -9,6 +9,7 @@ import "core:sys/posix"
 import "core:time/timezone"
 
 import "client:conn"
+import "client:platform"
 import "tui"
 
 // The terminal loop: draw, wait for a key, the mouse or the connection, handle
@@ -116,6 +117,11 @@ run_ui :: proc(opt: Options) -> bool {
 @(private = "file")
 start_session :: proc(target: conn.Net_Target, opt: Options) -> ^conn.Session {
 	s := conn.session_new(target, tui.terminal_wake)
+	dir := opt.download_dir
+	if dir == "" {
+		dir = platform.downloads_dir(context.temp_allocator)
+	}
+	s.client.files.download_dir = strings.clone(dir)
 	conn.auth_credentials(s.client, opt.user, opt.user_password, opt.device)
 	conn.session_start(s)
 	return s

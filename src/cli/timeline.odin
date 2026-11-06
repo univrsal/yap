@@ -59,6 +59,7 @@ Layout_Key :: struct {
 	accounts:    int,
 	roots:       int,
 	outbox:      int,
+	saves:       u64, // what is being saved, and how far
 	me:          proto.Account_Id,
 	loading:     bool,
 	have_oldest: bool,
@@ -97,6 +98,7 @@ layout_update :: proc(
 		unread_from = unread_from,
 		accounts    = len(v.accounts),
 		roots       = len(v.roots),
+		saves       = saves_signature(v),
 		outbox      = len(v.outbox),
 		me          = v.me,
 		valid       = true,
@@ -244,6 +246,9 @@ build_rows :: proc(
 				text := p.text
 				if p.kind == .File {
 					text = fmt.aprintf("the file %s", p.text)
+				}
+				for f in p.files {
+					text = fmt.aprintf("%s\n📎 %s  %d%%", text, f.name, int(f.done * 100 / max(f.size, 1)))
 				}
 				lines := styled_lines(text, nil, text_w, theme.dim)
 				for line, j in lines {
@@ -402,7 +407,22 @@ add_message :: proc(
 
 	pad := strings.repeat(" ", text_x)
 	for f in m.files {
-		add_row(l, .Files, m.id, text_x, {{pad, {}}, {fmt.aprintf("📎 %s  %s", f.name, human_size(f.size)), {}}})
+		text := fmt.aprintf("📎 %s  %s", f.name, human_size(f.size))
+		segs := []Seg{{pad, {}}, {text, {}}, {"", {}}}
+		if sv, saving := v.saves[f.blob]; saving && f.blob != 0 {
+			switch sv.state {
+			case .Asking, .Receiving:
+				pct := int(sv.done * 100 / max(sv.size, 1))
+				segs[2] = {fmt.aprintf("  ⇩ %d%%", pct), theme.mention}
+			case .Done:
+				segs[2] = {fmt.aprintf("  ✔ saved to %s", sv.path), theme.online}
+			case .Failed:
+				segs[2] = {"  ✘ could not be saved", theme.error}
+			case .Cancelled:
+				segs[2] = {"  (cancelled)", theme.dim}
+			}
+		}
+		add_row(l, .Files, m.id, text_x, segs)
 	}
 	if len(m.reactions) > 0 && .Deleted not_in m.flags {
 		segs := make([dynamic]Seg, context.temp_allocator)
@@ -450,4 +470,19 @@ slice_clone :: proc(c: []Chip) -> []Chip {
 	out := make([]Chip, len(c))
 	copy(out, c)
 	return out
+}
+
+// saves_signature is a number that changes when a file being saved changes state
+// or moves on by a few percent, so the rows are laid out again then.
+@(private = "file")
+saves_signature :: proc(v: ^conn.View) -> (sig: u64) {
+	for blob, sv in v.saves {
+		sig += u64(blob) * 31 + u64(sv.state) * 1000003 + sv.done * 20 / max(sv.size, 1)
+	}
+	for p in v.outbox {
+		for f in p.files {
+			sig += f.done * 20 / max(f.size, 1) + 7
+		}
+	}
+	return
 }

@@ -13,12 +13,37 @@ import "tui"
 // as a message (a reply, or the new text of a message being edited).
 submit :: proc(a: ^App) {
 	text := strings.trim_space(tui.editor_text(&a.editor))
-	if text == "" {
+	if text == "" && len(a.attached) == 0 {
 		return
 	}
 	if strings.has_prefix(text, "/") && !strings.has_prefix(text, "//") {
 		tui.editor_remember(&a.editor)
 		run_command(a, text)
+		return
+	}
+	// Files attached with /attach go with the message, in its place if it is a
+	// reply or in a thread.
+	if len(a.attached) > 0 && a.editing == 0 && a.viewing != 0 {
+		files := make([]conn.Attach_File, len(a.attached))
+		for path, i in a.attached {
+			files[i] = {
+				path = path,
+			}
+		}
+		clear(&a.attached) // the paths belong to the command now
+		root := a.reply_to if a.reply_to != 0 else a.thread
+		push(
+			a,
+			conn.Attach_Send_Command {
+				text = strings.clone(text),
+				thread = {a.viewing, root} if root != 0 else {},
+				files = files,
+				typed = true,
+			},
+		)
+		cancel_reply(a)
+		tui.editor_remember(&a.editor)
+		a.scroll = 0
 		return
 	}
 	// "//" writes a slash.

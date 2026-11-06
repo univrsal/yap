@@ -66,6 +66,7 @@ dialog_update :: proc(a: ^App) {
 
 Menu_Action :: enum {
 	Reply,
+	Save, // a file of the message; Menu_Item.arg is which
 	Pin,
 	Bookmark,
 	Thread,
@@ -78,6 +79,7 @@ Menu_Action :: enum {
 Menu_Item :: struct {
 	label:  string,
 	action: Menu_Action,
+	arg:    int,
 }
 
 Menu :: struct {
@@ -102,24 +104,31 @@ menu_open :: proc(a: ^App, m: conn.View_Message, x, y: int) {
 	v := a.view
 	items := &a.menu.items
 	if can_write(v) {
-		append(items, Menu_Item{"Reply", .Reply})
+		append(items, Menu_Item{"Reply", .Reply, 0})
 	}
 	if .Has_Thread in m.flags || m.thread_root != 0 {
-		append(items, Menu_Item{"Open thread", .Thread})
+		append(items, Menu_Item{"Open thread", .Thread, 0})
 	}
 	if can_react(v) {
-		append(items, Menu_Item{"Add reaction", .React})
+		append(items, Menu_Item{"Add reaction", .React, 0})
 	}
 	if can_edit(v, m) {
-		append(items, Menu_Item{"Edit", .Edit})
+		append(items, Menu_Item{"Edit", .Edit, 0})
 	}
-	append(items, Menu_Item{"Copy text", .Copy})
-	append(items, Menu_Item{"Remove bookmark" if v.bookmarks.ids[m.id] else "Bookmark", .Bookmark})
+	append(items, Menu_Item{"Copy text", .Copy, 0})
+	for f, i in m.files {
+		label := "Save file" if len(m.files) == 1 else fmt.tprintf("Save %s", f.name)
+		append(items, Menu_Item{label, .Save, i})
+	}
+	if len(m.files) == 0 && m.kind == .File {
+		append(items, Menu_Item{"Save file", .Save, 0})
+	}
+	append(items, Menu_Item{"Remove bookmark" if v.bookmarks.ids[m.id] else "Bookmark", .Bookmark, 0})
 	if .Pin_Messages in v.permissions && .Deleted not_in m.flags {
-		append(items, Menu_Item{"Unpin" if .Pinned in m.flags else "Pin", .Pin})
+		append(items, Menu_Item{"Unpin" if .Pinned in m.flags else "Pin", .Pin, 0})
 	}
 	if can_delete(v, m) {
-		append(items, Menu_Item{"Delete", .Delete})
+		append(items, Menu_Item{"Delete", .Delete, 0})
 	}
 	a.menu.open, a.menu.msg, a.menu.at, a.menu.sel = true, m.id, {x, y}, 0
 	a.cursor_msg = m.id
