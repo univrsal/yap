@@ -1,6 +1,7 @@
 package conn
 
 import "core:fmt"
+import "core:strings"
 
 import "common:proto"
 
@@ -56,4 +57,38 @@ system_line :: proc(v: ^View, m: View_Message) -> string {
 		return fmt.tprintf("\U0001F4DE %s", text)
 	}
 	return text
+}
+
+// dm_name is how a DM or a group is named: the other person's name, or the
+// names of the others in a group, joined with commas. The name is in the temp
+// allocator. Call with the View locked.
+dm_name :: proc(v: ^View, dm: ^View_DM) -> string {
+	others := group_members(dm)
+	if len(others) == 0 {
+		others = {dm.with}
+	}
+	names := make([]string, len(others), context.temp_allocator)
+	for id, i in others {
+		names[i] = "someone"
+		if acc, ok := v.accounts[id]; ok {
+			names[i] = acc.display
+		}
+	}
+	return strings.join(names, ", ", context.temp_allocator)
+}
+
+// dm_closed is whether a DM or a group can't be written to any more: a DM with
+// someone whose account was deleted, or a group in which nobody else's
+// account is left (the server refuses it too). Call with the View locked.
+dm_closed :: proc(v: ^View, dm: ^View_DM) -> bool {
+	others := group_members(dm)
+	if len(others) == 0 {
+		others = {dm.with}
+	}
+	for id in others {
+		if acc, ok := v.accounts[id]; !ok || .Deleted not_in acc.flags {
+			return false
+		}
+	}
+	return true
 }

@@ -118,10 +118,10 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	for &dm in v.dms {
 		// Not to be written to (see ui_buddies.odin).
-		if dm_closed(v, &dm) {
+		if conn.dm_closed(v, &dm) {
 			continue
 		}
-		if row(ui, dm.id, dm_name(v, &dm), filter) {
+		if row(ui, dm.id, conn.dm_name(v, &dm), filter) {
 			return
 		}
 	}

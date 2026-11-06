@@ -642,7 +642,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 		dim_label(ctx, "Pick a buddy to start talking.")
 		return
 	}
-	closed := dm_closed(v, dm)
+	closed := conn.dm_closed(v, dm)
 
 	// The names, then the members, pins, search and hide buttons.
 	icons :: 4

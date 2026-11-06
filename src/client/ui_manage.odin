@@ -515,7 +515,7 @@ purge_place :: proc(v: ^conn.View, conv: proto.Conv_Id) -> string {
 	for &dm in v.dms {
 		if dm.id == conv {
 			kind := "group" if dm.count > 0 else "DM"
-			return fmt.tprintf("the %s with %s", kind, dm_name(v, &dm))
+			return fmt.tprintf("the %s with %s", kind, conn.dm_name(v, &dm))
 		}
 	}
 	return "a conversation"
