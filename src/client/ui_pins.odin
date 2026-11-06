@@ -94,7 +94,12 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	for m, i in pins.messages {
 		mu.push_id(ctx, uintptr(m.id))
 		defer mu.pop_id(ctx)
-		pinned_message(ui, m)
+		go := [?]Card_Button{{"go", .Pop_Out, "Go to the message", {}}}
+		if message_card(ui, m, nil, go[:]) == 0 {
+			ui.timeline.jump_to = m.id
+			ui.timeline.jump_asked = false
+			ui.timeline.jump_conv = 0
+		}
 		if i < len(pins.messages) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
 			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
@@ -102,12 +107,29 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-// pinned_message draws one pin as the chat draws a message: the author's name
-// in their colour and the time dimmed after it, then the text with its
-// markdown, mentions and emoji. Pictures aren't drawn, files are named. A
-// button beside the header jumps to the message. Call with the View locked.
-@(private = "file")
-pinned_message :: proc(ui: ^UI, m: conn.View_Message) {
+// A button beside a message_card: an icon button.
+Card_Button :: struct {
+	id:    string,
+	icon:  render.Icon,
+	hint:  string,
+	color: mu.Color, // the icon's, if set
+}
+
+// message_card draws a message in a dialog's list (pins, bookmarks) as the
+// chat draws it: the author's name in their colour and the time dimmed after
+// it, then the text with its markdown, mentions and emoji. Pictures aren't
+// drawn, files are named. Under it go the dim lines of `notes`, and beside
+// the header the icon `buttons`, one under the other. It returns the index of
+// the button that was pressed, or -1. Call with the View locked.
+message_card :: proc(
+	ui: ^UI,
+	m: conn.View_Message,
+	notes: []string,
+	buttons: []Card_Button,
+) -> (
+	pressed: int,
+) {
+	pressed = -1
 	ctx := &ui.ctx
 	v := ui.view
 	name := "someone"
@@ -149,21 +171,26 @@ pinned_message :: proc(ui: ^UI, m: conn.View_Message) {
 		text, text_color = rich_plain("a note about the conversation"), theme.dim
 	}
 
-	// The message in the first cell, which grows with it, and the button in
-	// the second, level with the header.
+	// The message in the first cell, which grows with it, and the buttons in
+	// the second, starting level with the header.
 	button := render.ICON_SIZE + 2 * ctx.style.padding
 	mu.layout_row(ctx, {-(button + ctx.style.spacing), -1}, 0)
 	mu.layout_begin_column(ctx)
 	chat_message(ui, header, color, &text, text_color, false, i64(m.id) * ITEMS_PER_MESSAGE)
+	for note in notes {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, theme.dim, note, wrap_text)
+	}
 	mu.layout_end_column(ctx)
 	mu.layout_begin_column(ctx)
 	mu.layout_row(ctx, {-1}, button)
-	if .SUBMIT in icon_button(ui, "go", .Pop_Out, "Go to the message") {
-		ui.timeline.jump_to = m.id
-		ui.timeline.jump_asked = false
-		ui.timeline.jump_conv = 0
+	for b, i in buttons {
+		if .SUBMIT in icon_button(ui, b.id, b.icon, b.hint, b.color) {
+			pressed = i
+		}
 	}
 	mu.layout_end_column(ctx)
+	return
 }
 
 // How long a message that was jumped to stays highlighted.
