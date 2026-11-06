@@ -19,6 +19,7 @@ Dialog_Kind :: enum {
 	Help,
 	Output, // text an answer of a command
 	Picker, // an emoji to react to a message with
+	List, // pinned messages, bookmarks or a search
 }
 
 Dialog :: struct {
@@ -27,7 +28,10 @@ Dialog :: struct {
 	field:  int,
 	msg:    proto.Msg_Id, // what a Confirm_Delete is about
 	text:   string, // what an Output shows (owned)
-	sel:    int, // the emoji picked in a Picker
+	sel:    int, // the emoji picked in a Picker, the entry in a List
+	list:   List_Kind,
+	all:    bool, // a search of all conversations
+	asked_more: int, // how many entries there were when the next page was asked for
 }
 
 dialog_close :: proc(a: ^App) {
@@ -45,7 +49,7 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker:
+	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -62,6 +66,8 @@ dialog_update :: proc(a: ^App) {
 
 Menu_Action :: enum {
 	Reply,
+	Pin,
+	Bookmark,
 	Thread,
 	React,
 	Edit,
@@ -78,7 +84,8 @@ Menu :: struct {
 	open:  bool,
 	msg:   proto.Msg_Id,
 	items: [dynamic]Menu_Item,
-	at:    [2]int,
+	at:    [2]int, // where it was asked for
+	rect:  tui.Rect, // where it is drawn, which is moved in to fit
 	sel:   int,
 }
 
@@ -107,6 +114,10 @@ menu_open :: proc(a: ^App, m: conn.View_Message, x, y: int) {
 		append(items, Menu_Item{"Edit", .Edit})
 	}
 	append(items, Menu_Item{"Copy text", .Copy})
+	append(items, Menu_Item{"Remove bookmark" if v.bookmarks.ids[m.id] else "Bookmark", .Bookmark})
+	if .Pin_Messages in v.permissions && .Deleted not_in m.flags {
+		append(items, Menu_Item{"Unpin" if .Pinned in m.flags else "Pin", .Pin})
+	}
 	if can_delete(v, m) {
 		append(items, Menu_Item{"Delete", .Delete})
 	}
@@ -134,6 +145,7 @@ draw_menu :: proc(a: ^App, b: ^tui.Buffer) {
 	// Where it fits: by the click, moved in if it would stick out.
 	x := clamp(m.at.x, 0, max(b.w - w, 0))
 	y := clamp(m.at.y, 0, max(b.h - h, 0))
+	m.rect = {x, y, w, h}
 	append(&a.hits, Hit{{0, 0, b.w, b.h}, .Dialog, 0, ""}) // a click elsewhere closes it
 	for it, i in m.items {
 		style := theme.selected if i == m.sel else theme.bar
@@ -143,7 +155,6 @@ draw_menu :: proc(a: ^App, b: ^tui.Buffer) {
 	}
 }
 
-@(private = "file")
 draw_box :: proc(b: ^tui.Buffer, r: tui.Rect, title: string) {
 	tui.fill(b, r, {})
 	s := theme.border
@@ -222,6 +233,8 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		draw_box(b, r, "Delete message")
 		tui.put_string(b, r.x + 2, r.y + 2, "Delete this message for everyone?", {}, r.x + r.w - 1)
 		tui.put_string(b, r.x + 2, r.y + 3, "Y: delete   N: keep it", theme.dim, r.x + r.w - 1)
+	case .List:
+		draw_list(a, b)
 	case .Picker:
 		rows := (len(PICKER_EMOJI) + PICKER_COLUMNS - 1) / PICKER_COLUMNS
 		r := dialog_rect(b, PICKER_COLUMNS * PICKER_CELL + 3, rows + 4)
@@ -270,6 +283,7 @@ HELP_LINES :: [?]string {
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
+	"/pins /bookmarks /search [all] <words>   lists of messages",
 	"/join <channel>  look at a channel      /help   this list",
 	"/quit            leave                  Ctrl+C  leave",
 }
@@ -331,6 +345,8 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		}
 	case .Help, .Output:
 		dialog_close(a)
+	case .List:
+		list_key(a, k)
 	case .Picker:
 		switch k.key {
 		case .Left: d.sel = max(d.sel - 1, 0)
@@ -383,6 +399,11 @@ react :: proc(a: ^App, id: proto.Msg_Id, emoji: string) {
 
 // dialog_paste puts pasted text in the field of a dialog that has one.
 dialog_paste :: proc(a: ^App, text: string) {
+	if a.dialog.kind == .List && a.dialog.list == .Search {
+		line, _, _ := strings.partition(text, "\n")
+		tui.editor_insert(&a.dialog.fields[0], strings.trim_right_space(line))
+		a.dialog.field = 0
+	}
 	if a.dialog.kind == .Login {
 		line, _, _ := strings.partition(text, "\n")
 		tui.editor_insert(&a.dialog.fields[a.dialog.field], strings.trim_right_space(line))

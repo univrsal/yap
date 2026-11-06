@@ -35,6 +35,7 @@ Hit_Kind :: enum {
 	Member, // id: the account
 	Reaction, // id: the message; text: the emoji
 	Close_Thread,
+	List_Item, // id: its index in the list dialog
 	Emoji, // id: its index in the picker
 	Composer,
 	Menu_Item, // id: its index
@@ -83,6 +84,10 @@ App :: struct {
 	thread_layout: Timeline_Layout,
 	thread_scroll: int,
 	thread_asked:  proto.Msg_Id,
+	jump_conv:     proto.Conv_Id, // a message being gone to, and whether the page around it was asked for
+	jump_msg:      proto.Msg_Id,
+	jump_asked:    bool,
+	jump_at:       time.Tick,
 	scroll:        int, // rows above the newest that the bottom of the timeline is at
 	unread_from:   proto.Msg_Id, // the newest message read when the conversation was opened
 	cursor_msg:    proto.Msg_Id, // the message picked with the keys or the mouse
@@ -157,6 +162,15 @@ say :: proc(a: ^App, text: string, is_error := false) {
 }
 
 NOTICE_SHOWN :: 8 * time.Second
+JUMP_WAIT :: 10 * time.Second
+
+tick_now :: proc() -> time.Tick {
+	return time.tick_now()
+}
+
+tick_since :: proc(t: time.Tick) -> time.Duration {
+	return time.tick_since(t)
+}
 
 Geometry :: struct {
 	channels: tui.Rect, // empty when hidden
@@ -320,6 +334,7 @@ app_sync :: proc(a: ^App) {
 	}
 	a.rows_before = rows
 	a.scroll = clamp(a.scroll, 0, max(rows - g.timeline.h, 0))
+	jump_step(a, g)
 	if a.thread != 0 {
 		tkey := conn.Timeline_Key{a.viewing, a.thread}
 		layout_update(&a.thread_layout, v, tkey, g.thread.w - 1, a.tz, 0)

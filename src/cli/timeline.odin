@@ -312,7 +312,6 @@ sender_name :: proc(v: ^conn.View, m: conn.View_Message) -> string {
 	return "someone"
 }
 
-@(private = "file")
 shown_text :: proc(v: ^conn.View, m: conn.View_Message) -> (string, []richtext.Mention_Span) {
 	return richtext.mentions_display(m.text, v.accounts, v.roles[:], v.me)
 }

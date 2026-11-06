@@ -254,6 +254,8 @@ menu_choose :: proc(a: ^App, i: int) {
 	case .Reply: start_reply(a, m^)
 	case .React: open_picker(a, id)
 	case .Thread: open_thread(a, thread_root_of(m^))
+	case .Bookmark: push(a, conn.Bookmark_Command{id = id, on = !a.view.bookmarks.ids[id]})
+	case .Pin: push(a, conn.Pin_Command{id = id, on = .Pinned not_in m.flags})
 	case .Edit: start_edit(a, m^)
 	case .Copy: copy_text(a, m.text)
 	case .Delete: a.dialog.kind, a.dialog.msg = .Confirm_Delete, id
@@ -318,6 +320,16 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 		return
 	}
+	if a.dialog.kind == .List {
+		if found && hit.kind == .List_Item {
+			a.dialog.sel = int(hit.id)
+			list_key(a, tui.Key_Event{key = .Enter})
+		} else if !found || hit.kind != .Dialog {
+			list_close(a)
+			dialog_close(a)
+		}
+		return
+	}
 	if a.dialog.kind == .Picker {
 		if found && hit.kind == .Emoji {
 			picker_choose(a, int(hit.id))
@@ -346,7 +358,7 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		if can_react(a.view) {
 			react(a, proto_msg(hit.id), hit.text)
 		}
-	case .Emoji:
+	case .Emoji, .List_Item:
 	case .Member:
 		// Writing to someone starts with their DM.
 		if hit.id != u64(a.view.me) {

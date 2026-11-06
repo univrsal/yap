@@ -375,7 +375,7 @@ test_replying :: proc(t: ^testing.T) {
 	discard(&f)
 	click(&f, 40, row_of(&f, "hello there"))
 	frame(&f)
-	click(&f, f.app.menu.at.x + 3, f.app.menu.at.y) // Reply is the first item
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y) // Reply is the first item
 	testing.expect_value(t, f.app.reply_to, 10)
 	frame(&f)
 	testing.expect(t, screen_has(&f, "Replying to anna"))
@@ -479,7 +479,7 @@ test_deleting_asks_first :: proc(t: ^testing.T) {
 	// Delete is the last item of the menu.
 	last := len(f.app.menu.items) - 1
 	testing.expect_value(t, f.app.menu.items[last].action, Menu_Action.Delete)
-	click(&f, f.app.menu.at.x + 3, f.app.menu.at.y + last)
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + last)
 	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Confirm_Delete)
 	frame(&f)
 	testing.expect(t, screen_has(&f, "Delete this message"))
@@ -490,7 +490,7 @@ test_deleting_asks_first :: proc(t: ^testing.T) {
 	// Yes.
 	click(&f, 40, row_of(&f, "hi anna"))
 	frame(&f)
-	click(&f, f.app.menu.at.x + 3, f.app.menu.at.y + last)
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + last)
 	type_text(&f, "y")
 	cmds := take(&f)
 	del, ok := find_cmd(conn.Delete_Command, cmds)
@@ -1360,7 +1360,7 @@ test_the_picker_reacts_to_a_message :: proc(t: ^testing.T) {
 	frame(&f)
 	// Add reaction is the second item of the menu, after Reply.
 	testing.expect_value(t, f.app.menu.items[1].action, Menu_Action.React)
-	click(&f, f.app.menu.at.x + 3, f.app.menu.at.y + 1)
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + 1)
 	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
 	frame(&f)
 	testing.expect(t, screen_has(&f, "React with"))
@@ -1634,4 +1634,249 @@ test_switching_conversation_closes_the_thread_pane :: proc(t: ^testing.T) {
 	f.v.viewing = 2
 	frame(&f)
 	testing.expect_value(t, f.app.thread, 0)
+}
+
+@(test)
+test_pins_are_listed_and_gone_to :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/pins")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.List)
+	cmds := take(&f)
+	pc, ok := find_cmd(conn.Pins_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, pc.conv, 1)
+	f.v.pins.loading = true
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Pinned messages"))
+	testing.expect(t, screen_has(&f, "loading..."))
+	// They arrive.
+	f.v.pins.conv = 1
+	f.v.pins.loading = false
+	append(&f.v.pins.messages, conn.View_Message{id = 10, sender = 2, time = T0, text = strings.clone("hello there")})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "#general  anna: hello there"))
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect_value(t, f.app.jump_msg, 10)
+	// It is in the window, so it is picked out on the next frame.
+	frame(&f)
+	testing.expect_value(t, f.app.jump_msg, 0)
+	testing.expect_value(t, f.app.cursor_msg, 10)
+	discard(&f)
+}
+
+@(test)
+test_going_to_a_message_that_is_not_in_the_window :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	discard(&f)
+	goto_message(&f.app, 1, 500)
+	frame(&f)
+	cmds := take(&f)
+	jc, ok := find_cmd(conn.Jump_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, jc.id, 500)
+	// Asked once.
+	frame(&f)
+	testing.expect_value(t, len(take(&f)), 0)
+	// The page arrives.
+	add_message(&f.v, 1, 500, 2, T0 + 10 * MINUTE, "from long ago")
+	frame(&f)
+	testing.expect_value(t, f.app.jump_msg, 0)
+	testing.expect_value(t, f.app.cursor_msg, 500)
+}
+
+@(test)
+test_going_to_a_message_in_another_conversation :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 2, 200, 2, T0, "over in dev")
+	frame(&f)
+	discard(&f)
+	goto_message(&f.app, 2, 200)
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.View_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 2)
+	frame(&f)
+	testing.expect_value(t, f.app.jump_msg, 200) // still on channel 1
+	f.v.viewing = 2
+	frame(&f)
+	testing.expect_value(t, f.app.jump_msg, 0)
+	testing.expect_value(t, f.app.cursor_msg, 200)
+}
+
+@(test)
+test_a_jump_that_does_not_come_is_given_up :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	goto_message(&f.app, 1, 500)
+	f.app.jump_at = time.tick_add(time.tick_now(), -(JUMP_WAIT + time.Second))
+	frame(&f)
+	testing.expect_value(t, f.app.jump_msg, 0)
+	discard(&f)
+}
+
+@(test)
+test_bookmarks_dialog :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/bookmarks")
+	press(&f, .Enter)
+	cmds := take(&f)
+	_, ok := find_cmd(conn.Bookmarks_Command, cmds)
+	testing.expect(t, ok)
+	f.v.bookmarks.listed = true
+	append(&f.v.bookmarks.list, conn.View_Bookmark{conv = 2, msg = {id = 77, sender = 2, text = strings.clone("save this")}})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "#dev  anna: save this"))
+	// Closing stops the list being kept up to date.
+	press(&f, .Escape)
+	cmds = take(&f)
+	bc, closed := find_cmd(conn.Bookmarks_Command, cmds)
+	testing.expect(t, closed && bc.close)
+}
+
+@(test)
+test_search :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/search all ship it")
+	press(&f, .Enter)
+	cmds := take(&f)
+	sc, ok := find_cmd(conn.Search_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, sc.query, "ship it")
+	testing.expect(t, sc.all)
+	conn.command_destroy(sc)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Find"))
+	testing.expect(t, screen_has(&f, "ship it"))
+	testing.expect(t, screen_has(&f, "all conversations"))
+	// Results.
+	f.v.search.query = strings.clone("ship it")
+	append(&f.v.search.found, conn.View_Found{conv = 1, msg = {id = 9, sender = 1, text = strings.clone("we ship it friday")}})
+	f.v.search.more = true
+	frame(&f)
+	testing.expect(t, screen_has(&f, "#general  me: we ship it friday"))
+	testing.expect(t, screen_has(&f, "more further down"))
+	// Picking the last one asks for the next page, once.
+	press(&f, .Down)
+	press(&f, .Down)
+	cmds = take(&f)
+	more, asked := find_cmd(conn.Search_Command, cmds)
+	testing.expect(t, asked && more.more)
+	conn.command_destroy(more)
+	press(&f, .Down)
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_search_dialog_with_the_keys :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	open_list(&f.app, .Search)
+	frame(&f)
+	testing.expect(t, f.app.cursor_shown)
+	type_text(&f, "report")
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = 'a', mods = {.Alt}})
+	testing.expect(t, f.app.dialog.all)
+	press(&f, .Enter)
+	cmds := take(&f)
+	sc, ok := find_cmd(conn.Search_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, sc.query, "report")
+	testing.expect(t, sc.all)
+	conn.command_destroy(sc)
+	testing.expect_value(t, f.app.dialog.field, 1) // on the results
+	// Nothing found.
+	f.v.search.query = strings.clone("report")
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Nothing here"))
+	// An empty search is not sent.
+	press(&f, .Tab)
+	tui.editor_clear(&f.app.dialog.fields[0])
+	press(&f, .Enter)
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_clicking_a_result_goes_to_it :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	open_list(&f.app, .Bookmarks)
+	f.v.bookmarks.listed = true
+	append(&f.v.bookmarks.list, conn.View_Bookmark{conv = 1, msg = {id = 11, sender = 1, text = strings.clone("hi anna")}})
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "#general  me: hi anna")
+	click(&f, 30, y)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	frame(&f)
+	testing.expect_value(t, f.app.cursor_msg, 11)
+	discard(&f)
+}
+
+@(test)
+test_the_menu_pins_and_bookmarks :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	click(&f, 40, row_of(&f, "hello there"))
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Bookmark"))
+	testing.expect(t, !screen_has(&f, "Pin")) // needs the permission
+	discard(&f)
+	for it, i in f.app.menu.items {
+		if it.action == .Bookmark {
+			click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + i)
+		}
+	}
+	cmds := take(&f)
+	bc, ok := find_cmd(conn.Bookmark_Command, cmds)
+	testing.expect(t, ok && bc.on)
+	testing.expect_value(t, bc.id, 10)
+
+	// Bookmarked, so it can be taken off; and a moderator can pin.
+	f.v.bookmarks.ids[10] = true
+	f.v.permissions += {.Pin_Messages}
+	frame(&f)
+	click(&f, 40, row_of(&f, "hello there"))
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Remove bookmark"))
+	testing.expect(t, screen_has(&f, "Pin"))
+	for it, i in f.app.menu.items {
+		if it.action == .Pin {
+			click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + i)
+		}
+	}
+	cmds = take(&f)
+	pin, pinned := find_cmd(conn.Pin_Command, cmds)
+	testing.expect(t, pinned && pin.on)
+	testing.expect_value(t, pin.id, 10)
 }
