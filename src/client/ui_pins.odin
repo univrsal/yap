@@ -157,7 +157,7 @@ pinned_message :: proc(ui: ^UI, m: conn.View_Message) {
 	chat_message(ui, header, color, &text, text_color, false, i64(m.id) * ITEMS_PER_MESSAGE)
 	mu.layout_end_column(ctx)
 	mu.layout_begin_column(ctx)
-	mu.layout_row(ctx, {button}, button)
+	mu.layout_row(ctx, {-1}, button)
 	if .SUBMIT in icon_button(ui, "go", .Pop_Out, "Go to the message") {
 		ui.timeline.jump_to = m.id
 		ui.timeline.jump_asked = false
