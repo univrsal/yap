@@ -201,7 +201,7 @@ nothing else.
 | # | Move | To | Needed by | Size |
 | --- | --- | --- | --- | --- |
 | E1 | `ui_text_history.odin` | `client:compose` (history) | input line | XS |
-| E2 | Connection lifecycle from `net_native.odin` / `ui_sessions.odin`: a `Session` that owns `Server_Conn`, `View`, thread and stop flag, with `open`, `step_loop`, `close`, `reconnect`. The GUI's `Net_Session` embeds it and keeps `stash`, web slots, push. | `client:conn` (or `client:session`) | phase 0 | M. The web build keeps its own stepping (`net_web.odin`) |
+| E2 | The network loop and a front end's session: `net_run` (open, go to the conversation, step until stopped, close) and `Session` (client, View, thread, stop). The GUI's network thread now calls `net_run`. The GUI keeps its own `Net_Session` and `session_new`, which are mostly audio, scripts and rail state, and the web build, which has no threads. | `client:conn` (`session_native.odin`) | phase 0 | **Done (phase 0).** Narrower than first planned: sharing the whole `Net_Session` would have needed a `using` embed across about 40 GUI files and the web build for little gain |
 | E3 | `system_line`, `viewed_unread`, the pure part of `message_flags` / `thread_head` (day lines, merging, reply lines) as `timeline_layout(msgs, tz) -> []Row_Info` | `client:conn` (view helpers) | timeline | M. The risky one: GUI row heights are computed from these flags, so the GUI tests for the timeline (`ui_timeline_test.odin`) must pass unchanged |
 | E4 | `buddies.odin` (`buddy_list`, `buddy_entry`, `group_entry`, `dm_name`, `dm_closed`, `dm_unread`, ordering); `inbox_list` and `unhide_stale` stay in the GUI as they use `Net_Session` | `client:conn` (`inbox`) | DMs, groups | S. `buddies_test.odin` moves with it |
 | E5 | The matching half of `ui_completion.odin` (`command_items`, `role_items`, `emoji_items`, `role_word_start`, `word_char`) as `complete(view, text, cursor) -> []Item`; popup stays in the GUI | `client:compose` | tab completion | M |
@@ -217,7 +217,7 @@ comment).
 
 Each ends with something runnable.
 
-**Phase 0: scaffolding (S).** E2. `src/cli` with `main.odin`, `build-cli.sh`,
+**Phase 0: scaffolding (S), done.** E2. `src/cli` with `main.odin`, `build-cli.sh`,
 a `Session` with a `View`, no screen: connects, prints the channel list,
 exits on `Ctrl+C`. Settles the open question about `View` (below) and the
 binary size.
@@ -291,3 +291,26 @@ Windows; packaging and CI (`scripts/package/`, `release.yml`, adding
   right; the `tui` tests carry a table of widths.
 - **Windows** (D6) needs its own console input and output code.
 - **Name.** `yap-cli` is a placeholder.
+
+## Progress
+
+**Phase 0 (2026-11-06).** E2 and `src/cli` (`main.odin`, `snapshot.odin`,
+`interrupt.odin`), `build-cli.sh`, 4 tests. `bin/yap-cli host:port -user
+.. -user-password ..` connects with a View and no window, trusts the key
+the way the GUI does, logs in, prints the channels with unread counts as they
+change, and leaves on Ctrl+C with exit status 0 and no leaks reported.
+Tried against a local `yap-server`. The `src/client`, `conn` and `headless`
+tests pass (391), and `yap` still builds.
+
+What phase 0 showed for the open questions:
+
+- **Voice:** `Server_Conn` needs a `Voice` to exist (`Session` calls
+  `voice_init`, but opens no audio device), as the headless client does.
+- **View as a second reader:** connecting, login state, status and
+  channels read fine under `view.mutex`. The consumed fields (`mentioned`,
+  unread counters, timeline windows) are still to be tried in phase 1.
+- **Binary size:** `bin/yap-cli` is 5.2 MB and, on this machine, links no
+  library beyond libc/libm/libgcc, but it prints
+  `yap_video: no FFmpeg ... so no screen sharing` at start (a warning from
+  `client:video`, which `conn` imports). It is harmless, but a terminal client
+  has no use for it, so silencing it needs a change in `video` (phase 1).
