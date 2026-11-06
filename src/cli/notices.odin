@@ -6,6 +6,7 @@ import "core:sync"
 
 import "client:conn"
 import "client:richtext"
+import "client:script"
 
 // What asks for attention when the screen isn't being looked at: mentions, DMs
 // that aren't being read, and calls. The app collects them; the terminal loop
@@ -127,5 +128,20 @@ notices_background :: proc(a: ^App) {
 		case .None:
 			s.ui.call_announced = 0
 		}
+	}
+}
+
+// script_notices takes what scripts asked to be notified of (yap.notify), the way
+// the window client shows it: with the server named when there are several.
+script_notices :: proc(a: ^App) {
+	if a.scripts == nil {
+		return
+	}
+	for n in script.runtime_take_notifications(a.scripts) {
+		title := n.title
+		if n.server != "" && len(a.servers) > 1 {
+			title = fmt.tprintf("%s on %s", n.title, n.server)
+		}
+		append(&a.notices, Notice{strings.clone(title), strings.clone(n.text)})
 	}
 }

@@ -5,11 +5,13 @@ import "core:encoding/base64"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:time"
 import "core:sys/posix"
 import "core:time/timezone"
 
 import "client:conn"
 import "client:platform"
+import "client:script"
 import "client:settings"
 import "tui"
 
@@ -17,6 +19,8 @@ import "tui"
 // it, draw again.
 
 IDLE_MS :: 1000 // so that notices and typing indicators expire
+SCRIPT_TICK_MS :: 100 // the longest wait while scripts run
+SCRIPT_BUDGET :: 2 * time.Millisecond
 ESCAPE_MS :: 40 // how long a lone Escape waits for the rest of a sequence
 
 run_ui :: proc(opt: Options) -> bool {
@@ -45,6 +49,9 @@ run_ui :: proc(opt: Options) -> bool {
 
 	app: App
 	defer app_destroy(&app)
+	// The scripts first, so that each connection is attached to them as it is made.
+	app.scripts = start_scripts()
+	defer stop_scripts(&app)
 	for t, i in targets {
 		// The credentials on the command line are for the server given there.
 		connect_server(&app, t, opt, with_credentials = i == 0 && opt.server != "")
@@ -52,11 +59,12 @@ run_ui :: proc(opt: Options) -> bool {
 	defer {
 		for s in app.servers {
 			if s.session != nil {
-				conn.session_free(s.session)
+				close_session(&app, s.session)
 			}
 		}
 	}
 	app.channel_w = CHANNEL_W_DEFAULT
+
 	app.known_servers = opt.known_servers
 	app.device = opt.device
 	app.tz, _ = timezone.region_load("local")
@@ -93,9 +101,17 @@ run_ui :: proc(opt: Options) -> bool {
 		have_prev = true
 
 		handle_requests(&app, opt)
+		if app.scripts != nil {
+			script.runtime_step(app.scripts, SCRIPT_BUDGET)
+			script_notices(&app)
+		}
 
 		pending := len(decoder.buf) > 0
-		res := tui.terminal_wait(&term, ESCAPE_MS if pending else IDLE_MS)
+		wait_ms := IDLE_MS
+		if app.scripts != nil && script.runtime_scripts(app.scripts) > 0 {
+			wait_ms = SCRIPT_TICK_MS // their timers are on time
+		}
+		res := tui.terminal_wait(&term, ESCAPE_MS if pending else wait_ms)
 		if tui.terminal_take_resized() {
 			have_prev = false
 		}
@@ -162,14 +178,14 @@ initial_targets :: proc(opt: Options) -> (targets: [dynamic]conn.Net_Target) {
 // connect_server opens a connection and adds the server to the app.
 @(private = "file")
 connect_server :: proc(a: ^App, t: conn.Net_Target, opt: Options, with_credentials: bool) -> int {
-	s := open_session(t, opt, with_credentials)
+	s := open_session(a, t, opt, with_credentials)
 	index := app_add_server(a, &s.view, s.client, s)
 	app_set_target(a, index, t)
 	return index
 }
 
 @(private = "file")
-open_session :: proc(t: conn.Net_Target, opt: Options, with_credentials: bool) -> ^conn.Session {
+open_session :: proc(a: ^App, t: conn.Net_Target, opt: Options, with_credentials: bool) -> ^conn.Session {
 	s := conn.session_new(t, tui.terminal_wake)
 	dir := opt.download_dir
 	if dir == "" {
@@ -179,8 +195,43 @@ open_session :: proc(t: conn.Net_Target, opt: Options, with_credentials: bool) -
 	if with_credentials {
 		conn.auth_credentials(s.client, opt.user, opt.user_password, opt.device)
 	}
+	if a.scripts != nil {
+		script.runtime_attach(a.scripts, s.client)
+	}
 	conn.session_start(s)
 	return s
+}
+
+// close_session ends a connection, after the scripts let go of it.
+@(private = "file")
+close_session :: proc(a: ^App, s: ^conn.Session) {
+	if a.scripts != nil {
+		script.runtime_detach(a.scripts, s.client)
+	}
+	conn.session_free(s)
+}
+
+// start_scripts starts the scripts in the config folder (the window client's
+// too), if there are any. They are given a little time every turn of the loop.
+@(private = "file")
+start_scripts :: proc() -> ^script.Runtime {
+	dir := platform.default_config_path("scripts")
+	defer delete(dir)
+	if dir == "" {
+		return nil
+	}
+	rt := script.runtime_create(dir)
+	script.runtime_load(rt)
+	script.runtime_notifications_to_ui(rt)
+	return rt
+}
+
+@(private = "file")
+stop_scripts :: proc(a: ^App) {
+	if a.scripts != nil {
+		script.runtime_destroy(a.scripts)
+		a.scripts = nil
+	}
 }
 
 // handle_requests does what the app asked for the connections: connect to
@@ -209,16 +260,16 @@ handle_requests :: proc(a: ^App, opt: Options) {
 					app_remove_server(a, req.index)
 				}
 				if session != nil {
-					conn.session_free(session)
+					close_session(a, session)
 				}
 			}
 		case .Reconnect:
 			if req.index >= 0 && req.index < len(a.servers) {
 				t := a.servers[req.index].target
-				s := open_session(t, opt, req.index == 0 && opt.server != "")
+				s := open_session(a, t, opt, req.index == 0 && opt.server != "")
 				old := app_replace_connection(a, req.index, &s.view, s.client, s)
 				if old != nil {
-					conn.session_free(old)
+					close_session(a, old)
 				}
 			}
 		}

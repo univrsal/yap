@@ -5,6 +5,7 @@ import "core:strings"
 import "core:sync"
 
 import "client:conn"
+import "client:script"
 import "tui"
 
 // The commands typed in the message box.
@@ -63,6 +64,10 @@ run_command :: proc(a: ^App, line: string) {
 		}
 		push(a, conn.View_Command{name = strings.clone(strings.trim_left(rest, "#"))})
 	case:
+		// A /command that a script registered, else the headless client's.
+		if a.scripts != nil && script.runtime_run_command(a.scripts, a.client, line, viewed_channel_name(a)) {
+			return
+		}
 		run_headless_command(a, line)
 	}
 }

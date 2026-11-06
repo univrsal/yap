@@ -262,12 +262,25 @@ def main():
         with open(settings, "w") as f:
             f.write('{"joined_servers": [{"address": "localhost:%d", "password": "", "channel": ""}]}' % PORT)
         before = open(settings).read()
+        scripts = os.path.join(cfg, "yap", "scripts")
+        os.makedirs(scripts)
+        with open(os.path.join(scripts, "hello.lua"), "w") as f:
+            f.write('function get_info() return {name = "Hello", permissions = {"send"}} end\n')
+            f.write('yap.register_command("hi", "Say hi", function(ev) yap.send(ev.channel, "hi from the script") end)\n')
         os.environ["XDG_CONFIG_HOME"] = cfg
         cli = Cli(args[1:])
         check(cli.wait_for("# Lobby"), "connects to the joined servers when none is given", cli)
+        # A script: switched on with /script, then its command posts a message.
+        cli.send("/script on hello.lua\r")
+        check(cli.wait_for("hello.lua"), "lists and switches on a script", cli)
+        cli.send("\x1b")
+        cli.pump(0.3)
+        cli.send("/hi\r")
+        check(cli.wait_for("hi from the script"), "runs a script's command", cli)
         cli.send("\x03")
         cli.exit_status()
         check(open(settings).read() == before, "leaves the window client's settings as they were")
+        shutil.rmtree(scripts)
         del os.environ["XDG_CONFIG_HOME"]
 
         # Not a terminal: says so.

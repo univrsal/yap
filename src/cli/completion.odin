@@ -5,6 +5,7 @@ import "core:strings"
 
 import "client:conn"
 import "client:richtext"
+import "client:script"
 import "common:proto"
 import "tui"
 
@@ -210,6 +211,20 @@ command_items :: proc(a: ^App, prefix: string) {
 					strings.concatenate({"/", name}, context.temp_allocator),
 				},
 			)
+		}
+	}
+	// The scripts' commands.
+	if a.scripts != nil {
+		for info in script.runtime_commands(a.scripts, a.client) {
+			if strings.has_prefix(strings.to_lower(info.name, context.temp_allocator), prefix) {
+				append(
+					&c.items,
+					Completion_Item {
+						strings.concatenate({"/", info.name, " "}, context.temp_allocator),
+						strings.concatenate({"/", info.name, "   ", info.help, " (script)"}, context.temp_allocator),
+					},
+				)
+			}
 		}
 	}
 	// The bots' commands that could be here.

@@ -3,6 +3,7 @@ package main
 import "core:strings"
 
 import "client:conn"
+import "client:script"
 import "common:proto"
 import "client:richtext"
 import "tui"
@@ -48,6 +49,15 @@ submit :: proc(a: ^App) {
 	}
 	// "//" writes a slash.
 	text = text[1:] if strings.has_prefix(text, "//") else text
+	// The scripts may change the message or stop it.
+	if a.scripts != nil && a.editing == 0 {
+		filtered, cancel, by := script.runtime_filter_send(a.scripts, a.client, viewed_channel_name(a), text)
+		if cancel {
+			say(a, strings.concatenate({by, " stopped the message from being sent."}, context.temp_allocator), true)
+			return
+		}
+		text = filtered
+	}
 	switch {
 	case a.editing != 0:
 		push(a, conn.Edit_Command{id = a.editing, text = strings.clone(text), typed = true})
@@ -152,4 +162,13 @@ close_thread :: proc(a: ^App) {
 // thread_root_of is the root of the thread a message belongs to or starts.
 thread_root_of :: proc(m: conn.View_Message) -> proto.Msg_Id {
 	return m.thread_root if m.thread_root != 0 else m.id
+}
+
+// viewed_channel_name is the name of the channel being looked at, "" if it is a
+// DM or a group (what scripts are told). Call with the View locked.
+viewed_channel_name :: proc(a: ^App) -> string {
+	if ch := conn.viewed_channel(a.view); ch != nil {
+		return ch.name
+	}
+	return ""
 }

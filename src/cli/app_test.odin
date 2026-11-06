@@ -7,6 +7,7 @@ import "core:testing"
 import "core:time"
 
 import "client:conn"
+import "client:script"
 import "common:proto"
 import "tui"
 
@@ -2900,4 +2901,143 @@ test_a_login_dialog_does_not_trap_the_user :: proc(t: ^testing.T) {
 	}
 	clear(&f.c2.commands.commands)
 	discard(&f)
+}
+
+@(private = "file")
+with_scripts :: proc(f: ^Fixture) -> ^script.Runtime {
+	rt := script.runtime_create("")
+	script.runtime_attach(rt, f.c)
+	script.runtime_notifications_to_ui(rt)
+	f.app.scripts = rt
+	return rt
+}
+
+@(private = "file")
+end_scripts :: proc(f: ^Fixture, rt: ^script.Runtime) {
+	f.app.scripts = nil
+	script.runtime_detach(rt, f.c)
+	script.runtime_destroy(rt)
+}
+
+@(test)
+test_a_script_command_runs_instead_of_the_help :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	rt := with_scripts(&f)
+	defer end_scripts(&f, rt)
+	testing.expect(
+		t,
+		script.runtime_add(
+			rt,
+			"dice.lua",
+			`yap.register_command("roll", "Roll dice", function(ev)
+				yap.send(ev.channel, "rolled " .. ev.args)
+			end)`,
+			script.Script_Config{permissions = {"send"}},
+		),
+	)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/roll 2d6")
+	press(&f, .Enter)
+	script.runtime_step(rt, 10 * time.Millisecond)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None) // not the list of commands
+	cmds := take(&f)
+	chat, ok := find_cmd(conn.Chat_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, chat.text, "rolled 2d6")
+	testing.expect_value(t, chat.channel, "general")
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_scripts_may_change_or_stop_a_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	rt := with_scripts(&f)
+	defer end_scripts(&f, rt)
+	script.runtime_add(
+		rt,
+		"send.lua",
+		`function on_send(ev)
+			if ev.text:find("password") then return false end
+			if ev.text:sub(1, 1) == "!" then return "[bot] " .. ev.text:sub(2) end
+		end`,
+		script.Script_Config{},
+	)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "!status")
+	press(&f, .Enter)
+	cmds := take(&f)
+	chat, ok := find_cmd(conn.Chat_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, chat.text, "[bot] status")
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+
+	type_text(&f, "my password is x")
+	press(&f, .Enter)
+	for c in take(&f) { // (typing notices are fine)
+		_, is_chat := c.(conn.Chat_Command)
+		testing.expect(t, !is_chat)
+		conn.command_destroy(c)
+	}
+	testing.expect(t, strings.contains(f.app.notice, "send.lua stopped the message"))
+	// What was written stays, to be changed.
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "my password is x")
+}
+
+@(test)
+test_script_commands_are_completed :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	rt := with_scripts(&f)
+	defer end_scripts(&f, rt)
+	script.runtime_add(rt, "dice.lua", `yap.register_command("roll", "Roll dice", function() end)`, script.Script_Config{})
+	frame(&f)
+	type_text(&f, "/ro")
+	frame(&f)
+	found := false
+	for it in f.app.completion.items {
+		found ||= strings.contains(it.label, "/roll   Roll dice (script)")
+	}
+	testing.expect(t, found)
+}
+
+@(test)
+test_what_scripts_notify_of_becomes_a_notice :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	rt := with_scripts(&f)
+	defer end_scripts(&f, rt)
+	script.runtime_add(rt, "n.lua", `yap.notify("Title", "text of it")`, script.Script_Config{permissions = {"notify"}})
+	script.runtime_step(rt, 10 * time.Millisecond)
+	script_notices(&f.app)
+	notices := take_notices(&f.app)
+	defer free_notices(notices)
+	testing.expect_value(t, len(notices), 1)
+	testing.expect_value(t, notices[0].title, "Title")
+	testing.expect_value(t, notices[0].body, "text of it")
+}
+
+@(test)
+test_the_script_command_lists_scripts :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	rt := with_scripts(&f)
+	defer end_scripts(&f, rt)
+	script.runtime_add(rt, "dice.lua", `-- nothing`, script.Script_Config{})
+	frame(&f)
+	type_text(&f, "/script")
+	press(&f, .Enter)
+	testing.expect(t, f.app.dialog.kind == .Output || strings.contains(f.app.notice, "dice.lua"))
 }

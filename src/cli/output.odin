@@ -41,7 +41,8 @@ run_headless_command :: proc(a: ^App, line: string) {
 		lowest_level = .Debug,
 	}
 	reader := headless.Reader {
-		c = a.client,
+		c       = a.client,
+		scripts = a.scripts,
 	}
 	headless.handle_line(&reader, line, &a.attached)
 	context.logger = saved
