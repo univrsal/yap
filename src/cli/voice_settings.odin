@@ -1,13 +1,11 @@
 package main
 
-import "core:encoding/json"
 import "core:os"
 import "core:strings"
 
 import "client:audio"
 import "client:conn"
 import "client:settings"
-import "common:."
 
 // How the voice is set up: the devices, the quality, noise suppression and the
 // gate. They are the window client's (settings.json, read, never written) until
@@ -22,11 +20,6 @@ Voice_Settings :: struct {
 	voice_gate:        bool,
 	gate_open_db:      f32,
 	gate_close_db:     f32,
-}
-
-// The file cli.json: what this client keeps for itself.
-Cli_File :: struct {
-	voice: Maybe(Voice_Settings),
 }
 
 voice_settings_destroy :: proc(v: ^Voice_Settings) {
@@ -47,15 +40,10 @@ voice_settings_clone :: proc(v: Voice_Settings) -> Voice_Settings {
 // voice_settings_load reads the voice settings from cli.json if it has any, else
 // from the window client's settings (`gui_path`), else the defaults.
 voice_settings_load :: proc(cli_path, gui_path: string) -> Voice_Settings {
-	if cli_path != "" && os.exists(cli_path) {
-		if data, ok := common.store_read(cli_path, context.temp_allocator); ok {
-			file: Cli_File
-			if err := json.unmarshal(transmute([]u8)data, &file, allocator = context.temp_allocator); err == nil {
-				if v, has := file.voice.?; has {
-					return voice_settings_clone(v)
-				}
-			}
-		}
+	file := cli_file_load(cli_path)
+	defer cli_file_destroy(&file)
+	if v, has := file.voice.?; has {
+		return voice_settings_clone(v)
 	}
 	gui := settings.DEFAULT_SETTINGS
 	loaded := false
@@ -77,15 +65,19 @@ voice_settings_load :: proc(cli_path, gui_path: string) -> Voice_Settings {
 	}
 }
 
+// voice_settings_save keeps the voice settings in cli.json, leaving the rest of
+// the file as it is.
 voice_settings_save :: proc(path: string, v: Voice_Settings) -> bool {
 	if path == "" {
 		return false
 	}
-	data, err := json.marshal(Cli_File{voice = v}, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
-	if err != nil {
-		return false
+	file := cli_file_load(path)
+	defer cli_file_destroy(&file)
+	if old, has := file.voice.?; has {
+		voice_settings_destroy(&old)
 	}
-	return common.store_write(path, string(data), private = true)
+	file.voice = voice_settings_clone(v)
+	return cli_file_save(path, file)
 }
 
 // apply_voice_settings tells a connection how to send and what to filter.

@@ -56,10 +56,9 @@ run_command :: proc(a: ^App, line: string) {
 			say(a, "Which server? /connect host[:port] [password]", true)
 			return
 		}
-		append(
-			&a.requests,
-			Server_Request{kind = .Connect, address = strings.clone(address), password = strings.clone(strings.trim_space(password))},
-		)
+		password = strings.trim_space(password)
+		remember_server(a, address, password)
+		append(&a.requests, Server_Request{kind = .Connect, address = strings.clone(address), password = strings.clone(password)})
 	case "disconnect":
 		index := a.cur
 		if rest != "" {
@@ -70,7 +69,7 @@ run_command :: proc(a: ^App, line: string) {
 				return
 			}
 		}
-		append(&a.requests, Server_Request{kind = .Disconnect, index = index})
+		disconnect_server(a, index)
 	case "roles":
 		open_info(a, .Roles)
 	case "bans":
@@ -140,3 +139,13 @@ switch_to_server :: proc(a: ^App, what: string) {
 	}
 }
 
+
+// disconnect_server leaves a server and forgets it, so that it is not connected
+// to again at the next start.
+disconnect_server :: proc(a: ^App, index: int) {
+	if index < 0 || index >= len(a.servers) {
+		return
+	}
+	forget_server(a, a.servers[index].target.server)
+	append(&a.requests, Server_Request{kind = .Disconnect, index = index})
+}

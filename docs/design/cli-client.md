@@ -569,3 +569,22 @@ and sees it come back as cells.
 
 Tests: 201 in `src/cli`. The help dialog's width is now checked line by line, which
 found two of my own help lines being cut.
+
+**Two more from using it (2026-11-06).**
+
+- **A reaction on a thread's root did not show in the thread pane** until
+  something else changed there. The View keeps its own copy of a thread's root and
+  replaces it when the root changes (a reaction, an edit) without touching the
+  thread's window (which holds the replies only), and the thread layout's cache key
+  only counted the roots. The key now has a signature of their contents (and of the
+  accounts' names, which had the same flaw for renames). A test makes the change the
+  connection makes and expects the chip in both panes.
+- **Leaving a server.** `/disconnect` existed but lasted for the run, so a server
+  from the window client came back, and nothing pointed to it. cli.json now also
+  holds the servers added with `/connect` and the window client's servers that were
+  hidden here (`merge_servers` joins them; "example.org" and "example.org:7777" are
+  the same server), so a server is really gone from this client's list without
+  editing the window client's settings. A right-click menu on a server (show,
+  connect again, disconnect and forget), the palette and the title bar (which says
+  `/disconnect` removes a server that failed) point to it. The smoke test now
+  keeps the client's config in its temporary folder, since it now writes it.

@@ -87,7 +87,14 @@ through, and `set -g mouse on` the mouse.
 With several servers the list at the top of the left column switches between
 them; mentions and calls on the others are announced with the server's name.
 `yap-cli` reads the servers joined in the window client (`settings.json`) and
-never changes that file: servers connected to here last for the run.
+never changes that file. `/connect host [password]` adds a server and
+remembers it (in `cli.json`, with the voice settings), so it is there at the next
+start. `/disconnect [number or name]`, or *Disconnect and forget* in the menu you
+get by right-clicking a server in the list (or in `Ctrl+K`), leaves a server and
+forgets it: one you added is removed, one the window client has is hidden from
+`yap-cli` (it stays in the window client). A server that is down or refuses
+you, for example because it is too old, is dealt with the same way. A server
+given on the command line is not remembered.
 
 Lua scripts in the same folder as the window client's run here too, with the
 same approvals (`/script` lists them and switches them on). See

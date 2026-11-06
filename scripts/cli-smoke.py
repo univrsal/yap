@@ -163,6 +163,10 @@ def main():
     tmp = tempfile.mkdtemp(prefix="yap-cli-smoke-")
     server = None
     try:
+        # The client's own files (cli.json, scripts, settings) go in the temporary folder,
+        # not in the config folder of whoever runs this.
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(tmp, "xdg")
+        os.makedirs(os.path.join(tmp, "xdg", "yap"))
         with open(os.path.join(tmp, "config.json"), "w") as f:
             f.write('{"port": %d, "name": "smoke"}' % PORT)
         add = subprocess.run([SERVER, "account", "add", "tester"], cwd=tmp, capture_output=True, text=True)
@@ -286,6 +290,15 @@ def main():
         check(any("localhost:%d" % PORT in r or "smoke" in r for r in rows), "lists both servers", cli)
         cli.send("\x10")  # Ctrl+P
         check(cli.wait_for("hello from the pty"), "goes back to the first with Ctrl+P", cli)
+        # /connect is remembered in cli.json, /disconnect forgets it (and removes it from the list).
+        cli_json = os.path.join(tmp, "xdg", "yap", "cli.json")
+        check("localhost:%d" % PORT2 in open(cli_json).read(), "remembers a server it connected to")
+        cli.send("/disconnect second\r")
+        end = time.time() + 6
+        while time.time() < end and "● second" in cli.screen.text():
+            cli.pump(0.2)
+        check("second" not in "\n".join(r[:26] for r in cli.screen.rows()), "leaves a server with /disconnect", cli)
+        check("localhost:%d" % PORT2 not in open(cli_json).read(), "forgets it, so it is not connected to again")
 
         # Leaving.
         cli.send("\x03")
@@ -329,7 +342,7 @@ def main():
         cli.exit_status()
         check(open(settings).read() == before, "leaves the window client's settings as they were")
         shutil.rmtree(scripts)
-        del os.environ["XDG_CONFIG_HOME"]
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(tmp, "xdg")
 
         # Not a terminal: says so.
         r = subprocess.run([CLI] + args, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=10)

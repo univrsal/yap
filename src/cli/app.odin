@@ -136,6 +136,9 @@ App :: struct {
 	muted_before_deafen: bool,
 	voice_settings: Voice_Settings,
 	cli_path:      string, // cli.json, "" to not save
+	saved_servers: [dynamic]Saved_Server, // added here: connected to at the next start
+	hidden:        [dynamic]string, // of the window client's, taken away here
+	gui_joined:    [dynamic]string, // the window client's joined servers
 	input_devices: [dynamic]string, // listed by the loop when the settings are opened
 	output_devices: [dynamic]string,
 	want_devices:  bool,
@@ -196,6 +199,11 @@ app_destroy :: proc(a: ^App) {
 	delete(a.notice)
 	delete(a.clipboard)
 	delete(a.audio_error)
+	cli_file_destroy(&Cli_File{servers = a.saved_servers, hidden = a.hidden})
+	for g in a.gui_joined {
+		delete(g)
+	}
+	delete(a.gui_joined)
 	voice_settings_destroy(&a.voice_settings)
 	for d in a.input_devices {
 		delete(d)

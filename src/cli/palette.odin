@@ -91,6 +91,12 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	command(&items, "Invites", "/invites")
 	command(&items, "Your devices", "/devices")
 	command(&items, "Servers", "/servers")
+	if len(a.servers) > 1 {
+		for s, i in a.servers {
+			name := server_name(a.view) if i == a.cur else s.target.server
+			append(&items, Palette_Item{label = fmt.tprintf("Disconnect and forget: %s", name), kind = .Command, line = fmt.tprintf("/disconnect %d", i + 1)})
+		}
+	}
 	for kind in Form_Kind {
 		append(&items, Palette_Item{label = FORM_TITLES[kind], kind = .Form, index = int(kind)})
 	}

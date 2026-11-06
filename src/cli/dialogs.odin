@@ -78,6 +78,9 @@ dialog_update :: proc(a: ^App) {
 
 Menu_Action :: enum {
 	Reply,
+	Switch_Server, // (a server) show it
+	Reconnect_Server,
+	Disconnect_Server, // leave it and forget it
 	Message, // (a member) write to them
 	Call, // (a member) call them
 	Save, // a file of the message; Menu_Item.arg is which
@@ -100,6 +103,7 @@ Menu :: struct {
 	open:  bool,
 	msg:   proto.Msg_Id,
 	account: proto.Account_Id, // for a member's menu, whose it is (and msg is 0)
+	server: int, // for a server's menu, which one, counted from 1
 	items: [dynamic]Menu_Item,
 	at:    [2]int, // where it was asked for
 	rect:  tui.Rect, // where it is drawn, which is moved in to fit
@@ -117,7 +121,20 @@ member_menu_open :: proc(a: ^App, account: proto.Account_Id, x, y: int) {
 	a.menu.open, a.menu.msg, a.menu.account, a.menu.at, a.menu.sel = true, 0, account, {x, y}, 0
 }
 
+// server_menu_open lists what can be done with a server: show it, connect again,
+// leave and forget it. Call with the View locked.
+server_menu_open :: proc(a: ^App, index: int, x, y: int) {
+	menu_close(a)
+	if index != a.cur {
+		append(&a.menu.items, Menu_Item{"Show", .Switch_Server, 0})
+	}
+	append(&a.menu.items, Menu_Item{"Connect again", .Reconnect_Server, 0})
+	append(&a.menu.items, Menu_Item{"Disconnect and forget", .Disconnect_Server, 0})
+	a.menu.open, a.menu.msg, a.menu.server, a.menu.at, a.menu.sel = true, 0, index + 1, {x, y}, 0
+}
+
 menu_close :: proc(a: ^App) {
+	a.menu.server = 0
 	a.menu.account = 0
 	a.menu.open = false
 	clear(&a.menu.items)
@@ -321,6 +338,7 @@ HELP_LINES :: [?]string {
 	"mouse            click a channel or a message; wheel scrolls;",
 	"                 drag the border to resize the list",
 	"F2              show or hide the member list (on wide screens)",
+	"/connect, /disconnect   add a server / leave one for good (or right-click it)",
 	"Ctrl+B          the channel list, on a narrow screen",
 	"Ctrl+K          go to a conversation or do something (also new channel, ban, ...)",
 	"F3 / /emoji     an emoji for the message (a: react to the one picked)",

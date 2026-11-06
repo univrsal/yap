@@ -9,6 +9,7 @@ import "core:time"
 import "client:audio"
 import "client:conn"
 import "client:script"
+import "client:settings"
 import "common:proto"
 import "tui"
 
@@ -4458,4 +4459,195 @@ test_a_rename_shows_without_other_changes :: proc(t: ^testing.T) {
 	f.v.accounts[2] = acc
 	frame(&f)
 	testing.expect(t, screen_has(&f, "Anna B hello there"))
+}
+
+@(private = "file")
+joined :: proc(address, password: string) -> settings.Joined_Server {
+	return {address = address, password = password}
+}
+
+@(test)
+test_the_servers_to_connect_to_are_the_window_clients_less_those_taken_away :: proc(t: ^testing.T) {
+	gui := []settings.Joined_Server{joined("a.example", "pw-a"), joined("b.example:7777", ""), joined("c.example:9000", "")}
+	added := []Saved_Server{{"d.example", "pw-d", ""}, {"a.example:7777", "other", ""}}
+	hidden := []string{"b.example"} // (the default port is the same server)
+	got := merge_servers(gui, added, hidden)
+	testing.expect_value(t, len(got), 3)
+	testing.expect_value(t, got[0].address, "a.example")
+	testing.expect_value(t, got[0].password, "pw-a") // the window client's is first
+	testing.expect_value(t, got[1].address, "c.example:9000")
+	testing.expect_value(t, got[2].address, "d.example")
+	testing.expect_value(t, len(merge_servers(nil, nil, nil)), 0)
+}
+
+@(private = "file")
+with_cli_file :: proc(f: ^Fixture, dir: string) {
+	f.app.cli_path = strings.concatenate({dir, "/cli.json"}, context.temp_allocator)
+}
+
+@(test)
+test_the_cli_file_keeps_voice_servers_and_hidden_apart :: proc(t: ^testing.T) {
+	dir, err := os.make_directory_temp("", "yap-cli-*", context.temp_allocator)
+	if err != nil {
+		testing.fail_now(t, "could not make a temporary directory")
+	}
+	defer os.remove_all(dir)
+	path := strings.concatenate({dir, "/cli.json"}, context.temp_allocator)
+	v := Voice_Settings {
+		input_device = strings.clone("Mic"),
+		quality      = strings.clone("high"),
+		gate_open_db = -40,
+	}
+	defer voice_settings_destroy(&v)
+	testing.expect(t, voice_settings_save(path, v))
+	// The servers are saved without losing the voice, and the voice again without losing them.
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	with_cli_file(&f, dir)
+	f.app.cli_path = path
+	append(&f.app.saved_servers, Saved_Server{strings.clone("x.example"), strings.clone("pw"), ""})
+	append(&f.app.hidden, strings.clone("y.example"))
+	cli_save_servers(&f.app)
+	v.gate_open_db = -35
+	testing.expect(t, voice_settings_save(path, v))
+	file := cli_file_load(path)
+	defer cli_file_destroy(&file)
+	voice, has := file.voice.?
+	testing.expect(t, has)
+	testing.expect_value(t, voice.input_device, "Mic")
+	testing.expect_value(t, voice.gate_open_db, -35)
+	testing.expect_value(t, len(file.servers), 1)
+	testing.expect_value(t, file.servers[0].address, "x.example")
+	testing.expect_value(t, file.servers[0].password, "pw")
+	testing.expect_value(t, file.hidden[0], "y.example")
+}
+
+@(test)
+test_connecting_remembers_the_server_and_disconnecting_forgets_it :: proc(t: ^testing.T) {
+	dir, err := os.make_directory_temp("", "yap-cli-*", context.temp_allocator)
+	if err != nil {
+		testing.fail_now(t, "could not make a temporary directory")
+	}
+	defer os.remove_all(dir)
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	with_cli_file(&f, dir)
+	append(&f.app.gui_joined, strings.clone("other.org")) // the window client has this one
+	frame(&f)
+	discard(&f)
+
+	type_text(&f, "/connect new.example pw1")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.saved_servers), 1)
+	file := cli_file_load(f.app.cli_path)
+	testing.expect_value(t, file.servers[0].address, "new.example")
+	testing.expect_value(t, file.servers[0].password, "pw1")
+	cli_file_destroy(&file)
+	for r in f.app.requests {
+		delete(r.address)
+		delete(r.password)
+	}
+	clear(&f.app.requests)
+
+	// Taking away the window client's server hides it; the file of the window
+	// client is not involved.
+	type_text(&f, "/disconnect other")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.requests), 1)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Disconnect, index = 1})
+	testing.expect_value(t, len(f.app.hidden), 1)
+	testing.expect_value(t, f.app.hidden[0], "other.org:7777")
+	testing.expect_value(t, len(f.app.saved_servers), 1) // (the added one stays)
+	clear(&f.app.requests)
+
+	// One that was added here is removed, and not hidden (the window client does not have it).
+	append(&f.app.servers, f.app.servers[0]) // (only for the index: not used again)
+	pop(&f.app.servers)
+	forget_server(&f.app, "new.example:7777")
+	testing.expect_value(t, len(f.app.saved_servers), 0)
+	testing.expect_value(t, len(f.app.hidden), 1)
+	file = cli_file_load(f.app.cli_path)
+	testing.expect_value(t, len(file.servers), 0)
+	testing.expect_value(t, len(file.hidden), 1)
+	cli_file_destroy(&file)
+
+	// Connecting to a hidden one brings it back.
+	remember_server(&f.app, "other.org", "")
+	testing.expect_value(t, len(f.app.hidden), 0)
+	testing.expect_value(t, len(f.app.saved_servers), 1)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_a_server_has_a_menu_to_leave_it :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	frame(&f)
+	discard(&f)
+	// Right-click the other server in the list.
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Right, x = 8, y = 2})
+	testing.expect(t, f.app.menu.open)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Show"))
+	testing.expect(t, screen_has(&f, "Connect again"))
+	testing.expect(t, screen_has(&f, "Disconnect and forget"))
+	// Connect again.
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + 1)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Reconnect, index = 1})
+	clear(&f.app.requests)
+	frame(&f)
+	// Leave it.
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Right, x = 8, y = 2})
+	frame(&f)
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + 2)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Disconnect, index = 1})
+	clear(&f.app.requests)
+	frame(&f)
+	// The one shown has no "Show".
+	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Right, x = 8, y = 1})
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "Show"))
+	// A plain click still shows a server.
+	press(&f, .Escape)
+	frame(&f)
+	click(&f, 8, 2)
+	testing.expect_value(t, f.app.cur, 1)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
+}
+
+@(test)
+test_the_palette_can_disconnect_and_a_failed_server_says_how :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	second_server(&f)
+	f.v2.status = .Failed
+	f.v2.error = strings.clone("The server is too old.")
+	app_switch(&f.app, 1)
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[0], "The server is too old. — /disconnect removes this server"), screen(&f)[0])
+	open_palette(&f.app)
+	type_text(&f, "forget other")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.requests), 1)
+	testing.expect_value(t, f.app.requests[0], Server_Request{kind = .Disconnect, index = 1})
+	clear(&f.app.requests)
+	discard(&f)
+	for c in f.c2.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c2.commands.commands)
 }

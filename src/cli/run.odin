@@ -24,7 +24,9 @@ SCRIPT_BUDGET :: 2 * time.Millisecond
 ESCAPE_MS :: 40 // how long a lone Escape waits for the rest of a sequence
 
 run_ui :: proc(opt: Options) -> bool {
-	targets := initial_targets(opt)
+	cli_path := platform.default_config_path("cli.json")
+	defer delete(cli_path)
+	targets := initial_targets(opt, cli_path)
 	defer {
 		for &t in targets {
 			target_destroy(&t)
@@ -50,8 +52,9 @@ run_ui :: proc(opt: Options) -> bool {
 	app: App
 	defer app_destroy(&app)
 	// How the voice is set up: cli.json, or the window client's settings.
-	app.cli_path = platform.default_config_path("cli.json")
+	app.cli_path = strings.clone(cli_path)
 	defer delete(app.cli_path)
+	load_server_lists(&app)
 	gui_path := platform.default_config_path("settings.json")
 	app.voice_settings = voice_settings_load(app.cli_path, gui_path)
 	delete(gui_path)
@@ -155,7 +158,7 @@ run_ui :: proc(opt: Options) -> bool {
 // or else those joined in the window client (read from its settings, which this
 // client never writes).
 @(private = "file")
-initial_targets :: proc(opt: Options) -> (targets: [dynamic]conn.Net_Target) {
+initial_targets :: proc(opt: Options, cli_path: string) -> (targets: [dynamic]conn.Net_Target) {
 	if opt.server != "" {
 		append(
 			&targets,
@@ -171,12 +174,14 @@ initial_targets :: proc(opt: Options) -> (targets: [dynamic]conn.Net_Target) {
 	}
 	path := platform.default_config_path("settings.json")
 	defer delete(path)
-	if path == "" {
-		return
+	joined: settings.Settings
+	if path != "" {
+		joined = settings.settings_load(path)
 	}
-	st := settings.settings_load(path)
-	defer settings.settings_destroy(&st)
-	for j in st.joined_servers {
+	defer settings.settings_destroy(&joined)
+	cli := cli_file_load(cli_path)
+	defer cli_file_destroy(&cli)
+	for j in merge_servers(joined.joined_servers[:], cli.servers[:], cli.hidden[:]) {
 		append(
 			&targets,
 			conn.Net_Target {
@@ -394,4 +399,27 @@ sanitize :: proc(s: string) -> string {
 @(private = "file")
 os_getenv :: proc(name: string) -> string {
 	return os.get_env(name, context.temp_allocator)
+}
+
+// load_server_lists reads what the app needs to add and take away servers.
+@(private = "file")
+load_server_lists :: proc(a: ^App) {
+	file := cli_file_load(a.cli_path)
+	defer cli_file_destroy(&file)
+	for s in file.servers {
+		append(&a.saved_servers, Saved_Server{strings.clone(s.address), strings.clone(s.password), strings.clone(s.channel)})
+	}
+	for h in file.hidden {
+		append(&a.hidden, strings.clone(h))
+	}
+	path := platform.default_config_path("settings.json")
+	defer delete(path)
+	if path == "" {
+		return
+	}
+	st := settings.settings_load(path)
+	defer settings.settings_destroy(&st)
+	for j in st.joined_servers {
+		append(&a.gui_joined, strings.clone(j.address))
+	}
 }

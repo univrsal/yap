@@ -68,7 +68,7 @@ connection_text :: proc(v: ^conn.View) -> string {
 	switch v.status {
 	case .Disconnected: return "disconnected"
 	case .Connecting: return "connecting..."
-	case .Failed: return fmt.tprintf("%s%s", v.error, " (trying again)" if v.retrying else "")
+	case .Failed: return fmt.tprintf("%s%s", v.error, " (trying again)" if v.retrying else " — /disconnect removes this server")
 	case .Connected: return ""
 	}
 	return ""

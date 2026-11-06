@@ -320,8 +320,16 @@ menu_choose :: proc(a: ^App, i: int) {
 		return
 	}
 	action, id, arg := a.menu.items[i].action, a.menu.msg, a.menu.items[i].arg
-	account := a.menu.account
+	account, server := a.menu.account, a.menu.server - 1
 	menu_close(a)
+	if server >= 0 {
+		#partial switch action {
+		case .Switch_Server: app_switch(a, server)
+		case .Reconnect_Server: append(&a.requests, Server_Request{kind = .Reconnect, index = server})
+		case .Disconnect_Server: disconnect_server(a, server)
+		}
+		return
+	}
 	if account != 0 {
 		// A person's menu.
 		#partial switch action {
@@ -350,7 +358,7 @@ menu_choose :: proc(a: ^App, i: int) {
 	case .Edit: start_edit(a, m^)
 	case .Copy: copy_text(a, m.text)
 	case .Delete: a.dialog.kind, a.dialog.msg = .Confirm_Delete, id
-	case .Message, .Call: // (only in a person's menu)
+	case .Message, .Call, .Switch_Server, .Reconnect_Server, .Disconnect_Server: // (only in other menus)
 	}
 }
 
@@ -486,7 +494,11 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	case .Close_Thread:
 		close_thread(a)
 	case .Server:
-		app_switch(a, int(hit.id))
+		if m.button == .Right {
+			server_menu_open(a, int(hit.id), m.x, m.y)
+		} else {
+			app_switch(a, int(hit.id))
+		}
 	case .Border:
 		a.drag = .Border
 	case .Reaction:
