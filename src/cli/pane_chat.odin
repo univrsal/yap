@@ -5,6 +5,7 @@ import "core:strings"
 import "core:time"
 
 import "client:conn"
+import "common:proto"
 import "tui"
 
 // The right-hand side: the title bar, the messages, the info line, the message
@@ -13,7 +14,7 @@ import "tui"
 draw_chat :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	draw_title(a, b, g.title)
 	if !g.thread_over {
-		draw_rows(a, b, g.timeline, &a.layout, a.scroll)
+		draw_rows(a, b, g.timeline, &a.layout, a.scroll, 0 if a.focus == .Thread else a.cursor_msg)
 	}
 	draw_thread(a, b, g)
 	draw_info(a, b, g.info)
@@ -67,7 +68,7 @@ connection_text :: proc(v: ^conn.View) -> string {
 
 // draw_rows draws laid out rows into a region, the newest at the bottom, with
 // the rows' places to click.
-draw_rows :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect, layout: ^Timeline_Layout, scroll: int) {
+draw_rows :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect, layout: ^Timeline_Layout, scroll: int, picked_msg: proto.Msg_Id) {
 	rows := layout.rows
 	if r.h <= 0 || r.w <= 0 {
 		return
@@ -82,7 +83,7 @@ draw_rows :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect, layout: ^Timeline_Layout
 			continue
 		}
 		row := rows[i]
-		picked := row.msg != 0 && row.msg == a.cursor_msg
+		picked := row.msg != 0 && row.msg == picked_msg
 		if picked {
 			tui.fill(b, {r.x, r.y + y, text_w, 1}, theme.selected)
 		}
@@ -124,7 +125,7 @@ draw_thread :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	cx := r.x + r.w - tui.string_width(close)
 	tui.put_string(b, cx, r.y, close, theme.bar, r.x + r.w)
 	append(&a.hits, Hit{{cx, r.y, tui.string_width(close), 1}, .Close_Thread, 0, ""})
-	draw_rows(a, b, {r.x, r.y + 1, r.w, r.h - 1}, &a.thread_layout, a.thread_scroll)
+	draw_rows(a, b, {r.x, r.y + 1, r.w, r.h - 1}, &a.thread_layout, a.thread_scroll, 0 if a.focus == .Timeline else a.cursor_msg)
 }
 
 // draw_scrollbar draws a thumb for the part of `total` rows that is in view, `scroll`

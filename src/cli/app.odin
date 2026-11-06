@@ -26,6 +26,7 @@ import "tui"
 Focus :: enum {
 	Composer,
 	Timeline, // a message is picked with the keys
+	Thread, // ... in the open thread
 }
 
 Hit_Kind :: enum {

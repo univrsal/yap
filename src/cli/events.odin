@@ -87,7 +87,7 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		menu_key(a, k)
 		return
 	}
-	if a.focus == .Timeline {
+	if a.focus == .Timeline || a.focus == .Thread {
 		timeline_key(a, k)
 		return
 	}
@@ -97,17 +97,40 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 	composer_key(a, k)
 }
 
+// The messages that the keys are on: the conversation's, or the open thread's.
 @(private = "file")
-page :: proc(a: ^App) -> int {
-	return max(geometry(a).timeline.h - 2, 1)
+Pane :: struct {
+	layout: ^Timeline_Layout,
+	scroll: ^int,
+	rect:   tui.Rect,
+}
+
+@(private = "file")
+pane_of :: proc(a: ^App, thread: bool) -> Pane {
+	g := geometry(a)
+	if thread && a.thread != 0 {
+		return {&a.thread_layout, &a.thread_scroll, {g.thread.x, g.thread.y + 1, g.thread.w, g.thread.h - 1}}
+	}
+	return {&a.layout, &a.scroll, g.timeline}
+}
+
+@(private = "file")
+page :: proc(p: Pane) -> int {
+	return max(p.rect.h - 2, 1)
+}
+
+// scroll_pane moves a pane up (rows > 0) or down.
+@(private = "file")
+scroll_pane :: proc(p: Pane, rows: int) {
+	p.scroll^ = max(p.scroll^ + rows, 0) // (clamped to what there is by app_sync)
+	if rows > 0 {
+		p.scroll^ = min(p.scroll^, max(len(p.layout.rows) - p.rect.h, 0))
+	}
 }
 
 @(private = "file")
 scroll_by :: proc(a: ^App, rows: int) {
-	a.scroll = max(a.scroll + rows, 0) // clamped to what there is by app_sync
-	if rows > 0 {
-		a.scroll = min(a.scroll, max(len(a.layout.rows) - geometry(a).timeline.h, 0))
-	}
+	scroll_pane(pane_of(a, false), rows)
 }
 
 @(private = "file")
@@ -118,10 +141,10 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 		submit(a)
 		return
 	case k.key == .Page_Up:
-		scroll_by(a, page(a))
+		scroll_by(a, page(pane_of(a, false)))
 		return
 	case k.key == .Page_Down:
-		scroll_by(a, -page(a))
+		scroll_by(a, -page(pane_of(a, false)))
 		return
 	case k.key == .Escape:
 		switch {
@@ -133,7 +156,7 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 		return
 	case k.key == .Tab && k.mods == {}:
 		a.focus = .Timeline
-		pick_last_message(a)
+		pick_last_message(a, pane_of(a, false))
 		return
 	case alt && k.key == .Up:
 		switch_channel(a, -1)
@@ -165,35 +188,41 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 	}
 }
 
-// pick_last_message puts the message cursor on the newest message in view.
+// pick_last_message puts the message cursor on the newest message of a pane.
 @(private = "file")
-pick_last_message :: proc(a: ^App) {
-	#reverse for r in a.layout.rows {
+pick_last_message :: proc(a: ^App, p: Pane) {
+	#reverse for r in p.layout.rows {
 		if r.msg != 0 {
 			a.cursor_msg = r.msg
 			return
 		}
 	}
+	a.cursor_msg = 0
 }
 
 @(private = "file")
 timeline_key :: proc(a: ^App, k: tui.Key_Event) {
+	in_thread := a.focus == .Thread
+	p := pane_of(a, in_thread)
 	switch {
+	case k.key == .Tab && !in_thread && a.thread != 0:
+		// From the messages to the thread, then back to the message box.
+		a.focus = .Thread
+		pick_last_message(a, pane_of(a, true))
 	case k.key == .Tab, k.key == .Escape:
 		a.focus = .Composer
 		a.cursor_msg = 0
 	case k.key == .Up:
-		move_cursor(a, -1)
+		move_cursor(a, p, -1)
 	case k.key == .Down:
-		move_cursor(a, 1)
+		move_cursor(a, p, 1)
 	case k.key == .Page_Up:
-		scroll_by(a, page(a))
+		scroll_pane(p, page(p))
 	case k.key == .Page_Down:
-		scroll_by(a, -page(a))
+		scroll_pane(p, -page(p))
 	case k.key == .Enter:
 		if m, ok := find_message(a, a.cursor_msg); ok {
-			g := geometry(a)
-			menu_open(a, m^, g.timeline.x + 10, g.timeline.y + g.timeline.h / 2)
+			menu_open(a, m^, p.rect.x + 10, p.rect.y + p.rect.h / 2)
 		}
 	case k.key == .Rune && k.mods == {}:
 		// The most used actions have their own keys.
@@ -225,11 +254,11 @@ timeline_key :: proc(a: ^App, k: tui.Key_Event) {
 	}
 }
 
-// move_cursor moves the message cursor to the message before or after it,
-// scrolling to keep it in view.
+// move_cursor moves the message cursor to the message before or after it in a
+// pane, scrolling to keep it in view.
 @(private = "file")
-move_cursor :: proc(a: ^App, dir: int) {
-	rows := a.layout.rows
+move_cursor :: proc(a: ^App, p: Pane, dir: int) {
+	rows := p.layout.rows
 	// The rows of the message the cursor is on.
 	idx := -1
 	for r, i in rows {
@@ -247,14 +276,14 @@ move_cursor :: proc(a: ^App, dir: int) {
 	}
 	a.cursor_msg = rows[i].msg
 	// Keep the row in view.
-	h := geometry(a).timeline.h
-	end := len(rows) - a.scroll
+	h := p.rect.h
+	end := len(rows) - p.scroll^
 	if i >= end {
-		a.scroll = len(rows) - i - 1
+		p.scroll^ = len(rows) - i - 1
 	} else if i < end - h {
-		a.scroll = len(rows) - i - h
+		p.scroll^ = len(rows) - i - h
 	}
-	a.scroll = max(a.scroll, 0)
+	p.scroll^ = max(p.scroll^, 0)
 }
 
 @(private = "file")

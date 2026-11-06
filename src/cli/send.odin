@@ -155,6 +155,9 @@ close_thread :: proc(a: ^App) {
 		push(a, conn.Thread_Command{thread = {a.viewing, a.thread}, open = false})
 		a.thread, a.thread_scroll, a.thread_asked = 0, 0, 0
 		layout_destroy(&a.thread_layout)
+		if a.focus == .Thread {
+			a.focus, a.cursor_msg = .Composer, 0
+		}
 		a.members_asked = 0
 	}
 }

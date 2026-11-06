@@ -3962,3 +3962,130 @@ test_pictures_in_a_thread_pane :: proc(t: ^testing.T) {
 	testing.expect(t, screen_has(&f, "▀"))
 	discard(&f)
 }
+
+@(test)
+test_messages_in_an_open_thread_can_be_picked_with_the_keys :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	discard(&f)
+	// Tab: the messages; Tab again: the thread, on its newest message.
+	press(&f, .Tab)
+	testing.expect_value(t, f.app.focus, Focus.Timeline)
+	press(&f, .Tab)
+	testing.expect_value(t, f.app.focus, Focus.Thread)
+	testing.expect_value(t, f.app.cursor_msg, 12)
+	press(&f, .Up)
+	testing.expect_value(t, f.app.cursor_msg, 11)
+	press(&f, .Up) // the root, which the thread starts with
+	testing.expect_value(t, f.app.cursor_msg, 10)
+	press(&f, .Up) // nothing before it
+	testing.expect_value(t, f.app.cursor_msg, 10)
+	press(&f, .Down)
+	press(&f, .Down)
+	testing.expect_value(t, f.app.cursor_msg, 12)
+	// The usual keys act on it.
+	type_text(&f, "y")
+	testing.expect_value(t, f.app.clipboard, "ok then")
+	press(&f, .Enter)
+	testing.expect(t, f.app.menu.open)
+	testing.expect_value(t, f.app.menu.msg, 12)
+	// (the menu is over the thread pane)
+	testing.expect(t, f.app.menu.at.x >= 130 - THREAD_W)
+	press(&f, .Escape)
+	// Tab goes back to the message box; Escape does too, and leaves the thread open.
+	press(&f, .Tab)
+	testing.expect_value(t, f.app.focus, Focus.Composer)
+	testing.expect_value(t, f.app.thread, 10)
+	press(&f, .Tab)
+	press(&f, .Tab)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.focus, Focus.Composer)
+	testing.expect_value(t, f.app.thread, 10)
+	testing.expect_value(t, f.app.cursor_msg, 0)
+}
+
+@(test)
+test_the_cursor_is_shown_in_the_pane_it_is_in :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	press(&f, .Tab)
+	press(&f, .Tab)
+	press(&f, .Up) // message 11, which is in both
+	frame(&f)
+	// Highlighted in the thread's pane only.
+	tx := 130 - THREAD_W + 3
+	in_thread, in_chat := false, false
+	for y in 0 ..< f.buf.h {
+		row := screen(&f)[y]
+		if strings.contains(row, "yes") {
+			if tui.cell_at(&f.buf, tx, y).style.bg == theme.selected.bg {
+				in_thread = true
+			}
+			if tui.cell_at(&f.buf, 30, y).style.bg == theme.selected.bg {
+				in_chat = true
+			}
+		}
+	}
+	testing.expect(t, in_thread)
+	testing.expect(t, !in_chat)
+}
+
+@(test)
+test_replying_and_reacting_from_the_thread_keys :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	discard(&f)
+	press(&f, .Tab)
+	press(&f, .Tab)
+	type_text(&f, "a")
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	testing.expect_value(t, f.app.dialog.msg, 12)
+	press(&f, .Escape)
+	type_text(&f, "r")
+	testing.expect_value(t, f.app.reply_to, 10)
+	testing.expect_value(t, f.app.focus, Focus.Composer)
+}
+
+@(test)
+test_closing_the_thread_takes_the_focus_back :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 130, 20)
+	defer fixture_destroy(&f)
+	a_thread(&f)
+	frame(&f)
+	open_thread(&f.app, 10)
+	frame(&f)
+	press(&f, .Tab)
+	press(&f, .Tab)
+	close_thread(&f.app)
+	testing.expect_value(t, f.app.focus, Focus.Composer)
+	testing.expect_value(t, f.app.cursor_msg, 0)
+	discard(&f)
+}
+
+@(test)
+test_tab_without_a_thread_goes_straight_back :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	some_chat(&f)
+	frame(&f)
+	press(&f, .Tab)
+	press(&f, .Tab)
+	testing.expect_value(t, f.app.focus, Focus.Composer)
+}
