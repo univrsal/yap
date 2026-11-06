@@ -96,8 +96,8 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 		return
 	case alt && k.key == .Rune && k.rune >= '1' && k.rune <= '9':
 		n := int(k.rune - '1')
-		if n < len(a.view.channels) {
-			push(a, conn.View_Command{conv = a.view.channels[n].id})
+		if convs := conversations_in_order(a.view); n < len(convs) {
+			push(a, conn.View_Command{conv = convs[n]})
 		}
 		return
 	case k.key == .End && k.mods == {.Ctrl}:
@@ -246,18 +246,18 @@ menu_choose :: proc(a: ^App, i: int) {
 // switch_channel looks at the channel before or after the one shown.
 @(private = "file")
 switch_channel :: proc(a: ^App, dir: int) {
-	chs := a.view.channels
-	if len(chs) == 0 {
+	convs := conversations_in_order(a.view)
+	if len(convs) == 0 {
 		return
 	}
 	at := -1
-	for ch, i in chs {
-		if ch.id == a.view.viewing {
+	for id, i in convs {
+		if id == a.view.viewing {
 			at = i
 		}
 	}
-	next := (at + dir + len(chs)) % len(chs) if at >= 0 else 0
-	push(a, conn.View_Command{conv = chs[next].id})
+	next := (at + dir + len(convs)) % len(convs) if at >= 0 else 0
+	push(a, conn.View_Command{conv = convs[next]})
 }
 
 @(private = "file")

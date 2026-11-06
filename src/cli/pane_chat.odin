@@ -30,6 +30,10 @@ draw_title :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 		if ch.topic != "" {
 			tui.put_string(b, x + 2, r.y, tui.cut_to_width(one_line(ch.topic), max(r.w - (x - r.x) - 4, 0)), dim, r.x + r.w)
 		}
+	} else if dm := viewed_dm(v); dm != nil {
+		mark := "◆ " if dm.count > 0 else "@ "
+		x = tui.put_string(b, x, r.y, mark, dim, r.x + r.w)
+		tui.put_string(b, x, r.y, conn.dm_name(v, dm), bold, r.x + r.w)
 	} else if v.viewing == 0 {
 		tui.put_string(b, x, r.y, "no conversation", dim, r.x + r.w)
 	}
@@ -192,10 +196,10 @@ draw_status :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	}
 	// Unread elsewhere, at the right.
 	elsewhere, mentions := 0, 0
-	for ch in v.channels {
-		if ch.id != v.viewing {
-			elsewhere += ch.unread
-			mentions += ch.mentions
+	for row in list_rows(v) {
+		if row.kind != .Header && row.conv != v.viewing {
+			elsewhere += row.unread
+			mentions += row.mentions
 		}
 	}
 	right := "F1 help"
@@ -229,7 +233,20 @@ can_delete :: proc(v: ^conn.View, m: conn.View_Message) -> bool {
 }
 
 can_write :: proc(v: ^conn.View) -> bool {
+	if dm := viewed_dm(v); dm != nil {
+		return !conn.dm_closed(v, dm)
+	}
 	ch := conn.viewed_channel(v)
 	return ch == nil || .Write in ch.rights
+}
+
+// viewed_dm is the DM or group being looked at, or nil. Call with the View locked.
+viewed_dm :: proc(v: ^conn.View) -> ^conn.View_DM {
+	for &dm in v.dms {
+		if dm.id == v.viewing {
+			return &dm
+		}
+	}
+	return nil
 }
 

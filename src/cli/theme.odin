@@ -23,6 +23,7 @@ Theme :: struct {
 	badge_ping:  tui.Style, // unread mentions
 	border:      tui.Style,
 	error:       tui.Style,
+	online:      tui.Style, // the mark of someone who is here
 }
 
 theme := Theme {
@@ -43,6 +44,7 @@ theme := Theme {
 	badge_ping = {fg = tui.color_index(255), bg = tui.color_index(160), attrs = {.Bold}},
 	border = {fg = tui.color_index(240)},
 	error = {fg = tui.color_index(203)},
+	online = {fg = tui.color_index(78)},
 }
 
 // The colours names are drawn in; someone always gets the same one.

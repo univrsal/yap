@@ -1054,3 +1054,134 @@ test_attaching_files_with_a_command :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.app.attached), 1)
 	testing.expect(t, strings.contains(f.app.notice, "1 file(s) attached"))
 }
+
+// add_dm adds a DM with someone to the View.
+@(private = "file")
+add_dm :: proc(f: ^Fixture, id: proto.Conv_Id, with: proto.Account_Id, last: proto.Msg_Id, unread := 0, last_time := T0) {
+	append(&f.v.dms, conn.View_DM{id = id, with = with, last = last, unread = unread, last_time = last_time})
+}
+
+@(test)
+test_direct_messages_are_listed_under_the_channels :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_account(&f.v, 3, "ben")
+	add_account(&f.v, 4, "cy")
+	add_dm(&f, 50, 2, 9, unread = 2, last_time = T0)
+	add_dm(&f, 51, 3, 12, last_time = T0 + MINUTE) // newer, so first
+	add_dm(&f, 52, 4, 0) // nothing said: not listed
+	add_dm(&f, 53, 1, 5) // with ourselves: the notes
+	f.v.users[7] = {account = 2}
+	f.v.my_num = 1
+	frame(&f)
+	rows := screen(&f)
+	testing.expect(t, strings.contains(rows[5], "Direct messages"), rows[5])
+	testing.expect(t, strings.contains(rows[6], "○ ben"), rows[6]) // not online
+	testing.expect(t, strings.contains(rows[7], "● anna") && strings.contains(rows[7], " 2 "), rows[7])
+	testing.expect(t, !screen_has(&f, "cy"))
+	testing.expect_value(t, row_text_of_list(&f, 8), "")
+}
+
+@(private = "file")
+row_text_of_list :: proc(f: ^Fixture, y: int) -> string {
+	row := screen(f)[y]
+	if len(row) < 26 {
+		return ""
+	}
+	return strings.trim_space(tui.cut_to_width(row, 26))
+}
+
+@(test)
+test_groups_are_listed_by_their_members :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_account(&f.v, 3, "ben")
+	add_account(&f.v, 4, "cy")
+	dm := conn.View_DM{id = 60, last = 3, last_time = T0, count = 2}
+	dm.members[0], dm.members[1] = 3, 4
+	append(&f.v.dms, dm)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "◆ ben, cy"))
+}
+
+@(test)
+test_clicking_a_dm_and_talking_in_it :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	add_message(&f.v, 50, 9, 2, T0, "psst")
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "anna")
+	click(&f, 5, y)
+	cmds := take(&f)
+	vc, ok := find_cmd(conn.View_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, vc.conv, 50)
+	f.v.viewing = 50
+	frame(&f)
+	testing.expect(t, strings.contains(screen(&f)[0], "@ anna"), screen(&f)[0])
+	testing.expect(t, screen_has(&f, "psst"))
+	// What is written goes to the conversation being looked at.
+	type_text(&f, "hello")
+	press(&f, .Enter)
+	cmds = take(&f)
+	chat, is_chat := find_cmd(conn.Chat_Command, cmds)
+	testing.expect(t, is_chat)
+	testing.expect_value(t, chat.dm_to, 0)
+	testing.expect_value(t, chat.thread, conn.Timeline_Key{})
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+}
+
+@(test)
+test_keys_switch_between_channels_and_dms :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	f.v.viewing = 3 // the last channel
+	frame(&f)
+	discard(&f)
+	press(&f, .Down, {.Alt})
+	cmds := take(&f)
+	vc, _ := find_cmd(conn.View_Command, cmds)
+	testing.expect_value(t, vc.conv, 50)
+	app_event(&f.app, tui.Key_Event{key = .Rune, rune = '4', mods = {.Alt}})
+	cmds = take(&f)
+	vc, _ = find_cmd(conn.View_Command, cmds)
+	testing.expect_value(t, vc.conv, 50)
+}
+
+@(test)
+test_a_dm_with_a_deleted_account_cannot_be_written_to :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9)
+	acc := f.v.accounts[2]
+	acc.flags += {.Deleted}
+	f.v.accounts[2] = acc
+	add_message(&f.v, 50, 9, 2, T0, "bye")
+	f.v.viewing = 50
+	frame(&f)
+	click(&f, 40, row_of(&f, "bye"))
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "Reply"))
+	testing.expect(t, screen_has(&f, "Copy text"))
+}
+
+@(test)
+test_dm_unread_counts_in_the_status_bar :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_dm(&f, 50, 2, 9, unread = 5)
+	frame(&f)
+	last := screen(&f)[f.buf.h - 1]
+	testing.expect(t, strings.contains(last, "9 unread"), last)
+}
