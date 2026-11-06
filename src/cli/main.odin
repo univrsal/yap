@@ -1,4 +1,4 @@
-#+build !wasi
+#+build linux, darwin, freebsd, openbsd, netbsd
 package main
 
 import log "common:wlog"
@@ -14,8 +14,8 @@ import "common:memtrack"
 // yap-cli: a terminal client for yap. It is a second front end on client/conn,
 // next to the window in src/client (see docs/design/cli-client.md).
 //
-// So far (phase 0) it only connects and prints the channels it is in, to check
-// that conn works with a View and no window.
+// By default it is a terminal UI (run.odin). With -print it only connects and
+// prints the channels it is in (run_print), which needs no terminal.
 
 Options :: struct {
 	server:        string `args:"pos=0,required" usage:"Server to connect to, host or host:port (default port 7777)."`,
@@ -27,7 +27,8 @@ Options :: struct {
 	user_password: string `usage:"That account's password."`,
 	device:        string `usage:"What to call this device in the account's list (default: your OS user name)."`,
 	log_level:     common.Log_Level `usage:"Log level (debug, info, warn, error)."`,
-	log_file:      string `usage:"Append the log to this file instead of the terminal."`,
+	log_file:      string `usage:"Append the log to this file (default: cli.log in the config folder, unless -print)."`,
+	print:         bool `usage:"No screen: print the channels and what is unread in them, as they change, until Ctrl+C."`,
 }
 
 main :: proc() {
@@ -39,6 +40,10 @@ main :: proc() {
 	}
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
+	// The screen has no room for the log: it goes to a file.
+	if !opt.print && opt.log_file == "" {
+		opt.log_file = platform.default_config_path("cli.log")
+	}
 	logger, ok := common.init_logging(opt.log_level, opt.log_file)
 	if !ok {
 		os.exit(1)
@@ -62,14 +67,15 @@ main :: proc() {
 		opt.device = platform.default_name()
 	}
 
-	if !run(opt) {
+	ok = run_print(opt) if opt.print else run_ui(opt)
+	if !ok {
 		os.exit(1)
 	}
 }
 
-// run connects and shows what the view has until Ctrl+C, or the connection fails
+// run_print connects and shows what the view has until Ctrl+C, or the connection fails
 // for good.
-run :: proc(opt: Options) -> bool {
+run_print :: proc(opt: Options) -> bool {
 	interrupt_install()
 	s := conn.session_new(
 		{

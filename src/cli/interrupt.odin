@@ -1,9 +1,11 @@
-#+build !wasi
+#+build linux, darwin, freebsd, openbsd, netbsd
 package main
 
 import "core:sync"
 import "core:sys/posix"
 import "core:time"
+
+import "tui"
 
 // Ctrl+C and the view's wake-up. Both are only flags for now; the event loop
 // of the terminal UI will wait on a pipe instead (docs/design/cli-client.md).
@@ -19,6 +21,7 @@ interrupt_install :: proc() {
 @(private = "file")
 interrupt_handler :: proc "c" (_: posix.Signal) {
 	sync.atomic_store(&got_interrupt, true)
+	tui.terminal_wake() // the loop is waiting for a key
 }
 
 interrupted :: proc() -> bool {

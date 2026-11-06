@@ -200,12 +200,12 @@ nothing else.
 
 | # | Move | To | Needed by | Size |
 | --- | --- | --- | --- | --- |
-| E1 | `ui_text_history.odin` | `client:compose` (history) | input line | XS |
+| E1 | `ui_text_history.odin` (undo history of a text field) | `client:compose` | input line | XS. **Not done**: the terminal's line editor (`tui/editor.odin`) has a history of sent messages but no undo yet. Do this when the editor gets undo |
 | E2 | The network loop and a front end's session: `net_run` (open, go to the conversation, step until stopped, close) and `Session` (client, View, thread, stop). The GUI's network thread now calls `net_run`. The GUI keeps its own `Net_Session` and `session_new`, which are mostly audio, scripts and rail state, and the web build, which has no threads. | `client:conn` (`session_native.odin`) | phase 0 | **Done (phase 0).** Narrower than first planned: sharing the whole `Net_Session` would have needed a `using` embed across about 40 GUI files and the web build for little gain |
-| E3 | `system_line`, `viewed_unread`, the pure part of `message_flags` / `thread_head` (day lines, merging, reply lines) as `timeline_layout(msgs, tz) -> []Row_Info` | `client:conn` (view helpers) | timeline | M. The risky one: GUI row heights are computed from these flags, so the GUI tests for the timeline (`ui_timeline_test.odin`) must pass unchanged |
+| E3 | `system_line`, `viewed_channel`, `viewed_unread` | `client:conn` (`view_helpers.odin`) | timeline | **Done (phase 1), narrower than planned.** `message_flags` (days, merging, reply lines) turned out to depend on `UI_Timeline`, `local_day`, the bookmarks and pixel heights, so moving it would have meant rewriting the GUI's layout cache. The CLI has its own rules in `timeline.odin`, with a comment saying where they come from |
 | E4 | `buddies.odin` (`buddy_list`, `buddy_entry`, `group_entry`, `dm_name`, `dm_closed`, `dm_unread`, ordering); `inbox_list` and `unhide_stale` stay in the GUI as they use `Net_Session` | `client:conn` (`inbox`) | DMs, groups | S. `buddies_test.odin` moves with it |
 | E5 | The matching half of `ui_completion.odin` (`command_items`, `role_items`, `emoji_items`, `role_word_start`, `word_char`) as `complete(view, text, cursor) -> []Item`; popup stays in the GUI | `client:compose` | tab completion | M |
-| E6 | `headless/commands.odin`: `handle_line` becomes `parse_line(line) -> (conn.Command, Reply)` returning what to queue and what to tell the user, instead of queuing and logging. `-headless` and `yap-cli` both call it. | `client:cmdline` (`headless` keeps the stdin reader and printing) | every `/command` | L. Its tests (`commands_test.odin`) move with it and must pass unchanged for headless |
+| E6 | `headless/commands.odin`: `handle_line` becomes `parse_line(line) -> (conn.Command, Reply)` returning what to queue and what to tell the user, instead of queuing and logging. `-headless` and `yap-cli` both call it. | `client:cmdline` (`headless` keeps the stdin reader and printing) | every `/command` | L. Its tests (`commands_test.odin`) move with it and must pass unchanged for headless. **Deferred to phase 2**: phase 1 has only `/join`, `/quit` and `/help`, in `slash.odin`; the shared parser pays off when most of the 100 commands are needed |
 | E7 | The decision half of `session_notices` / `dm_open` as `pending_notices(view, state) -> []Notice`; the tray call stays | `client:conn` | notices | S |
 
 Each extraction is only done when its phase starts, and is dropped if the
@@ -314,3 +314,59 @@ What phase 0 showed for the open questions:
   `yap_video: no FFmpeg ... so no screen sharing` at start (a warning from
   `client:video`, which `conn` imports). It is harmless, but a terminal client
   has no use for it, so silencing it needs a change in `video` (phase 1).
+
+**Phase 1 (2026-11-06).** The first usable client: `bin/yap-cli host:port`
+opens a terminal screen with the channel list, the title bar, the messages,
+the info line, the message box and the status bar.
+
+What is in it:
+
+- `tui` (44 tests): width of wide and combining runes, a cell buffer, a
+  renderer that writes only what changed (tested by playing its output on a
+  fake terminal and comparing screens), a decoder for keys, SGR mouse and
+  bracketed paste, word wrapping, a line editor with history, and the POSIX
+  raw-mode glue.
+- The app (66 tests, on a View filled in by hand, reading the screen back as
+  text): channel list with unread and mention badges; timeline with day lines,
+  merged messages, a "new messages" line, replies, reactions, threads' reply
+  counts, files, edits, pins, mentions and markdown; wheel and `PgUp`/`PgDn`
+  scrolling that keeps its place when messages arrive; older messages asked
+  for at the top and read marks sent as the conversation is read; the
+  message box with multiple lines, paste, history and typing notices;
+  reply, edit (`Up` on an empty box), delete (asks first) and copy, from a
+  clickable menu or keys; `Alt+Up/Down/1..9` to switch channel; a draggable
+  border; the login dialog, the changed-server-key dialog and `F1` help;
+  `/join`, `/quit`, `/help`.
+- `scripts/cli-smoke.py`: starts a throw-away `yap-server`, runs `yap-cli`
+  in a pty with a small terminal emulator, and checks the login dialog, the
+  channel list, sending a message and seeing it come back, the mouse menu, a
+  resize, Ctrl+C and SIGTERM leaving the terminal as it was, and that no log
+  line reaches the screen. It needs `./build.sh` and `./build-cli.sh`, and is
+  not in CI yet.
+- `scripts/run-tests.sh` and CI (for the platforms that have a terminal) run
+  the `src/cli` tests.
+
+What phase 1 changed in `src/client`: `viewed_channel`, `viewed_unread` and
+`system_line` moved into `conn` (E3), and the network loop (E2, phase 0). The
+GUI's behavior is unchanged; its tests pass.
+
+Deviations from the plan: E1 not done and E6 deferred (see the table); E3 is
+narrower. DMs, groups and the member list are still phase 2, as planned.
+
+Found on the way:
+
+- **stderr.** `client:video` prints its "no FFmpeg" warning to stderr from
+  C, past the log. On a raw terminal that wrote into the screen, so
+  `yap-cli` sends stderr to the log file (by default `cli.log` in the config
+  folder) while the screen is up. The warning itself is still printed once
+  per start; silencing it for good is a change in `video`.
+- **Memory.** A layout kept its rows in the arena that it empties for each
+  layout; the tests found it (a segfault). The rows' own array is now
+  allocated before the arena is switched to.
+- **Terminals that don't send motion.** The wheel and clicks need nothing
+  more than button reporting, which is what is enabled (`?1002`), so
+  hover highlighting is left out for now.
+
+Not done yet: joining more servers, DMs and groups, search, pins, bookmarks,
+reactions (adding), threads (opening), attachments, a member list, completion,
+selecting text with the mouse, Windows.
