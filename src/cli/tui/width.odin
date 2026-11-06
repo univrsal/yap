@@ -178,3 +178,8 @@ WIDE := [?]Range {
 	{0x20000, 0x2fffd},
 	{0x30000, 0x3fffd},
 }
+
+// decode reads the rune at byte i of s, and its size.
+decode :: proc(s: string, i: int) -> (rune, int) {
+	return utf8.decode_rune_in_string(s[i:])
+}
