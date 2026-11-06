@@ -81,6 +81,7 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	command(&items, "Join or leave the voice room", "/voice")
 	command(&items, "Mute" if !a.muted else "Unmute", "/mute" if !a.muted else "/unmute")
 	command(&items, "Deafen" if !a.deafened else "Stop being deaf", "/deafen" if !a.deafened else "/undeafen")
+	command(&items, "Insert an emoji", "/emoji")
 	command(&items, "Settings", "/settings")
 	command(&items, "Search messages", "/search")
 	command(&items, "Pinned messages", "/pins")

@@ -549,3 +549,23 @@ opens them is the window client's, but it was only run here without a card.
 
 Tests: 185 in `src/cli` (6 on pictures). The smoke test also sends a picture
 and sees it come back as cells.
+
+**After trying it (2026-11-06).** Three things from the first real use.
+
+- **Calling was there but hidden** (`/call name`). It is now in the member
+  menu (click someone: *Message* or *Call*), a *Call* button in the title bar of
+  a DM, the `Ctrl+K` palette (`call` and a name), and the names after `/call`,
+  `/dm`, `/ban` and the like are completed. `/call` alone says how.
+- **The emoji picker** had 24 emoji and no search. It now uses the window client's
+  table (`common/proto`, every emoji with all its shortcodes): a box finds by any
+  part of a name (exact names first, then those that start with it, then those that
+  contain it), `Tab` goes through the kinds, the server's own emoji are a kind of
+  their own and written as `:name:`, and the same picker (`F3`, `/emoji`) puts an
+  emoji in the message.
+- **Messages in an open thread** could only be reached with the mouse. `Tab` now
+  goes message box -> messages -> thread -> message box, and the thread has the
+  same keys (menu, reply, react, edit, delete, copy), the pane it is in showing the
+  cursor.
+
+Tests: 201 in `src/cli`. The help dialog's width is now checked line by line, which
+found two of my own help lines being cut.

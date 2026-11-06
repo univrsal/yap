@@ -32,13 +32,14 @@ Everything can be clicked, and everything can be done with the keys.
 | `Up` in an empty box | Change your last message |
 | `Esc` | Cancel a reply or edit, close a thread, go back to the newest message |
 | `PgUp`, `PgDn`, the wheel | Scroll (older messages are fetched at the top) |
-| `Tab` | Pick a message with the keys: `Up`/`Down`, `Enter` for its menu, `r` reply, `e` edit, `d` delete, `a` react, `t` thread, `y` copy |
+| `Tab` | Pick a message with the keys: `Up`/`Down`, `Enter` for its menu, `r` reply, `e` edit, `d` delete, `a` react, `t` thread, `y` copy. With a thread open, `Tab` again picks in the thread; `Tab` once more goes back to the message box |
 | `Alt+Up`, `Alt+Down`, `Alt+1`…`9` | Another channel or DM |
 | `Ctrl+K` | Go anywhere or do anything: conversations, servers, settings, forms for new channels, bans and invites |
 | `Ctrl+N`, `Ctrl+P` | The next or previous server |
 | `Ctrl+B` | The channel list, on a narrow terminal |
 | `F2` | Show or hide the member list |
 | `F5` `F6` `F7` `F8` | Mute, deafen, join or leave voice, hang up |
+| `F3` | Pick an emoji for the message (`a` on a message picked: for a reaction) |
 | `F9` | Settings |
 | `F1` | Help |
 | `Ctrl+C` | Leave |
@@ -51,7 +52,18 @@ text (while the program has the mouse, the terminal's own selection does not
 work; the copy goes to the clipboard through the terminal, which most terminals
 allow, also over ssh).
 
-Type `@` to complete a name, `/` to complete a command.
+Type `@` to complete a name, `/` to complete a command (and the name after
+`/call`, `/dm`, `/ban` and the like).
+
+**Emoji.** The picker (`F3`, `/emoji`, or *Add reaction* in a message's menu)
+has a box to find them in: type any part of a name, `tada`, `thumb`, `party`.
+`Tab` and `Shift+Tab` go through the kinds (common, the server's own, smileys,
+people, …), the arrows pick, `Enter` chooses.
+
+**Calling.** Click someone in the member list and choose *Call*, or press
+*📞 Call* in the title bar of a DM, or use `Ctrl+K` and type `call` and a name,
+or `/call name`. An incoming call opens a dialog (`A` answers, `D` declines);
+`F8` hangs up.
 
 ## Commands
 

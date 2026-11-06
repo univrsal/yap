@@ -195,6 +195,16 @@ def main():
         if os.environ.get("YAP_SMOKE_SHOW"):
             print("\n".join("      | " + r for r in cli.screen.rows()))
 
+        # The emoji picker: found by name, put in the message.
+        cli.send("\x1bOR")  # F3
+        check(cli.wait_for("Find"), "opens the emoji picker", cli)
+        cli.send("rocket")
+        check(cli.wait_for("1 found"), "finds an emoji by its name", cli)
+        cli.send("\r")
+        check(cli.wait_for("> 🚀"), "puts the emoji in the message", cli)
+        cli.send("\x15")  # Ctrl+U
+        cli.pump(0.2)
+
         # Completion, a list dialog and copying a drag with the clipboard escape.
         cli.send("/pi")
         check(cli.wait_for("/pins"), "offers commands while typing one", cli)

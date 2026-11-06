@@ -59,7 +59,12 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 		case .F9:
 			open_settings(a)
 			return
-		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F10, .F11, .F12:
+		case .F3:
+			if a.dialog.kind == .None {
+				open_emoji_insert(a)
+			}
+			return
+		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F4, .F10, .F11, .F12:
 		}
 	}
 	if k.key == .Rune && k.mods == {.Ctrl} && k.rune == 'b' && a.dialog.kind == .None {
@@ -385,6 +390,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	if m.kind == .Wheel_Up || m.kind == .Wheel_Down {
 		dir := 1 if m.kind == .Wheel_Up else -1
 		switch {
+		case a.dialog.kind == .Picker:
+			picker_move(a, -dir, rows = true)
 		case a.dialog.kind != .None:
 		case tui.rect_contains(g.channels, m.x, m.y):
 			a.chan_scroll = max(a.chan_scroll - dir * SCROLL_STEP, 0)
@@ -423,6 +430,8 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 	if a.dialog.kind == .Picker {
 		if found && hit.kind == .Emoji {
 			picker_choose(a, int(hit.id))
+		} else if found && hit.kind == .Picker_Tab {
+			picker_key(a, tui.Key_Event{key = .Tab, mods = {.Shift} if hit.id == 0 else {}})
 		} else if !found || hit.kind != .Dialog {
 			dialog_close(a)
 		}
@@ -494,7 +503,7 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		setting_change(a, Setting(hit.id), 1)
 	case .Voice_Join:
 		toggle_voice_of(a, proto_conv(hit.id))
-	case .Emoji, .List_Item:
+	case .Emoji, .List_Item, .Picker_Tab:
 	case .Member:
 		// What to do with someone: write to them, call them.
 		if hit.id != u64(a.view.me) {

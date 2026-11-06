@@ -1498,92 +1498,6 @@ test_reactions_need_the_right :: proc(t: ^testing.T) {
 	testing.expect(t, !screen_has(&f, "Add reaction"))
 }
 
-@(test)
-test_the_picker_reacts_to_a_message :: proc(t: ^testing.T) {
-	f: Fixture
-	fixture(&f)
-	defer fixture_destroy(&f)
-	add_message(&f.v, 1, 10, 2, T0, "nice")
-	frame(&f)
-	discard(&f)
-	click(&f, 40, row_of(&f, "nice"))
-	frame(&f)
-	// Add reaction is the second item of the menu, after Reply.
-	testing.expect_value(t, f.app.menu.items[1].action, Menu_Action.React)
-	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + 1)
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
-	frame(&f)
-	testing.expect(t, screen_has(&f, "React with"))
-	testing.expect(t, screen_has(&f, "👍"))
-	// With the keys: right, down, Enter picks the second row's second emoji.
-	press(&f, .Right)
-	press(&f, .Down)
-	press(&f, .Enter)
-	cmds := take(&f)
-	rc, ok := find_cmd(conn.React_Command, cmds)
-	testing.expect(t, ok)
-	testing.expect_value(t, rc.id, 10)
-	testing.expect_value(t, rc.emoji, PICKER_EMOJI[PICKER_COLUMNS + 1])
-	testing.expect(t, rc.on)
-	conn.command_destroy(rc)
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
-}
-
-@(test)
-test_the_picker_with_the_mouse_and_escape :: proc(t: ^testing.T) {
-	f: Fixture
-	fixture(&f)
-	defer fixture_destroy(&f)
-	add_message(&f.v, 1, 10, 2, T0, "nice")
-	frame(&f)
-	press(&f, .Tab)
-	type_text(&f, "a")
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
-	frame(&f)
-	discard(&f)
-	press(&f, .Escape)
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
-	testing.expect_value(t, len(take(&f)), 0)
-	type_text(&f, "a")
-	frame(&f)
-	// The third emoji, by clicking it.
-	var_hit: Hit
-	for h in f.app.hits {
-		if h.kind == .Emoji && h.id == 2 {
-			var_hit = h
-		}
-	}
-	click(&f, var_hit.rect.x + 1, var_hit.rect.y)
-	cmds := take(&f)
-	rc, ok := find_cmd(conn.React_Command, cmds)
-	testing.expect(t, ok)
-	testing.expect_value(t, rc.emoji, PICKER_EMOJI[2])
-	conn.command_destroy(rc)
-	// Clicking away closes it without reacting.
-	type_text(&f, "a")
-	frame(&f)
-	click(&f, 1, 1)
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
-	testing.expect_value(t, len(take(&f)), 0)
-}
-
-@(test)
-test_the_picker_takes_back_our_own_reaction :: proc(t: ^testing.T) {
-	f: Fixture
-	fixture(&f)
-	defer fixture_destroy(&f)
-	m := add_message(&f.v, 1, 10, 2, T0, "nice")
-	append(&m.reactions, conn.Reaction{emoji = strings.clone(PICKER_EMOJI[0]), count = 1, me = true})
-	frame(&f)
-	open_picker(&f.app, 10)
-	press(&f, .Enter) // the first emoji
-	cmds := take(&f)
-	rc, ok := find_cmd(conn.React_Command, cmds)
-	testing.expect(t, ok)
-	testing.expect(t, !rc.on)
-	conn.command_destroy(rc)
-}
-
 // a_thread has a root with replies, the window of the thread and the root as the
 // thread's pane wants them.
 @(private = "file")
@@ -4227,4 +4141,273 @@ test_tab_without_a_thread_goes_straight_back :: proc(t: ^testing.T) {
 	press(&f, .Tab)
 	press(&f, .Tab)
 	testing.expect_value(t, f.app.focus, Focus.Composer)
+}
+
+@(test)
+test_the_picker_reacts_to_a_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	discard(&f)
+	click(&f, 40, row_of(&f, "nice"))
+	frame(&f)
+	// Add reaction is the second item of the menu, after Reply.
+	testing.expect_value(t, f.app.menu.items[1].action, Menu_Action.React)
+	click(&f, f.app.menu.rect.x + 3, f.app.menu.rect.y + 1)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "React with"))
+	testing.expect(t, screen_has(&f, "Common"))
+	testing.expect(t, screen_has(&f, "👍"))
+	// The first one is picked; Enter reacts with it.
+	press(&f, .Enter)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.id, 10)
+	testing.expect_value(t, rc.emoji, "👍")
+	testing.expect(t, rc.on)
+	testing.expect(t, !rc.typed)
+	conn.command_destroy(rc)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+}
+
+@(test)
+test_emoji_are_found_by_what_they_are_called :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	open_picker(&f.app, 10)
+	type_text(&f, "tada")
+	frame(&f)
+	items := picker_items(&f.app)
+	testing.expect(t, len(items) >= 1)
+	testing.expect_value(t, items[0].label, "🎉")
+	testing.expect(t, screen_has(&f, "found"))
+	press(&f, .Enter)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.emoji, "🎉")
+	conn.command_destroy(rc)
+}
+
+@(test)
+test_searching_emoji_ranks_exact_then_prefix_then_inside :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	open_emoji_insert(&f.app)
+	type_text(&f, "smile")
+	items := picker_items(&f.app)
+	testing.expect(t, len(items) > 3)
+	names := make([dynamic]string, context.temp_allocator)
+	for it in items {
+		append(&names, it.names)
+	}
+	// "smile" itself is the first of them; those that only contain it come last.
+	first, _, _ := strings.partition(names[0], " ")
+	testing.expect_value(t, first, "smile")
+	last := names[len(names) - 1]
+	testing.expect(t, strings.contains(last, "smile"))
+	testing.expect(t, !strings.has_prefix(last, "smile"))
+	// A colon and capitals do not matter; nothing found says so.
+	tui.editor_set(&f.app.dialog.fields[0], ":TaDa:")
+	testing.expect_value(t, picker_items(&f.app)[0].label, "🎉")
+	tui.editor_set(&f.app.dialog.fields[0], "zzzzqqq")
+	frame(&f)
+	testing.expect_value(t, len(picker_items(&f.app)), 0)
+	testing.expect(t, screen_has(&f, "Nothing found."))
+	press(&f, .Enter) // nothing to choose
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+}
+
+@(test)
+test_the_picker_goes_through_the_kinds_of_emoji :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	open_emoji_insert(&f.app)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "◂ Common ▸"))
+	press(&f, .Tab)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "◂ Smileys ▸"))
+	testing.expect_value(t, picker_items(&f.app)[0].send, "😀")
+	press(&f, .Tab, {.Shift})
+	press(&f, .Tab, {.Shift}) // back past the first: round to the last
+	frame(&f)
+	testing.expect(t, screen_has(&f, "◂ Flags ▸"))
+	// The mouse arrows do it too.
+	for h in f.app.hits {
+		if h.kind == .Picker_Tab && h.id == 1 {
+			click(&f, h.rect.x + 1, h.rect.y)
+		}
+	}
+	testing.expect_value(t, f.app.dialog.category, CATEGORY_COMMON)
+}
+
+@(test)
+test_the_server_s_own_emoji_are_in_the_picker :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	append(&f.v.emoji.names, strings.clone("partyparrot"), strings.clone("shipit"))
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	open_picker(&f.app, 10)
+	press(&f, .Tab) // after the common ones
+	frame(&f)
+	testing.expect(t, screen_has(&f, "This server's"))
+	testing.expect(t, screen_has(&f, ":partyparrot:"))
+	// Found by searching too, and reacted with as typed.
+	press(&f, .Escape)
+	open_picker(&f.app, 10)
+	type_text(&f, "shipi")
+	items := picker_items(&f.app)
+	testing.expect_value(t, items[0].send, ":shipit:")
+	press(&f, .Enter)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.emoji, ":shipit:")
+	testing.expect(t, rc.typed)
+	conn.command_destroy(rc)
+}
+
+@(test)
+test_picking_an_emoji_for_the_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	append(&f.v.emoji.names, strings.clone("shipit"))
+	frame(&f)
+	discard(&f)
+	type_text(&f, "great ")
+	press(&f, .F3)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	testing.expect_value(t, f.app.dialog.msg, 0)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Emoji"))
+	type_text(&f, "rocket")
+	press(&f, .Enter)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "great 🚀")
+	testing.expect_value(t, f.app.focus, Focus.Composer)
+	testing.expect_value(t, len(f.app.dialog.form.fields), 0)
+	// A custom one is written as :name: and a space after it.
+	type_text(&f, "/emoji")
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "/emoji")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	type_text(&f, "shipit")
+	press(&f, .Enter)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), ":shipit: ")
+	testing.expect_value(t, len(take(&f)) > 0, true) // (typing notices and the reading mark)
+	for c in f.c.commands.commands {
+		conn.command_destroy(c)
+	}
+	clear(&f.c.commands.commands)
+}
+
+@(test)
+test_the_picker_with_the_mouse_keys_and_escape :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	press(&f, .Tab)
+	type_text(&f, "a")
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	frame(&f)
+	discard(&f)
+	// Escape clears what was typed first, then closes.
+	type_text(&f, "joy")
+	press(&f, .Escape)
+	testing.expect_value(t, tui.editor_text(&f.app.dialog.fields[0]), "")
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect_value(t, len(take(&f)), 0)
+	// A click on the third one reacts with it.
+	type_text(&f, "a")
+	frame(&f)
+	var_hit: Hit
+	for h in f.app.hits {
+		if h.kind == .Emoji && h.id == 2 {
+			var_hit = h
+		}
+	}
+	click(&f, var_hit.rect.x + 1, var_hit.rect.y)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.emoji, "❤")
+	conn.command_destroy(rc)
+	// Clicking away closes it without reacting.
+	type_text(&f, "a")
+	frame(&f)
+	click(&f, 1, 1)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_the_arrows_move_through_the_grid_and_scroll_it :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f, 80, 14)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	open_picker(&f.app, 10)
+	press(&f, .Tab) // Smileys: many
+	frame(&f)
+	cols := picker_columns(&f.app)
+	testing.expect(t, cols >= 8)
+	press(&f, .Right)
+	testing.expect_value(t, f.app.dialog.sel, 1)
+	press(&f, .Down)
+	testing.expect_value(t, f.app.dialog.sel, 1 + cols)
+	press(&f, .Left)
+	press(&f, .Up)
+	testing.expect_value(t, f.app.dialog.sel, 0)
+	press(&f, .Up) // not before the first
+	testing.expect_value(t, f.app.dialog.sel, 0)
+	// Down far enough scrolls, and the one picked stays in sight.
+	for _ in 0 ..< 12 {
+		press(&f, .Down)
+		frame(&f)
+	}
+	testing.expect(t, f.app.dialog.top > 0)
+	picked := picker_items(&f.app)[f.app.dialog.sel].label
+	testing.expect(t, screen_has(&f, picked))
+	// The wheel moves it too.
+	before := f.app.dialog.sel
+	app_event(&f.app, tui.Mouse_Event{kind = .Wheel_Up, x = 20, y = 8})
+	testing.expect(t, f.app.dialog.sel < before)
+	discard(&f)
+}
+
+@(test)
+test_the_picker_takes_back_our_own_reaction :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	m := add_message(&f.v, 1, 10, 2, T0, "nice")
+	append(&m.reactions, conn.Reaction{emoji = strings.clone("👍"), count = 1, me = true})
+	frame(&f)
+	open_picker(&f.app, 10)
+	press(&f, .Enter) // the first emoji: 👍
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect(t, !rc.on)
+	conn.command_destroy(rc)
 }

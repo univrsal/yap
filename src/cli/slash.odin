@@ -19,6 +19,8 @@ run_command :: proc(a: ^App, line: string) {
 	case "help", "h", "?":
 		dialog_close(a)
 		a.dialog.kind = .Help
+	case "emoji":
+		open_emoji_insert(a)
 	case "settings":
 		open_settings(a)
 	case "call":

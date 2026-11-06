@@ -34,6 +34,8 @@ Dialog :: struct {
 	msg:    proto.Msg_Id, // what a Confirm_Delete is about
 	text:   string, // what an Output shows (owned)
 	sel:    int, // the emoji picked in a Picker, the entry in a List
+	top:    int, // the first row of a Picker's grid that is shown
+	category: int, // the kind of emoji a Picker shows (CATEGORY_...)
 	list:   List_Kind,
 	info:   Info_Kind,
 	form:   Form,
@@ -283,18 +285,7 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, r.y + 2, fmt.tprintf("📞 %s is calling you.", call_peer_name(v)), {attrs = {.Bold}}, r.x + r.w - 1)
 		tui.put_string(b, r.x + 2, r.y + 4, "A / Enter: answer   D / Esc: decline", {}, r.x + r.w - 1)
 	case .Picker:
-		rows := (len(PICKER_EMOJI) + PICKER_COLUMNS - 1) / PICKER_COLUMNS
-		r := dialog_rect(b, PICKER_COLUMNS * PICKER_CELL + 3, rows + 4)
-		append(&a.hits, Hit{r, .Dialog, 0, ""})
-		draw_box(b, r, "React with")
-		for e, i in PICKER_EMOJI {
-			cell := tui.Rect{r.x + 2 + (i % PICKER_COLUMNS) * PICKER_CELL, r.y + 2 + i / PICKER_COLUMNS, PICKER_CELL, 1}
-			style := theme.selected if i == d.sel else tui.Style{}
-			tui.fill(b, cell, style)
-			tui.put_string(b, cell.x + 1, cell.y, e, style)
-			append(&a.hits, Hit{cell, .Emoji, u64(i), ""})
-		}
-		tui.put_string(b, r.x + 2, r.y + r.h - 2, "Enter: choose   /react <id> :name: for others", theme.dim, r.x + r.w - 1)
+		draw_picker(a, b)
 	case .Output:
 		r := dialog_rect(b, min(b.w - 4, 90), min(b.h - 2, 20))
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
@@ -332,6 +323,7 @@ HELP_LINES :: [?]string {
 	"F2              show or hide the member list (on wide screens)",
 	"Ctrl+B          the channel list, on a narrow screen",
 	"Ctrl+K          go to a conversation or do something (also new channel, ban, ...)",
+	"F3 / /emoji     an emoji for the message (a: react to the one picked)",
 	"/call <name>     call someone (or click a member, or Call in a DM)",
 	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  F9 settings",
 	"/pins /bookmarks /search [all] <words>   lists of messages",
@@ -412,57 +404,18 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 	case .List:
 		list_key(a, k)
 	case .Picker:
-		switch k.key {
-		case .Left: d.sel = max(d.sel - 1, 0)
-		case .Right: d.sel = min(d.sel + 1, len(PICKER_EMOJI) - 1)
-		case .Up: d.sel = max(d.sel - PICKER_COLUMNS, 0)
-		case .Down: d.sel = min(d.sel + PICKER_COLUMNS, len(PICKER_EMOJI) - 1)
-		case .Enter: picker_choose(a, d.sel)
-		case .Escape: dialog_close(a)
-		case .Rune, .Tab, .Backspace, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
-		}
+		picker_key(a, k)
 	}
-}
-
-PICKER_EMOJI := [?]string {
-	"👍", "👎", "❤️", "😂", "😮", "😢", "🎉", "🙏",
-	"👀", "🔥", "✅", "❌", "💯", "🤔", "👏", "😀",
-	"😍", "😎", "🙌", "💪", "🚀", "⭐", "😅", "🤝",
-}
-PICKER_COLUMNS :: 8
-PICKER_CELL :: 4
-
-open_picker :: proc(a: ^App, msg: proto.Msg_Id) {
-	dialog_close(a)
-	a.dialog.kind, a.dialog.msg = .Picker, msg
-}
-
-// picker_choose reacts to the message with the emoji at i, or takes the reaction
-// back if it is ours already. Call with the View locked.
-picker_choose :: proc(a: ^App, i: int) {
-	if i < 0 || i >= len(PICKER_EMOJI) {
-		return
-	}
-	id := a.dialog.msg
-	react(a, id, PICKER_EMOJI[i])
-	dialog_close(a)
-}
-
-// react toggles our reaction to a message. Call with the View locked.
-react :: proc(a: ^App, id: proto.Msg_Id, emoji: string) {
-	on := true
-	if m, ok := find_message(a, id); ok {
-		for r in m.reactions {
-			if r.emoji == emoji && r.me {
-				on = false
-			}
-		}
-	}
-	push(a, conn.React_Command{id = id, emoji = strings.clone(emoji), on = on})
 }
 
 // dialog_paste puts pasted text in the field of a dialog that has one.
 dialog_paste :: proc(a: ^App, text: string) {
+	if a.dialog.kind == .Picker {
+		line, _, _ := strings.partition(text, "\n")
+		tui.editor_insert(&a.dialog.fields[0], strings.trim_right_space(line))
+		a.dialog.sel, a.dialog.top = 0, 0
+		return
+	}
 	if a.dialog.kind == .Palette {
 		line, _, _ := strings.partition(text, "\n")
 		tui.editor_insert(&a.dialog.fields[0], strings.trim_right_space(line))

@@ -47,6 +47,7 @@ Hit_Kind :: enum {
 	List_Item, // id: its index in the list dialog
 	Completion, // id: its index in the completion list
 	Emoji, // id: its index in the picker
+	Picker_Tab, // id: 0 for the previous kind of emoji, 1 for the next
 	Composer,
 	Menu_Item, // id: its index
 	Dialog,
