@@ -1291,3 +1291,145 @@ test_clicking_a_member_opens_their_dm :: proc(t: ^testing.T) {
 	click(&f, 120 - MEMBERS_W + 5, 2)
 	testing.expect_value(t, len(take(&f)), 0)
 }
+
+@(private = "file")
+react_to_first :: proc(f: ^Fixture) {
+	m := add_message(&f.v, 1, 10, 2, T0, "nice")
+	append(&m.reactions, conn.Reaction{emoji = strings.clone("👍"), count = 2})
+	append(&m.reactions, conn.Reaction{emoji = strings.clone("❤"), count = 1, me = true})
+}
+
+@(test)
+test_clicking_a_reaction_adds_or_takes_back_ours :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	react_to_first(&f)
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "👍 2")
+	g := geometry(&f.app)
+	chip := f.app.layout.rows[len(f.app.layout.rows) - 1].chips
+	testing.expect_value(t, len(chip), 2)
+	click(&f, g.timeline.x + chip[0].start + 2, y)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.id, 10)
+	testing.expect_value(t, rc.emoji, "👍")
+	testing.expect(t, rc.on)
+	conn.command_destroy(rc)
+	// Ours is taken back.
+	click(&f, g.timeline.x + chip[1].start + 2, y)
+	cmds = take(&f)
+	rc, ok = find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.emoji, "❤")
+	testing.expect(t, !rc.on)
+	conn.command_destroy(rc)
+	// The message's menu is not what opens.
+	testing.expect(t, !f.app.menu.open)
+}
+
+@(test)
+test_reactions_need_the_right :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	react_to_first(&f)
+	f.v.channels[0].rights = {.See, .Write}
+	frame(&f)
+	discard(&f)
+	y := row_of(&f, "👍 2")
+	click(&f, geometry(&f.app).timeline.x + f.app.layout.rows[len(f.app.layout.rows) - 1].chips[0].start + 2, y)
+	testing.expect_value(t, len(take(&f)), 0)
+	click(&f, 40, row_of(&f, "nice"))
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "Add reaction"))
+}
+
+@(test)
+test_the_picker_reacts_to_a_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	discard(&f)
+	click(&f, 40, row_of(&f, "nice"))
+	frame(&f)
+	// Add reaction is the second item of the menu, after Reply.
+	testing.expect_value(t, f.app.menu.items[1].action, Menu_Action.React)
+	click(&f, f.app.menu.at.x + 3, f.app.menu.at.y + 1)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "React with"))
+	testing.expect(t, screen_has(&f, "👍"))
+	// With the keys: right, down, Enter picks the second row's second emoji.
+	press(&f, .Right)
+	press(&f, .Down)
+	press(&f, .Enter)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.id, 10)
+	testing.expect_value(t, rc.emoji, PICKER_EMOJI[PICKER_COLUMNS + 1])
+	testing.expect(t, rc.on)
+	conn.command_destroy(rc)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+}
+
+@(test)
+test_the_picker_with_the_mouse_and_escape :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "nice")
+	frame(&f)
+	press(&f, .Tab)
+	type_text(&f, "a")
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Picker)
+	frame(&f)
+	discard(&f)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect_value(t, len(take(&f)), 0)
+	type_text(&f, "a")
+	frame(&f)
+	// The third emoji, by clicking it.
+	var_hit: Hit
+	for h in f.app.hits {
+		if h.kind == .Emoji && h.id == 2 {
+			var_hit = h
+		}
+	}
+	click(&f, var_hit.rect.x + 1, var_hit.rect.y)
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, rc.emoji, PICKER_EMOJI[2])
+	conn.command_destroy(rc)
+	// Clicking away closes it without reacting.
+	type_text(&f, "a")
+	frame(&f)
+	click(&f, 1, 1)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_the_picker_takes_back_our_own_reaction :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	m := add_message(&f.v, 1, 10, 2, T0, "nice")
+	append(&m.reactions, conn.Reaction{emoji = strings.clone(PICKER_EMOJI[0]), count = 1, me = true})
+	frame(&f)
+	open_picker(&f.app, 10)
+	press(&f, .Enter) // the first emoji
+	cmds := take(&f)
+	rc, ok := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect(t, !rc.on)
+	conn.command_destroy(rc)
+}

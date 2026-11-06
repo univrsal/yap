@@ -97,7 +97,7 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	for y in 0 ..< g.border.h {
 		tui.set_cell(b, g.border.x, y, '│', 1, theme.border)
 	}
-	append(&a.hits, Hit{g.border, .Border, 0})
+	append(&a.hits, Hit{g.border, .Border, 0, ""})
 
 	// The server.
 	tui.fill(b, {r.x, 0, r.w, 1}, theme.bar)
@@ -145,7 +145,7 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 		if badge_w > 0 {
 			tui.put_string(b, r.x + r.w - badge_w - 1, y, badge, badge_style)
 		}
-		append(&a.hits, Hit{{r.x, y, r.w, 1}, .Channel, u64(row.conv)})
+		append(&a.hits, Hit{{r.x, y, r.w, 1}, .Channel, u64(row.conv), ""})
 		y += 1
 	}
 }

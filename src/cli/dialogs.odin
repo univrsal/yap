@@ -18,6 +18,7 @@ Dialog_Kind :: enum {
 	Confirm_Delete,
 	Help,
 	Output, // text an answer of a command
+	Picker, // an emoji to react to a message with
 }
 
 Dialog :: struct {
@@ -26,6 +27,7 @@ Dialog :: struct {
 	field:  int,
 	msg:    proto.Msg_Id, // what a Confirm_Delete is about
 	text:   string, // what an Output shows (owned)
+	sel:    int, // the emoji picked in a Picker
 }
 
 dialog_close :: proc(a: ^App) {
@@ -43,7 +45,7 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output:
+	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -60,6 +62,7 @@ dialog_update :: proc(a: ^App) {
 
 Menu_Action :: enum {
 	Reply,
+	React,
 	Edit,
 	Delete,
 	Copy,
@@ -93,6 +96,9 @@ menu_open :: proc(a: ^App, m: conn.View_Message, x, y: int) {
 	if can_write(v) {
 		append(items, Menu_Item{"Reply", .Reply})
 	}
+	if can_react(v) {
+		append(items, Menu_Item{"Add reaction", .React})
+	}
 	if can_edit(v, m) {
 		append(items, Menu_Item{"Edit", .Edit})
 	}
@@ -124,12 +130,12 @@ draw_menu :: proc(a: ^App, b: ^tui.Buffer) {
 	// Where it fits: by the click, moved in if it would stick out.
 	x := clamp(m.at.x, 0, max(b.w - w, 0))
 	y := clamp(m.at.y, 0, max(b.h - h, 0))
-	append(&a.hits, Hit{{0, 0, b.w, b.h}, .Dialog, 0}) // a click elsewhere closes it
+	append(&a.hits, Hit{{0, 0, b.w, b.h}, .Dialog, 0, ""}) // a click elsewhere closes it
 	for it, i in m.items {
 		style := theme.selected if i == m.sel else theme.bar
 		tui.fill(b, {x, y + i, w, 1}, style)
 		tui.put_string(b, x + 2, y + i, it.label, style, x + w)
-		append(&a.hits, Hit{{x, y + i, w, 1}, .Menu_Item, u64(i)})
+		append(&a.hits, Hit{{x, y + i, w, 1}, .Menu_Item, u64(i), ""})
 	}
 }
 
@@ -167,7 +173,7 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 	case .None:
 	case .Login:
 		r := dialog_rect(b, 46, 9)
-		append(&a.hits, Hit{r, .Dialog, 0})
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Log in")
 		name := v.server_name if v.server_name != "" else v.server
 		tui.put_string(b, r.x + 2, r.y + 1, fmt.tprintf("%s doesn't know this device.", name), theme.dim, r.x + r.w - 1)
@@ -191,7 +197,7 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, r.y + 7, "Tab: next field   Enter: log in   Ctrl+C: quit", theme.dim, r.x + r.w - 1)
 	case .Key_Change:
 		r := dialog_rect(b, 72, 14)
-		append(&a.hits, Hit{r, .Dialog, 0})
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "The server's key has changed")
 		kc := &v.key_change
 		tui.put_string(b, r.x + 2, r.y + 1, kc.server, {attrs = {.Bold}}, r.x + r.w - 1)
@@ -208,13 +214,26 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, r.y + r.h - 2, "T: trust the new key and connect   Q: quit", {attrs = {.Bold}}, r.x + r.w - 1)
 	case .Confirm_Delete:
 		r := dialog_rect(b, 40, 5)
-		append(&a.hits, Hit{r, .Dialog, 0})
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Delete message")
 		tui.put_string(b, r.x + 2, r.y + 2, "Delete this message for everyone?", {}, r.x + r.w - 1)
 		tui.put_string(b, r.x + 2, r.y + 3, "Y: delete   N: keep it", theme.dim, r.x + r.w - 1)
+	case .Picker:
+		rows := (len(PICKER_EMOJI) + PICKER_COLUMNS - 1) / PICKER_COLUMNS
+		r := dialog_rect(b, PICKER_COLUMNS * PICKER_CELL + 3, rows + 4)
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
+		draw_box(b, r, "React with")
+		for e, i in PICKER_EMOJI {
+			cell := tui.Rect{r.x + 2 + (i % PICKER_COLUMNS) * PICKER_CELL, r.y + 2 + i / PICKER_COLUMNS, PICKER_CELL, 1}
+			style := theme.selected if i == d.sel else tui.Style{}
+			tui.fill(b, cell, style)
+			tui.put_string(b, cell.x + 1, cell.y, e, style)
+			append(&a.hits, Hit{cell, .Emoji, u64(i), ""})
+		}
+		tui.put_string(b, r.x + 2, r.y + r.h - 2, "Enter: choose   /react <id> :name: for others", theme.dim, r.x + r.w - 1)
 	case .Output:
 		r := dialog_rect(b, min(b.w - 4, 90), min(b.h - 2, 20))
-		append(&a.hits, Hit{r, .Dialog, 0})
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Output (any key closes)")
 		lines := make([dynamic]tui.Line, context.temp_allocator)
 		tui.wrap(d.text, r.w - 4, &lines)
@@ -227,7 +246,7 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 	case .Help:
 		lines := HELP_LINES
 		r := dialog_rect(b, 64, len(lines) + 4)
-		append(&a.hits, Hit{r, .Dialog, 0})
+		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Keys")
 		for l, i in lines {
 			tui.put_string(b, r.x + 2, r.y + 2 + i, l, {}, r.x + r.w - 1)
@@ -308,7 +327,54 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		}
 	case .Help, .Output:
 		dialog_close(a)
+	case .Picker:
+		switch k.key {
+		case .Left: d.sel = max(d.sel - 1, 0)
+		case .Right: d.sel = min(d.sel + 1, len(PICKER_EMOJI) - 1)
+		case .Up: d.sel = max(d.sel - PICKER_COLUMNS, 0)
+		case .Down: d.sel = min(d.sel + PICKER_COLUMNS, len(PICKER_EMOJI) - 1)
+		case .Enter: picker_choose(a, d.sel)
+		case .Escape: dialog_close(a)
+		case .Rune, .Tab, .Backspace, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
+		}
 	}
+}
+
+PICKER_EMOJI := [?]string {
+	"👍", "👎", "❤️", "😂", "😮", "😢", "🎉", "🙏",
+	"👀", "🔥", "✅", "❌", "💯", "🤔", "👏", "😀",
+	"😍", "😎", "🙌", "💪", "🚀", "⭐", "😅", "🤝",
+}
+PICKER_COLUMNS :: 8
+PICKER_CELL :: 4
+
+open_picker :: proc(a: ^App, msg: proto.Msg_Id) {
+	dialog_close(a)
+	a.dialog.kind, a.dialog.msg = .Picker, msg
+}
+
+// picker_choose reacts to the message with the emoji at i, or takes the reaction
+// back if it is ours already. Call with the View locked.
+picker_choose :: proc(a: ^App, i: int) {
+	if i < 0 || i >= len(PICKER_EMOJI) {
+		return
+	}
+	id := a.dialog.msg
+	react(a, id, PICKER_EMOJI[i])
+	dialog_close(a)
+}
+
+// react toggles our reaction to a message. Call with the View locked.
+react :: proc(a: ^App, id: proto.Msg_Id, emoji: string) {
+	on := true
+	if m, ok := find_message(a, id); ok {
+		for r in m.reactions {
+			if r.emoji == emoji && r.me {
+				on = false
+			}
+		}
+	}
+	push(a, conn.React_Command{id = id, emoji = strings.clone(emoji), on = on})
 }
 
 // dialog_paste puts pasted text in the field of a dialog that has one.

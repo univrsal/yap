@@ -107,7 +107,7 @@ draw_members :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 			name = fmt.tprintf("%s ★", name)
 		}
 		tui.put_string(b, r.x + 3, y, tui.cut_to_width(name, r.w - 4), style, r.x + r.w)
-		append(&a.hits, Hit{{r.x, y, r.w, 1}, .Member, u64(m.account)})
+		append(&a.hits, Hit{{r.x, y, r.w, 1}, .Member, u64(m.account), ""})
 		y += 1
 	}
 }

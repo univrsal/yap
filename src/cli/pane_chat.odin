@@ -92,7 +92,11 @@ draw_timeline :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 		}
 		if row.msg != 0 {
 			kind := Hit_Kind.Thread if row.kind == .Thread else Hit_Kind.Message
-			append(&a.hits, Hit{{r.x, r.y + y, text_w, 1}, kind, u64(row.msg)})
+			append(&a.hits, Hit{{r.x, r.y + y, text_w, 1}, kind, u64(row.msg), ""})
+			// Each reaction can be clicked on its own, over the message.
+			for chip in row.chips {
+				append(&a.hits, Hit{{r.x + chip.start, r.y + y, chip.end - chip.start, 1}, .Reaction, u64(row.msg), chip.emoji})
+			}
 		}
 	}
 	draw_scrollbar(b, {r.x + r.w - 1, r.y, 1, r.h}, len(rows), r.h, a.scroll)
@@ -158,7 +162,7 @@ draw_composer :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 	prompt := "> "
 	text_x := r.x + len(prompt)
 	text_w := r.w - len(prompt)
-	append(&a.hits, Hit{r, .Composer, 0})
+	append(&a.hits, Hit{r, .Composer, 0, ""})
 	text := tui.editor_text(&a.editor)
 	lines := make([dynamic]tui.Line, context.temp_allocator)
 	cx, cy := tui.editor_layout(&a.editor, max(text_w, 1), &lines)
@@ -230,6 +234,14 @@ can_delete :: proc(v: ^conn.View, m: conn.View_Message) -> bool {
 		return ch == nil || .Delete in ch.rights
 	}
 	return .Manage_Messages in v.permissions
+}
+
+can_react :: proc(v: ^conn.View) -> bool {
+	if dm := viewed_dm(v); dm != nil {
+		return !conn.dm_closed(v, dm)
+	}
+	ch := conn.viewed_channel(v)
+	return ch == nil || .React in ch.rights
 }
 
 can_write :: proc(v: ^conn.View) -> bool {

@@ -33,6 +33,8 @@ Hit_Kind :: enum {
 	Thread, // id: the thread's root
 	Border, // between the channel list and the chat
 	Member, // id: the account
+	Reaction, // id: the message; text: the emoji
+	Emoji, // id: its index in the picker
 	Composer,
 	Menu_Item, // id: its index
 	Dialog,
@@ -44,6 +46,7 @@ Hit :: struct {
 	rect: tui.Rect,
 	kind: Hit_Kind,
 	id:   u64,
+	text: string,
 }
 
 Drag :: enum {

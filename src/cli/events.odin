@@ -170,6 +170,10 @@ timeline_key :: proc(a: ^App, k: tui.Key_Event) {
 				a.dialog.kind, a.dialog.msg = .Confirm_Delete, m.id
 			}
 		case 'y': copy_text(a, m.text)
+		case 'a':
+			if can_react(a.view) {
+				open_picker(a, m.id)
+			}
 		}
 	}
 }
@@ -242,6 +246,7 @@ menu_choose :: proc(a: ^App, i: int) {
 	}
 	switch action {
 	case .Reply: start_reply(a, m^)
+	case .React: open_picker(a, id)
 	case .Edit: start_edit(a, m^)
 	case .Copy: copy_text(a, m.text)
 	case .Delete: a.dialog.kind, a.dialog.msg = .Confirm_Delete, id
@@ -304,6 +309,14 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		}
 		return
 	}
+	if a.dialog.kind == .Picker {
+		if found && hit.kind == .Emoji {
+			picker_choose(a, int(hit.id))
+		} else if !found || hit.kind != .Dialog {
+			dialog_close(a)
+		}
+		return
+	}
 	if a.dialog.kind != .None || !found {
 		return
 	}
@@ -318,6 +331,11 @@ mouse_event :: proc(a: ^App, m: tui.Mouse_Event) {
 		// Threads open in a later phase.
 	case .Border:
 		a.drag = .Border
+	case .Reaction:
+		if can_react(a.view) {
+			react(a, proto_msg(hit.id), hit.text)
+		}
+	case .Emoji:
 	case .Member:
 		// Writing to someone starts with their DM.
 		if hit.id != u64(a.view.me) {

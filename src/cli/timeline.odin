@@ -40,6 +40,14 @@ Row :: struct {
 	msg:    proto.Msg_Id, // the message this belongs to, 0 for none
 	segs:   []Seg,
 	text_x: int, // the column the text starts at (what is left of it is the time and name)
+	chips:  []Chip, // the reactions on a .Reactions row
+}
+
+// A reaction as it is drawn: where it is in the row, and whether we made it.
+Chip :: struct {
+	emoji:      string,
+	start, end: int, // columns, from the row's left edge
+	me:         bool,
 }
 
 // What the rows were worked out for; they are worked out again when it changes.
@@ -385,15 +393,19 @@ add_message :: proc(
 	}
 	if len(m.reactions) > 0 && .Deleted not_in m.flags {
 		segs := make([dynamic]Seg, context.temp_allocator)
+		chips := make([dynamic]Chip, context.temp_allocator)
 		append(&segs, Seg{pad, {}})
+		x := text_x
 		for r in m.reactions {
-			append(
-				&segs,
-				Seg{fmt.aprintf(" %s %d ", r.emoji, r.count), theme.reaction_me if r.me else theme.reaction},
-			)
+			text := fmt.aprintf(" %s %d ", r.emoji, r.count)
+			w := tui.string_width(text)
+			append(&segs, Seg{text, theme.reaction_me if r.me else theme.reaction})
+			append(&chips, Chip{emoji = strings.clone(r.emoji), start = x, end = x + w, me = r.me})
 			append(&segs, Seg{" ", {}})
+			x += w + 1
 		}
 		add_row(l, .Reactions, m.id, text_x, segs[:])
+		l.rows[len(l.rows) - 1].chips = slice_clone(chips[:])
 	}
 	if !in_thread && .Has_Thread in m.flags && m.reply_count > 0 {
 		word := "reply" if m.reply_count == 1 else "replies"
@@ -418,4 +430,11 @@ human_size :: proc(n: u64) -> string {
 		return fmt.aprintf("%.1f MB", f64(n) / (1024 * 1024))
 	}
 	return fmt.aprintf("%.1f GB", f64(n) / (1024 * 1024 * 1024))
+}
+
+@(private = "file")
+slice_clone :: proc(c: []Chip) -> []Chip {
+	out := make([]Chip, len(c))
+	copy(out, c)
+	return out
 }
