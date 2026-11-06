@@ -20,6 +20,7 @@ Dialog_Kind :: enum {
 	Output, // text an answer of a command
 	Picker, // an emoji to react to a message with
 	List, // pinned messages, bookmarks or a search
+	Info, // roles, bans, invites or devices
 }
 
 Dialog :: struct {
@@ -30,6 +31,7 @@ Dialog :: struct {
 	text:   string, // what an Output shows (owned)
 	sel:    int, // the emoji picked in a Picker, the entry in a List
 	list:   List_Kind,
+	info:   Info_Kind,
 	all:    bool, // a search of all conversations
 	asked_more: int, // how many entries there were when the next page was asked for
 }
@@ -49,7 +51,7 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List:
+	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List || a.dialog.kind == .Info:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -244,6 +246,8 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, r.y + 3, "Y: delete   N: keep it", theme.dim, r.x + r.w - 1)
 	case .List:
 		draw_list(a, b)
+	case .Info:
+		draw_info(a, b)
 	case .Picker:
 		rows := (len(PICKER_EMOJI) + PICKER_COLUMNS - 1) / PICKER_COLUMNS
 		r := dialog_rect(b, PICKER_COLUMNS * PICKER_CELL + 3, rows + 4)
@@ -352,7 +356,7 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		case k.key == .Escape, k.key == .Rune && (k.rune == 'n' || k.rune == 'N'):
 			dialog_close(a)
 		}
-	case .Help, .Output:
+	case .Help, .Output, .Info:
 		dialog_close(a)
 	case .List:
 		list_key(a, k)

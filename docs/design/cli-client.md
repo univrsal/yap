@@ -417,8 +417,56 @@ Found on the way:
 - The logger's text is gone when the logging call returns, so what a command
   logs is copied into a builder, not kept by reference.
 
-Not done, and left for a phase 2b: **several servers** (the app is written
+Left for a phase 2b (done, see below): **several servers** (the app is written
 around one View; a session list needs the per-conversation state of `App`
 split out), **Lua scripts**, and screens for the commands that only print
 lists (`/roles`, `/bans`, `/invites`, `/devices`, ...). Also still missing:
 emoji completion, completion of `/command` arguments, hover highlighting.
+
+**Phase 2b (2026-11-06).** The three things phase 2 left out.
+
+- **Several servers.** The app's per-server state (scroll, conversation, open
+  thread, draft, reply or edit, files to send) is one struct, `Server_UI`;
+  showing another server swaps it in and out, so the code that works on "the"
+  server did not change. The servers are listed above the channels (unread
+  and mention badges for the others, an open mark for one that is down), and
+  switched to with a click, `Ctrl+N`/`Ctrl+P` (which also work from inside a
+  dialog, since one server's login should not trap you), or
+  `/server <n|name>`. `/servers` lists them, `/connect host[:port] [password]`
+  adds one and `/disconnect [n|name]` drops one. Mentions and calls on the
+  servers that are not shown are announced with the server's name, and the
+  window title counts all of them. The loop owns the connections, so these
+  are requests (`Server_Request`) it carries out, which also covers
+  connecting again after trusting a new key.
+- **Which servers.** `yap-cli host` connects to that one. With no argument it
+  connects to the servers joined in the window client, read from its
+  `settings.json`. **It never writes that file** (a smoke test checks), so it
+  cannot clobber the window client's settings; joining and leaving here lasts
+  for the run. Saving them is a decision for later.
+- **Lua scripts.** The runtime starts before the connections and is attached
+  to each, with the window client's script folder and approvals. Their
+  `/commands` run before the headless ones (and are completed), `on_send` may
+  change or stop a message (the text stays in the box if stopped), and
+  `yap.notify` becomes a notice. `/script` lists and switches them, through the
+  headless command. The loop wakes every 100 ms while scripts run.
+- **Lists.** `/roles`, `/bans`, `/invites` and `/devices` open a dialog that
+  asks for the list and fills in from the View when it arrives.
+
+Tests: 149 in `src/cli` (45 in `tui`); the smoke test now also starts a second
+server (`/connect`, the rail, `Ctrl+N`/`P`), reads the joined servers from a
+settings file, and runs a real Lua script. 663 tests across the suites pass,
+and `yap` builds.
+
+Found on the way:
+
+- The smoke test found the login dialog of the second server trapping the keys
+  (nothing could leave it), and that the scripts runtime was started after the
+  connections, so it was attached to none. Neither could be seen by the unit
+  tests, which do not run the loop; `run.odin` is only covered by the pty test.
+- A script's message merges under the sender's previous one like any other,
+  so a check for its name on the line would never match.
+
+Still missing: emoji completion, argument completion, hover highlighting, a
+screen for the rest of the list commands (`/server-memory`, `/seen`, ...),
+saving joined servers. Next in the plan: voice, calls, settings and the admin
+screens (phase 3).

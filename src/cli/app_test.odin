@@ -3041,3 +3041,70 @@ test_the_script_command_lists_scripts :: proc(t: ^testing.T) {
 	press(&f, .Enter)
 	testing.expect(t, f.app.dialog.kind == .Output || strings.contains(f.app.notice, "dice.lua"))
 }
+
+@(test)
+test_the_roles_command_shows_the_roles :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	append(&f.v.roles, conn.View_Role{id = 5, name = strings.clone("Mods"), perms = {.Invite, .Pin_Messages}})
+	append(&f.v.roles, conn.View_Role{id = 2, name = strings.clone("everyone")})
+	acc := f.v.accounts[2]
+	acc.roles = make([]proto.Role_Id, 1)
+	acc.roles[0] = 5
+	f.v.accounts[2] = acc
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/roles")
+	press(&f, .Enter)
+	cmds := take(&f)
+	_, asked := find_cmd(conn.Roles_Command, cmds)
+	testing.expect(t, asked)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Info)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Mods  1 member(s)  Invite, Pin_Messages"))
+	testing.expect(t, screen_has(&f, "everyone  0 member(s)"))
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+	delete(f.v.accounts[2].roles)
+	acc.roles = nil
+	f.v.accounts[2] = acc
+}
+
+@(test)
+test_bans_invites_and_devices_fill_in_when_they_arrive :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/bans")
+	press(&f, .Enter)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "Nothing here (yet)."))
+	append(&f.v.bans.list, proto.Ban{account = 2, by = 1, reason = strings.clone("spam")})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "anna, by me: spam"))
+	for c in take(&f) {
+		conn.command_destroy(c)
+	}
+	press(&f, .Escape)
+
+	type_text(&f, "/invites")
+	press(&f, .Enter)
+	append(&f.v.invites.list, proto.Invite{code = strings.clone("ABCD-1234"), creator = 1, max_uses = 5, uses = 2})
+	append(&f.v.invites.list, proto.Invite{code = strings.clone("OLD"), creator = 1, revoked = true})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "ABCD-1234  used 2 of 5  by me"))
+	testing.expect(t, screen_has(&f, "OLD  used 0  by me  (revoked)"))
+	press(&f, .Escape)
+
+	type_text(&f, "/devices")
+	press(&f, .Enter)
+	append(&f.v.devices, conn.Dir_Device{name = strings.clone("laptop"), flags = {.Current}})
+	append(&f.v.devices, conn.Dir_Device{name = strings.clone("phone"), flags = {.Online}})
+	frame(&f)
+	testing.expect(t, screen_has(&f, "laptop  (this one)"))
+	testing.expect(t, screen_has(&f, "phone  (online)"))
+	discard(&f)
+}

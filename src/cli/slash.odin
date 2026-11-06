@@ -44,6 +44,14 @@ run_command :: proc(a: ^App, line: string) {
 			}
 		}
 		append(&a.requests, Server_Request{kind = .Disconnect, index = index})
+	case "roles":
+		open_info(a, .Roles)
+	case "bans":
+		open_info(a, .Bans)
+	case "invites":
+		open_info(a, .Invites)
+	case "devices":
+		open_info(a, .Devices)
 	case "pins":
 		open_list(a, .Pins)
 	case "bookmarks":
