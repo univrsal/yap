@@ -22,6 +22,6 @@ run_command :: proc(a: ^App, line: string) {
 		}
 		push(a, conn.View_Command{name = strings.clone(strings.trim_left(rest, "#"))})
 	case:
-		say(a, strings.concatenate({"Unknown command /", name, ". /help lists what there is."}, context.temp_allocator), true)
+		run_headless_command(a, line)
 	}
 }

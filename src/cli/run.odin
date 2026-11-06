@@ -40,7 +40,7 @@ run_ui :: proc(opt: Options) -> bool {
 	defer conn.session_free(s)
 
 	app: App
-	app_init(&app, &s.view, &s.client.commands)
+	app_init(&app, &s.view, s.client)
 	defer app_destroy(&app)
 	app.known_servers = opt.known_servers
 	app.device = opt.device
@@ -77,7 +77,7 @@ run_ui :: proc(opt: Options) -> bool {
 			app.reconnect = false
 			conn.session_free(s)
 			s = start_session(target, opt)
-			app.view, app.commands = &s.view, &s.client.commands
+			app.view, app.client = &s.view, s.client
 			app.viewing, app.reading_told = 0, 0
 		}
 

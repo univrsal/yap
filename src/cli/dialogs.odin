@@ -17,6 +17,7 @@ Dialog_Kind :: enum {
 	Key_Change, // the server's key is not the one saved for it
 	Confirm_Delete,
 	Help,
+	Output, // text an answer of a command
 }
 
 Dialog :: struct {
@@ -24,9 +25,11 @@ Dialog :: struct {
 	fields: [2]tui.Editor, // the login's user name and password
 	field:  int,
 	msg:    proto.Msg_Id, // what a Confirm_Delete is about
+	text:   string, // what an Output shows (owned)
 }
 
 dialog_close :: proc(a: ^App) {
+	delete(a.dialog.text)
 	for &f in a.dialog.fields {
 		tui.editor_destroy(&f)
 	}
@@ -40,7 +43,7 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete:
+	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -209,6 +212,18 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		draw_box(b, r, "Delete message")
 		tui.put_string(b, r.x + 2, r.y + 2, "Delete this message for everyone?", {}, r.x + r.w - 1)
 		tui.put_string(b, r.x + 2, r.y + 3, "Y: delete   N: keep it", theme.dim, r.x + r.w - 1)
+	case .Output:
+		r := dialog_rect(b, min(b.w - 4, 90), min(b.h - 2, 20))
+		append(&a.hits, Hit{r, .Dialog, 0})
+		draw_box(b, r, "Output (any key closes)")
+		lines := make([dynamic]tui.Line, context.temp_allocator)
+		tui.wrap(d.text, r.w - 4, &lines)
+		for l, i in lines {
+			if i >= r.h - 3 {
+				break
+			}
+			tui.put_string(b, r.x + 2, r.y + 2 + i, d.text[l.start:l.end], {}, r.x + r.w - 1)
+		}
 	case .Help:
 		lines := HELP_LINES
 		r := dialog_rect(b, 64, len(lines) + 4)
@@ -290,7 +305,7 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		case k.key == .Escape, k.key == .Rune && (k.rune == 'n' || k.rune == 'N'):
 			dialog_close(a)
 		}
-	case .Help:
+	case .Help, .Output:
 		dialog_close(a)
 	}
 }

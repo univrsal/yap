@@ -52,7 +52,8 @@ Drag :: enum {
 
 App :: struct {
 	view:          ^conn.View,
-	commands:      ^conn.Command_Queue,
+	client:        ^conn.Server_Conn, // what commands are queued for
+	attached:      [dynamic]string, // files for the next message (owned)
 	known_servers: string, // the file of trusted server keys, to trust a new key into
 	device:        string, // what to call this device when logging in
 	tz:            ^datetime.TZ_Region,
@@ -104,8 +105,8 @@ CHANNEL_W_MIN :: 12
 // Under this width the channel list is hidden.
 NARROW :: 60
 
-app_init :: proc(a: ^App, v: ^conn.View, q: ^conn.Command_Queue) {
-	a.view, a.commands = v, q
+app_init :: proc(a: ^App, v: ^conn.View, client: ^conn.Server_Conn) {
+	a.view, a.client = v, client
 	a.channel_w = CHANNEL_W_DEFAULT
 	a.size = {80, 24}
 }
@@ -117,13 +118,17 @@ app_destroy :: proc(a: ^App) {
 	delete(a.notice)
 	delete(a.clipboard)
 	delete(a.hits)
+	for f in a.attached {
+		delete(f)
+	}
+	delete(a.attached)
 	dialog_close(a)
 	menu_close(a)
 }
 
 // push queues a command for the connection.
 push :: proc(a: ^App, cmd: conn.Command) {
-	conn.push_command(a.commands, cmd)
+	conn.push_command(&a.client.commands, cmd)
 }
 
 // say shows a line in the info line for a while.

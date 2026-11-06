@@ -14,7 +14,7 @@ import "tui"
 @(private = "file")
 Fixture :: struct {
 	v:   conn.View,
-	q:   conn.Command_Queue,
+	c:   ^conn.Server_Conn,
 	app: App,
 	buf: tui.Buffer,
 }
@@ -31,7 +31,8 @@ fixture :: proc(f: ^Fixture, w := 80, h := 20) {
 	f.v.channels[0].topic = strings.clone("Welcome to yap")
 	f.v.channels[0].rights = proto.CONV_RIGHTS_ALL
 	f.v.viewing = 1
-	app_init(&f.app, &f.v, &f.q)
+	f.c = new(conn.Server_Conn)
+	app_init(&f.app, &f.v, f.c)
 	f.buf = tui.buffer_make(w, h)
 }
 
@@ -39,7 +40,8 @@ fixture :: proc(f: ^Fixture, w := 80, h := 20) {
 fixture_destroy :: proc(f: ^Fixture) {
 	tui.buffer_destroy(&f.buf)
 	app_destroy(&f.app)
-	conn.commands_destroy(&f.q)
+	conn.commands_destroy(&f.c.commands)
+	free(f.c)
 	conn.view_destroy(&f.v)
 }
 
@@ -71,8 +73,8 @@ screen_has :: proc(f: ^Fixture, text: string) -> bool {
 @(private = "file")
 take :: proc(f: ^Fixture) -> [dynamic]conn.Command {
 	out := make([dynamic]conn.Command, context.temp_allocator)
-	append(&out, ..f.q.commands[:])
-	clear(&f.q.commands)
+	append(&out, ..f.c.commands.commands[:])
+	clear(&f.c.commands.commands)
 	return out
 }
 
@@ -273,12 +275,22 @@ test_slash_commands :: proc(t: ^testing.T) {
 	testing.expect_value(t, vc.name, "dev")
 	conn.command_destroy(cmds[0])
 
+	// What isn't ours is the headless client's: an unknown one is tried as a bot's
+	// command and then answered with the list of commands.
 	type_text(&f, "/nonsense")
 	press(&f, .Enter)
-	testing.expect(t, strings.contains(f.app.notice, "Unknown command /nonsense"))
-	testing.expect(t, f.app.notice_error)
+	cmds = take(&f)
+	bot, is_bot := find_cmd(conn.Bot_Run_Command, cmds)
+	testing.expect(t, is_bot)
+	testing.expect_value(t, bot.line, "/nonsense")
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Output)
 	frame(&f)
-	testing.expect(t, screen_has(&f, "Unknown command"))
+	testing.expect(t, screen_has(&f, "commands: /channels"))
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
 
 	type_text(&f, "/help")
 	press(&f, .Enter)
@@ -987,4 +999,58 @@ test_a_tiny_terminal_does_not_crash :: proc(t: ^testing.T) {
 		click(&f, 0, 0)
 		frame(&f)
 	}
+}
+
+@(test)
+test_commands_of_the_headless_client :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	run :: proc(f: ^Fixture, line: string) -> [dynamic]conn.Command {
+		type_text(f, line)
+		press(f, .Enter)
+		return take(f)
+	}
+	cmds := run(&f, "/pin 10")
+	pin, ok := find_cmd(conn.Pin_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, pin.id, 10)
+	testing.expect(t, pin.on)
+
+	cmds = run(&f, "/react 10 :+1:")
+	react, ok2 := find_cmd(conn.React_Command, cmds)
+	testing.expect(t, ok2)
+	testing.expect_value(t, react.id, 10)
+	testing.expect_value(t, react.emoji, ":+1:")
+	conn.command_destroy(react)
+
+	cmds = run(&f, "/dm anna hello there")
+	dm, ok3 := find_cmd(conn.DM_Command, cmds)
+	testing.expect(t, ok3)
+	testing.expect_value(t, dm.name, "anna")
+	testing.expect_value(t, dm.text, "hello there")
+	conn.command_destroy(dm)
+
+	// Usage errors are shown, a line long, in the info line.
+	cmds = run(&f, "/register x")
+	testing.expect_value(t, len(cmds), 0)
+	testing.expect(t, strings.contains(f.app.notice, "/register <username>"))
+	testing.expect(t, f.app.notice_error)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "/register <username>"))
+}
+
+@(test)
+test_attaching_files_with_a_command :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/attach /tmp/a.txt")
+	press(&f, .Enter)
+	testing.expect_value(t, len(f.app.attached), 1)
+	testing.expect(t, strings.contains(f.app.notice, "1 file(s) attached"))
 }

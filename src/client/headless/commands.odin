@@ -153,8 +153,7 @@ start_command_reader :: proc(c: ^conn.Server_Conn, scripts: ^script.Runtime) {
 
 // What the thread that reads commands works on: the connection (which it
 // queues commands for), and the scripts, if there are any, whose /commands
-// are the ones no other line matches.
-@(private)
+// are the ones no other line matches. The terminal client (src/cli) uses it too.
 Reader :: struct {
 	c:       ^conn.Server_Conn,
 	scripts: ^script.Runtime,
@@ -181,8 +180,8 @@ read_commands :: proc(reader: ^Reader) {
 
 // handle_line queues the command that a line typed on stdin stands for, or
 // logs how it is used. `attached` holds the files attached for the next /say
-// (owned by the caller).
-@(private)
+// (owned by the caller). A front end that wants to show what is logged sets its
+// own logger around the call.
 handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 	q := &reader.c.commands
 	switch {
