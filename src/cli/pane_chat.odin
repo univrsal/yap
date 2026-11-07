@@ -170,6 +170,7 @@ draw_info :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 		tui.put_string(b, x, r.y, incoming_call_text(v), theme.mention_me, max_x)
 	case a.notice != "":
 		tui.put_string(b, x, r.y, a.notice, theme.error if a.notice_error else theme.dim, max_x)
+	case draw_command_hint(a, b, r):
 	case a.scroll > 0:
 		tui.put_string(b, x, r.y, "↓ older messages — PgDn or End for the newest", theme.dim, max_x)
 	case:
@@ -211,7 +212,7 @@ draw_composer :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 	top := max(cy - r.h + 1, 0)
 	if text == "" {
 		tui.put_string(b, r.x, r.y, prompt, theme.dim, r.x + r.w)
-		hint := "Message — / for commands, F1 for help"
+		hint := "Message — / for commands (with hints), F1 for keys"
 		tui.put_string(b, text_x, r.y, hint, theme.dim, r.x + r.w)
 	}
 	for y in 0 ..< r.h {

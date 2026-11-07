@@ -40,17 +40,6 @@ completion_destroy :: proc(c: ^Completion) {
 	c^ = {}
 }
 
-// What can be typed as a command, without the slash. The headless client's
-// commands are many; these are the ones to find by completing.
-COMMAND_NAMES := [?]string {
-	"accept", "activity", "answer", "ban", "bans", "bookmark", "bookmarks", "buddies", "buddy",
-	"call", "cancel", "channels", "create", "decline", "delete", "dm", "edit", "file", "forward",
-	"group", "hangup", "help", "invite", "join", "jump", "leave", "members", "mute", "notify",
-	"older", "newer", "pin", "pins", "quit", "react", "reply", "roles", "save", "search", "seen",
-	"status", "thread", "unattach", "unbookmark", "unmute", "unpin", "unreact", "attach", "deafen",
-	"undeafen", "browse", "subscribe", "unsubscribe", "topic", "rename", "kick", "devices", "logout",
-}
-
 @(private = "file")
 word_byte :: proc(ch: u8) -> bool {
 	switch ch {
@@ -206,13 +195,13 @@ mention_roles_with_spaces :: proc(a: ^App, text: string, cursor: int) {
 @(private = "file")
 command_items :: proc(a: ^App, prefix: string) {
 	c := &a.completion
-	for name in COMMAND_NAMES {
-		if strings.has_prefix(name, prefix) {
+	for d in COMMAND_DOCS {
+		if strings.has_prefix(d.name, prefix) {
 			append(
 				&c.items,
 				Completion_Item {
-					strings.concatenate({"/", name, " "}, context.temp_allocator),
-					strings.concatenate({"/", name}, context.temp_allocator),
+					strings.concatenate({"/", d.name, " "}, context.temp_allocator),
+					strings.concatenate({usage_line(d), "   ", d.help}, context.temp_allocator),
 				},
 			)
 		}

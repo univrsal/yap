@@ -588,3 +588,16 @@ found two of my own help lines being cut.
   connect again, disconnect and forget), the palette and the title bar (which says
   `/disconnect` removes a server that failed) point to it. The smoke test now
   keeps the client's config in its temporary folder, since it now writes it.
+
+**Hints for the slash commands (2026-11-07).**
+
+- `command_help.odin` has a table (`COMMAND_DOCS`): each command's name, its
+  arguments (`<must>`, `[may]`, `a|b`), a sentence and sometimes an example. It
+  feeds the completion list (usage and sentence per entry, in place of the bare
+  names), a hint line in the row above the message box while the arguments are
+  typed (the argument at the cursor in bold), `/help <command>` and `/help
+  commands`, and a "Usage: ..." answer when a command with required arguments is
+  used without them (checked after the scripts, before the headless client, so
+  nothing is sent). The Output dialog scrolls for the long list.
+- The table has to be kept in step with the commands by hand; a test only checks
+  that each name is there once and has a sentence.

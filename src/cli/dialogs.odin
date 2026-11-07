@@ -306,11 +306,13 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 	case .Output:
 		r := dialog_rect(b, min(b.w - 4, 90), min(b.h - 2, 20))
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
-		draw_box(b, r, "Output (any key closes)")
 		lines := make([dynamic]tui.Line, context.temp_allocator)
 		tui.wrap(d.text, r.w - 4, &lines)
-		for l, i in lines {
-			if i >= r.h - 3 {
+		room := r.h - 3
+		d.top = clamp(d.top, 0, max(len(lines) - room, 0))
+		draw_box(b, r, "Output (any key closes)" if len(lines) <= room else "Output (Up/Down/PgUp/PgDn scroll, Esc closes)")
+		for l, i in lines[d.top:] {
+			if i >= room {
 				break
 			}
 			tui.put_string(b, r.x + 2, r.y + 2 + i, d.text[l.start:l.end], {}, r.x + r.w - 1)
@@ -346,6 +348,7 @@ HELP_LINES :: [?]string {
 	"F5 mute  F6 deafen  F7 join or leave voice  F8 hang up  F9 settings",
 	"/pins /bookmarks /search [all] <words>   lists of messages",
 	"/join <channel>  look at a channel      /help   this list",
+	"/help <command>  how a command is used; /help commands lists them all",
 	"/quit            leave                  Ctrl+C  leave",
 }
 
@@ -417,7 +420,25 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 		case k.key == .Escape, k.key == .Rune && (k.rune == 'd' || k.rune == 'D'):
 			hang_up(a)
 		}
-	case .Help, .Output, .Info:
+	case .Output:
+		// Long output (/help commands) scrolls; any other key closes it.
+		switch k.key {
+		case .Up:
+			d.top -= 1
+		case .Down:
+			d.top += 1
+		case .Page_Up:
+			d.top -= 10
+		case .Page_Down:
+			d.top += 10
+		case .Home:
+			d.top = 0
+		case .End:
+			d.top = 1 << 20
+		case .Rune, .Backspace, .Delete, .Left, .Right, .Insert, .Tab, .Enter, .Escape, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
+			dialog_close(a)
+		}
+	case .Help, .Info:
 		dialog_close(a)
 	case .List:
 		list_key(a, k)

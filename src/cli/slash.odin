@@ -17,8 +17,19 @@ run_command :: proc(a: ^App, line: string) {
 	case "quit", "q", "exit":
 		a.quit = true
 	case "help", "h", "?":
-		dialog_close(a)
-		a.dialog.kind = .Help
+		switch what := strings.trim_left(strings.to_lower(rest, context.temp_allocator), "/"); what {
+		case "":
+			dialog_close(a)
+			a.dialog.kind = .Help
+		case "commands", "all":
+			show_output(a, commands_help())
+		case:
+			if d, ok := command_doc(what); ok {
+				show_output(a, command_help(d^))
+			} else {
+				say(a, strings.concatenate({"There is no command /", what, ". /help commands lists them."}, context.temp_allocator), true)
+			}
+		}
 	case "emoji":
 		open_emoji_insert(a)
 	case "settings":
@@ -100,6 +111,10 @@ run_command :: proc(a: ^App, line: string) {
 	case:
 		// A /command that a script registered, else the headless client's.
 		if a.scripts != nil && script.runtime_run_command(a.scripts, a.client, line, viewed_channel_name(a)) {
+			return
+		}
+		if d, ok := command_doc(strings.to_lower(name, context.temp_allocator)); ok && missing_args(d^, rest) {
+			say(a, strings.concatenate({"Usage: ", usage_line(d^), "  (/help ", d.name, " tells more)"}, context.temp_allocator), true)
 			return
 		}
 		run_headless_command(a, line)

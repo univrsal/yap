@@ -2050,11 +2050,13 @@ test_completing_commands_and_roles :: proc(t: ^testing.T) {
 	frame(&f)
 	labels := make([dynamic]string, context.temp_allocator)
 	for it in f.app.completion.items {
-		append(&labels, it.label)
+		append(&labels, strings.trim_space(it.insert))
 	}
 	testing.expect(t, slice_has(labels[:], "/pin"))
 	testing.expect(t, slice_has(labels[:], "/pins"))
 	testing.expect(t, !slice_has(labels[:], "/join"))
+	// A command is listed with how it is used and what it does.
+	testing.expect(t, strings.contains(f.app.completion.items[0].label, "/pin <id>"))
 	press(&f, .Tab)
 	testing.expect_value(t, tui.editor_text(&f.app.editor), "/pin ")
 	frame(&f)
@@ -4650,4 +4652,82 @@ test_the_palette_can_disconnect_and_a_failed_server_says_how :: proc(t: ^testing
 		conn.command_destroy(c)
 	}
 	clear(&f.c2.commands.commands)
+}
+
+
+@(test)
+test_commands_say_how_they_are_used :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	// While the arguments are typed, the line above the box is the usage with
+	// the argument being written marked.
+	type_text(&f, "/ban ")
+	frame(&f)
+	testing.expect(t, screen_has(&f, "/ban <name> [reason]"))
+	testing.expect(t, screen_has(&f, "Ban someone"))
+	d, arg, ok := command_hint("/ban troll ", 11)
+	testing.expect(t, ok)
+	testing.expect_value(t, d.name, "ban")
+	testing.expect_value(t, arg, 1)
+	_, arg, ok = command_hint("/ban tro", 8)
+	testing.expect(t, ok)
+	testing.expect_value(t, arg, 0)
+	_, _, ok = command_hint("/nonsense x", 11)
+	testing.expect(t, !ok)
+	_, _, ok = command_hint("hello there", 11)
+	testing.expect(t, !ok)
+
+	// A command without what it needs says how it is used instead of being sent.
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "/react 5")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "Usage: /react <id> <emoji>"))
+	tui.editor_clear(&f.app.editor)
+	type_text(&f, "/ban")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "Usage: /ban <name> [reason]"))
+}
+
+@(test)
+test_help_tells_about_a_command :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	type_text(&f, "/help react")
+	press(&f, .Enter)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Output)
+	testing.expect(t, strings.contains(f.app.dialog.text, "/react <id> <emoji>"))
+	testing.expect(t, strings.contains(f.app.dialog.text, "Example: /react 42"))
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+
+	type_text(&f, "/help /nosuch")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "There is no command /nosuch"))
+
+	// The list of all of them scrolls.
+	type_text(&f, "/help commands")
+	press(&f, .Enter)
+	frame(&f)
+	testing.expect(t, screen_has(&f, "/accept"))
+	press(&f, .Page_Down)
+	press(&f, .Page_Down)
+	frame(&f)
+	testing.expect(t, !screen_has(&f, "/accept"))
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Output)
+	press(&f, .Escape)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
+}
+
+@(test)
+test_every_documented_command_is_written_once :: proc(t: ^testing.T) {
+	for d, i in COMMAND_DOCS {
+		testing.expect(t, d.help != "", d.name)
+		for e in COMMAND_DOCS[i + 1:] {
+			testing.expect(t, d.name != e.name, d.name)
+		}
+	}
 }

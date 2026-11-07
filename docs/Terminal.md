@@ -67,7 +67,12 @@ or `/call name`. An incoming call opens a dialog (`A` answers, `D` declines);
 
 ## Commands
 
-`/help` lists the keys. Besides `/join`, `/pins`, `/bookmarks`, `/search [all]`,
+`/help` lists the keys. Typing `/` lists the commands that match, each with its
+arguments and what it does, and once a command is typed the line above the message
+box shows how it is used, with the argument you are writing in bold. A command
+used without what it needs says how it is meant to be used instead of being sent.
+`/help <command>` explains one command (with an example), and `/help commands`
+lists all of them (Up/Down/PgUp/PgDn scroll). Besides `/join`, `/pins`, `/bookmarks`, `/search [all]`,
 `/servers`, `/server`, `/connect`, `/disconnect`, `/mute`, `/deafen`, `/voice`,
 `/settings`, `/roles`, `/bans`, `/invites`, `/devices` and `/quit`, every command
 of the headless client works (`/dm`, `/react`, `/pin`, `/attach`, `/call`,
