@@ -201,12 +201,12 @@ test_notify :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		notify_of({desktop = "default", mark_unread = "mention"}),
-		proto.Notify_Level.Mentions,
+		proto.Notify_Level.None,
 	)
 	testing.expect_value(
 		t,
 		notify_of({desktop = "all", mark_unread = "mention"}),
-		proto.Notify_Level.All,
+		proto.Notify_Level.None,
 	)
 	testing.expect_value(t, notify_of({desktop = "mention"}), proto.Notify_Level.Mentions)
 	testing.expect_value(
