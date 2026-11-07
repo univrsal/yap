@@ -2,6 +2,7 @@ package gateway
 
 import "core:crypto/sha2"
 import "core:fmt"
+import "core:net"
 import "core:sync"
 import "core:time"
 
@@ -660,6 +661,7 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 	// Read the body into the ring as room becomes available.
 	r := j.ring
 	whole := true
+	gone := false // the bot's connection failed, so there is nobody to answer
 	for {
 		at, room: u64
 		{
@@ -679,12 +681,39 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 		if !ok {
 			r.failed = true
 			whole = false
+			gone = true
 			break
 		}
 		r.in_ += u64(n)
 	}
 	send(c, submit_wait(&j), whole && req.keep_alive)
+	if !whole && !gone {
+		// The server gave up on the upload while the bot was still sending.
+		linger(c, u64(req.content_length) - r.in_)
+	}
 	return whole && req.keep_alive
+}
+
+LINGER_MAX :: 8 * 1024 * 1024
+LINGER_TIME :: 2 * time.Second
+
+// linger reads and drops what the bot is still sending of a body (at most
+// `body_left` bytes, for a limited time), after the reply to it has gone out.
+// Closing a socket that has unread data makes the OS reset the connection
+// (macOS especially), and a reset can throw away the reply before the bot
+// has read it.
+@(private)
+linger :: proc(c: ^http.Conn, body_left: u64) {
+	net.set_option(c.sock, .Receive_Timeout, LINGER_TIME)
+	scratch: [16 * 1024]u8
+	left := min(body_left, LINGER_MAX)
+	for left > 0 {
+		n, ok := http.read_some(c, scratch[:min(left, u64(len(scratch)))])
+		if !ok {
+			return
+		}
+		left -= u64(n)
+	}
 }
 
 // refuse replies to an upload that was rejected before its body was read.
