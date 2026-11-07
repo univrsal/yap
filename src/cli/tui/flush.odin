@@ -46,7 +46,9 @@ render_diff :: proc(out: ^strings.Builder, prev: ^Buffer, cur: ^Buffer) {
 				style, style_known = c.style, true
 			}
 			strings.write_rune(out, c.r)
-			if text_presentation != nil && text_presentation(c.r) {
+			if c.width == 2 && wide_symbols != nil && wide_symbols(c.r) {
+				strings.write_string(out, "\ufe0f")
+			} else if text_presentation != nil && text_presentation(c.r) {
 				strings.write_string(out, "\ufe0e")
 			}
 			cx, cy = x + int(c.width), y

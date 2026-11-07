@@ -427,21 +427,37 @@ load_server_lists :: proc(a: ^App) {
 }
 
 
-// configure_emoji_width makes the symbols that are emoji but narrow by default
-// plain text on the wire when that is needed: inside tmux or screen, whose idea
-// of their width and the terminal's often differ (see tui.text_presentation).
-// YAP_CLI_EMOJI=text forces it, =emoji turns it off.
+// configure_emoji_width deals with the symbols that are emoji but one cell wide
+// by default (an umbrella, a sun, a heart). Terminals draw them wide or narrow as
+// they like, and tmux counts one cell, which shifts the rest of the row when the
+// terminal draws them wide (Konsole does). Inside tmux or screen they are
+// therefore sent as wide emoji (with U+FE0F) and counted as two cells.
+// YAP_CLI_EMOJI=wide does that everywhere, =text sends them in text style
+// (U+FE0E) instead, =emoji leaves them alone.
 @(private = "file")
 configure_emoji_width :: proc() {
 	mode := os.get_env("YAP_CLI_EMOJI", context.temp_allocator)
 	multiplexer := os.get_env("TMUX", context.temp_allocator) != "" || strings.has_prefix(os.get_env("TERM", context.temp_allocator), "screen")
-	if mode == "text" || mode == "" && multiplexer {
-		tui.text_presentation = proc(r: rune) -> bool {
-			if r < 0x2000 || tui.rune_width(r) != 1 {
+	if mode == "" && multiplexer {
+		mode = "wide"
+	}
+	narrow_emoji :: proc(r: rune) -> bool {
+		if r < 0x2000 || tui.rune_width(r) != 1 {
+			return false
+		}
+		_, ok := proto.emoji_index(r)
+		return ok
+	}
+	switch mode {
+	case "wide":
+		tui.wide_symbols = proc(r: rune) -> bool {
+			if r < 0x2000 {
 				return false
 			}
 			_, ok := proto.emoji_index(r)
-			return ok
+			return ok && !tui.in_wide_table(r)
 		}
+	case "text":
+		tui.text_presentation = narrow_emoji
 	}
 }

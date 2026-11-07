@@ -215,3 +215,21 @@ test_symbols_can_be_sent_in_text_style :: proc(t: ^testing.T) {
 	render_diff(&out, nil, &cur)
 	testing.expect(t, strings.contains(strings.to_string(out), "☂︎"))
 }
+
+@(test)
+test_symbols_can_be_wide_emoji :: proc(t: ^testing.T) {
+	wide_symbols = proc(r: rune) -> bool {return r == '☂'}
+	defer wide_symbols = nil
+	testing.expect_value(t, rune_width('☂'), 2)
+	testing.expect_value(t, rune_width('☀'), 1)
+	cur := buffer_make(8, 1)
+	defer buffer_destroy(&cur)
+	put_string(&cur, 0, 0, "a☂b", {})
+	testing.expect_value(t, string_width("a☂b"), 4)
+	out: strings.Builder
+	defer strings.builder_destroy(&out)
+	render_diff(&out, nil, &cur)
+	text := strings.to_string(out)
+	testing.expect(t, strings.contains(text, "☂️"), text)
+	testing.expect(t, strings.contains(text, "\x1b[1;4Hb"), text) // b is in the fourth column
+}

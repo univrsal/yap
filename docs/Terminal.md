@@ -129,8 +129,9 @@ design notes, with what was built when, are in
 ## Emoji that shift a line (tmux)
 
 Some symbols are emoji too but one cell wide by default (an umbrella, a sun, a
-heart, a beach). Terminals disagree on how wide they are drawn, and inside tmux or
-screen the rest of the line can end up one cell off. In tmux or screen `yap-cli`
-therefore sends those symbols in text style (followed by U+FE0E), which every layer
-counts as one cell. `YAP_CLI_EMOJI=text` does that everywhere and
-`YAP_CLI_EMOJI=emoji` never does.
+heart, a beach). Terminals disagree on how wide they are drawn (Konsole draws them
+wide), and tmux counts one cell, so a row with them could end up shifted. In tmux
+or screen `yap-cli` therefore sends those symbols as wide emoji (followed by
+U+FE0F) and counts them as two cells, which tmux, and the terminals behind it,
+keep to. `YAP_CLI_EMOJI=wide` does that everywhere, `YAP_CLI_EMOJI=text` sends them
+in text style (U+FE0E) instead and `YAP_CLI_EMOJI=emoji` changes nothing.

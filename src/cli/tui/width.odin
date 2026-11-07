@@ -17,6 +17,9 @@ rune_width :: proc(r: rune) -> int {
 	case r < 0x300:
 		return 1
 	}
+	if wide_symbols != nil && wide_symbols(r) {
+		return 2
+	}
 	if in_ranges(r, ZERO_WIDTH[:]) {
 		return 0
 	}
@@ -25,6 +28,12 @@ rune_width :: proc(r: rune) -> int {
 	}
 	return 1
 }
+
+// wide_symbols, when set, says which runes count as two cells wide although
+// the table says one: the symbols that are emoji too (an umbrella, a sun). They
+// are sent with the emoji variation selector (U+FE0F), so terminals and tmux
+// draw and count them as wide emoji, and the layout agrees with them.
+wide_symbols: proc(r: rune) -> bool
 
 // string_width is the cells a string takes.
 string_width :: proc(s: string) -> (w: int) {
@@ -182,4 +191,9 @@ WIDE := [?]Range {
 // decode reads the rune at byte i of s, and its size.
 decode :: proc(s: string, i: int) -> (rune, int) {
 	return utf8.decode_rune_in_string(s[i:])
+}
+
+// in_wide_table says whether the table itself has a rune as two cells wide.
+in_wide_table :: proc(r: rune) -> bool {
+	return in_ranges(r, WIDE[:])
 }
