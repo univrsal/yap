@@ -2,6 +2,7 @@ package tui
 
 import "core:strconv"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 
 // A terminal of the smallest kind: it knows the cursor, clearing the screen and
@@ -203,8 +204,15 @@ test_a_cell_after_an_emoji_is_placed_on_its_own :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(text, "ab"), text) // plain text still runs on
 }
 
+// hooks_lock is held by the tests that set the package's hooks (text_presentation,
+// wide_symbols, stand_in): they are globals, and the tests run on several
+// threads at once, so one test's hook would otherwise change what another draws.
+@(private = "file")
+hooks_lock: sync.Mutex
+
 @(test)
 test_symbols_can_be_sent_in_text_style :: proc(t: ^testing.T) {
+	sync.guard(&hooks_lock)
 	cur := buffer_make(8, 1)
 	defer buffer_destroy(&cur)
 	put_string(&cur, 0, 0, "a☂b", {})
@@ -218,6 +226,7 @@ test_symbols_can_be_sent_in_text_style :: proc(t: ^testing.T) {
 
 @(test)
 test_symbols_can_be_wide_emoji :: proc(t: ^testing.T) {
+	sync.guard(&hooks_lock)
 	wide_symbols = proc(r: rune) -> bool {return r == '☂'}
 	defer wide_symbols = nil
 	testing.expect_value(t, rune_width('☂'), 2)
@@ -236,6 +245,7 @@ test_symbols_can_be_wide_emoji :: proc(t: ^testing.T) {
 
 @(test)
 test_runes_the_multiplexer_counts_differently_are_drawn_as_a_mark :: proc(t: ^testing.T) {
+	sync.guard(&hooks_lock)
 	stand_in = proc(r: rune) -> bool {return r == '🕴'}
 	defer stand_in = nil
 	cur := buffer_make(8, 1)

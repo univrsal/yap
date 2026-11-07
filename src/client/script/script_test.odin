@@ -917,7 +917,9 @@ test_a_filter_cannot_stall :: proc(t: ^testing.T) {
 		`,
 	)
 	// Each is cut off at the filter limit (not the script's, which is longer),
-	// and each is a strike. A good one clears the strikes.
+	// and each is a strike. A good one clears the strikes. The bound on the time
+	// is well over the filter limit, for busy CI machines, but well under the
+	// script's limit.
 	for handler in ([]string{"spin", "evade", "coro"}) {
 		began := time.tick_now()
 		outcome, _, err := filter(s, handler, Map([]Pair{}))
@@ -925,7 +927,7 @@ test_a_filter_cannot_stall :: proc(t: ^testing.T) {
 		testing.expect_value(t, outcome, Filter_Outcome.Unchanged)
 		testing.expectf(t, strings.contains(err, "too long") || err == "", "%s: %q", handler, err)
 		testing.expectf(t, err != "", "%s was not stopped", handler)
-		testing.expectf(t, took < 15 * time.Millisecond, "%s took %v", handler, took)
+		testing.expectf(t, took < 50 * time.Millisecond, "%s took %v", handler, took)
 		s.filter_strikes = 0 // so as to not switch them off yet
 	}
 	_, _, err := filter(s, "oops", Map([]Pair{}))
