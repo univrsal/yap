@@ -71,7 +71,9 @@ or `/call name`. An incoming call opens a dialog (`A` answers, `D` declines);
 arguments and what it does, and once a command is typed the line above the message
 box shows how it is used, with the argument you are writing in bold. A command
 used without what it needs says how it is meant to be used instead of being sent.
-`/help <command>` explains one command (with an example), and `/help commands`
+`/notify mentions` changes how much the channel you are looking at may interrupt
+(`all`, `mentions` or `none`; alone it tells the current level; `/notify dev none`
+names another channel; `Ctrl+K` offers the three as well). `/help <command>` explains one command (with an example), and `/help commands`
 lists all of them (Up/Down/PgUp/PgDn scroll). Besides `/join`, `/pins`, `/bookmarks`, `/search [all]`,
 `/servers`, `/server`, `/connect`, `/disconnect`, `/mute`, `/deafen`, `/voice`,
 `/settings`, `/roles`, `/bans`, `/invites`, `/devices` and `/quit`, every command

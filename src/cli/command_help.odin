@@ -32,7 +32,7 @@ COMMAND_DOCS := [?]Command_Doc {
 	{"unsubscribe", "<channel>", "Leave a channel's list (you can subscribe again later).", ""},
 	{"create", "<channel> [topic]", "Create a channel, if you may.", "/create ideas Things to try"},
 	{"private", "<name>", "Create a private channel.", ""},
-	{"notify", "<channel> all|mentions|none", "How much a channel may interrupt you.", "/notify general mentions"},
+	{"notify", "[channel] all|mentions|none", "How much a channel may interrupt you: every message, only mentions, or nothing. Without a channel it is the one you are looking at; with nothing, it tells what it is now.", "/notify mentions"},
 	{"members", "", "List who is in this conversation.", ""},
 	{"older", "", "Fetch the page of messages before those shown.", ""},
 	{"newer", "", "Fetch the page of messages after those shown.", ""},

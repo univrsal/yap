@@ -601,3 +601,5 @@ found two of my own help lines being cut.
   nothing is sent). The Output dialog scrolls for the long list.
 - The table has to be kept in step with the commands by hand; a test only checks
   that each name is there once and has a sentence.
+
+**Notifications and jumping (2026-11-07).** `/notify` is the terminal's own now: with just a level it applies to the conversation being looked at (DMs too), with nothing it says the current level, and `Ctrl+K` lists the three levels for here. Going to a message (from pins, bookmarks or search) puts the focus on the messages, so Up/Down move from the message reached.

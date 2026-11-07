@@ -81,6 +81,13 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	command(&items, "Join or leave the voice room", "/voice")
 	command(&items, "Mute" if !a.muted else "Unmute", "/mute" if !a.muted else "/unmute")
 	command(&items, "Deafen" if !a.deafened else "Stop being deaf", "/deafen" if !a.deafened else "/undeafen")
+	if a.view.viewing != 0 {
+		here := viewed_name(a)
+		for line, level in ([proto.Notify_Level]string{.All = "all", .Mentions = "mentions", .None = "none"}) {
+			mark := "  (now)" if viewed_notify(a.view) == level else ""
+			command(&items, fmt.tprintf("Notifications for %s: %s%s", here, notify_text(level), mark), fmt.tprintf("/notify %s", line))
+		}
+	}
 	command(&items, "Insert an emoji", "/emoji")
 	command(&items, "Settings", "/settings")
 	command(&items, "Search messages", "/search")

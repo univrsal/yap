@@ -279,7 +279,9 @@ jump_step :: proc(a: ^App, g: Geometry) {
 		if r.msg == a.jump_msg && (r.kind == .Head || r.kind == .System) {
 			// In the middle of the screen.
 			a.scroll = clamp(len(a.layout.rows) - i - g.timeline.h / 2, 0, max(len(a.layout.rows) - g.timeline.h, 0))
+			// The keys move between the messages from there.
 			a.cursor_msg = a.jump_msg
+			a.focus = .Timeline
 			a.jump_msg = 0
 			return
 		}

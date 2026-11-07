@@ -1,11 +1,13 @@
 package main
 
+import "core:fmt"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
 
 import "client:conn"
 import "client:script"
+import "common:proto"
 import "tui"
 
 // The commands typed in the message box.
@@ -40,6 +42,8 @@ run_command :: proc(a: ^App, line: string) {
 			return
 		}
 		run_headless_command(a, line)
+	case "notify":
+		run_notify(a, rest)
 	case "mute":
 		set_muted(a, true)
 	case "unmute":
@@ -163,4 +167,94 @@ disconnect_server :: proc(a: ^App, index: int) {
 	}
 	forget_server(a, a.servers[index].target.server)
 	append(&a.requests, Server_Request{kind = .Disconnect, index = index})
+}
+
+
+// run_notify handles /notify: how much the conversation being looked at (or the
+// channel that is named) may interrupt.
+//
+//	/notify                      say what it is now
+//	/notify mentions             change it here
+//	/notify general mentions     change it for another channel
+@(private = "file")
+run_notify :: proc(a: ^App, rest: string) {
+	v := a.view
+	words := strings.fields(rest, context.temp_allocator)
+	here := viewed_name(a)
+	switch len(words) {
+	case 0:
+		if v.viewing == 0 {
+			say(a, "Look at a channel first, or: /notify <channel> all|mentions|none", true)
+			return
+		}
+		say(a, fmt.tprintf("Notifications for %s: %s. /notify all|mentions|none changes that.", here, notify_text(viewed_notify(v))))
+	case 1:
+		if level, ok := parse_notify(words[0]); ok {
+			if v.viewing == 0 {
+				say(a, "Look at a channel first, or: /notify <channel> all|mentions|none", true)
+				return
+			}
+			push(a, conn.Notify_Command{conv = v.viewing, notify = level})
+			say(a, fmt.tprintf("Notifications for %s: %s.", here, notify_text(level)))
+		} else {
+			say(a, fmt.tprintf("Usage: /notify [channel] all|mentions|none — not \"%s\"", words[0]), true)
+		}
+	case:
+		level, ok := parse_notify(words[len(words) - 1])
+		if !ok {
+			say(a, "Usage: /notify [channel] all|mentions|none", true)
+			return
+		}
+		name := strings.trim_left(strings.join(words[:len(words) - 1], " ", context.temp_allocator), "#")
+		push(a, conn.Notify_Command{name = strings.clone(name), notify = level})
+		say(a, fmt.tprintf("Notifications for #%s: %s.", name, notify_text(level)))
+	}
+}
+
+@(private = "file")
+parse_notify :: proc(word: string) -> (level: proto.Notify_Level, ok: bool) {
+	switch strings.to_lower(word, context.temp_allocator) {
+	case "all", "everything", "on":
+		return .All, true
+	case "mentions", "mention", "@":
+		return .Mentions, true
+	case "none", "off", "mute", "nothing":
+		return .None, true
+	}
+	return
+}
+
+notify_text :: proc(level: proto.Notify_Level) -> string {
+	switch level {
+	case .All:
+		return "every message"
+	case .Mentions:
+		return "only mentions of you"
+	case .None:
+		return "nothing"
+	}
+	return ""
+}
+
+// viewed_name is what the conversation being looked at is called: #general, or
+// the person it is with.
+viewed_name :: proc(a: ^App) -> string {
+	if ch := conn.viewed_channel(a.view); ch != nil {
+		return strings.concatenate({"#", ch.name}, context.temp_allocator)
+	}
+	if dm := viewed_dm(a.view); dm != nil {
+		return conn.dm_name(a.view, dm)
+	}
+	return "this conversation"
+}
+
+// viewed_notify is the level set for the conversation being looked at.
+viewed_notify :: proc(v: ^conn.View) -> proto.Notify_Level {
+	if ch := conn.viewed_channel(v); ch != nil {
+		return ch.notify
+	}
+	if dm := viewed_dm(v); dm != nil {
+		return dm.notify
+	}
+	return .All
 }

@@ -4731,3 +4731,64 @@ test_every_documented_command_is_written_once :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_notify_defaults_to_the_channel_being_looked_at :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	// Alone it says what it is.
+	type_text(&f, "/notify")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "every message"), f.app.notice)
+	testing.expect_value(t, len(take(&f)), 0)
+	// Just the level changes the channel shown.
+	type_text(&f, "/notify mentions")
+	press(&f, .Enter)
+	cmds := take(&f)
+	n, ok := find_cmd(conn.Notify_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, n.conv, 1)
+	testing.expect_value(t, n.notify, proto.Notify_Level.Mentions)
+	testing.expect(t, strings.contains(f.app.notice, "only mentions"), f.app.notice)
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+	// A channel and a level still work.
+	type_text(&f, "/notify #dev none")
+	press(&f, .Enter)
+	cmds = take(&f)
+	n, ok = find_cmd(conn.Notify_Command, cmds)
+	testing.expect(t, ok)
+	testing.expect_value(t, n.name, "dev")
+	testing.expect_value(t, n.notify, proto.Notify_Level.None)
+	for c in cmds {
+		conn.command_destroy(c)
+	}
+	// Nonsense is told how it should be.
+	type_text(&f, "/notify loud")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "Usage: /notify"), f.app.notice)
+	testing.expect_value(t, len(take(&f)), 0)
+}
+
+@(test)
+test_going_to_a_message_focuses_the_messages :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	add_message(&f.v, 1, 10, 2, T0, "hello there")
+	add_message(&f.v, 1, 11, 1, T0 + 2 * MINUTE, "hi anna")
+	add_message(&f.v, 1, 12, 2, T0 + 4 * MINUTE, "how are you")
+	frame(&f)
+	goto_message(&f.app, 1, 11)
+	frame(&f)
+	testing.expect_value(t, f.app.focus, Focus.Timeline)
+	testing.expect_value(t, f.app.cursor_msg, 11)
+	// Up and Down move from there.
+	press(&f, .Up)
+	testing.expect_value(t, f.app.cursor_msg, 10)
+	discard(&f)
+}
