@@ -114,7 +114,7 @@ channel_edit_window :: proc(ui: ^UI, window_w, window_h: i32) {
 channel_member_items :: proc(ui: ^UI, account: proto.Account_Id, menu_width: i32) {
 	ctx := &ui.ctx
 	v := ui.view
-	ch := viewed_channel(v)
+	ch := conn.viewed_channel(v)
 	if ch == nil || !may_admin_channel(v, ch^) || v.members.conv != ch.id {
 		return
 	}

@@ -48,13 +48,7 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 		if pushed || (m.dm && dm_open(ui, ns, m.conv)) {
 			continue
 		}
-		title := fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on)
-		switch {
-		case m.group:
-			title = fmt.tprintf("%s wrote in %s%s", m.name, m.place, on)
-		case m.dm:
-			title = fmt.tprintf("%s messaged you%s", m.name, on)
-		}
+		title := conn.mention_title(m, on)
 		notice(
 			ui,
 			title,

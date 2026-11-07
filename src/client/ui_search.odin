@@ -341,7 +341,7 @@ conversation_name :: proc(v: ^conn.View, conv: proto.Conv_Id) -> string {
 	}
 	for &dm in v.dms {
 		if dm.id == conv {
-			return dm_name(v, &dm)
+			return conn.dm_name(v, &dm)
 		}
 	}
 	return "a conversation"

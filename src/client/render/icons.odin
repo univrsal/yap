@@ -70,6 +70,7 @@ Icon :: enum {
 	Check, // a tick: a checked checkbox
 	Collapsed, // a triangle pointing right: a collapsed tree node
 	Expanded, // a triangle pointing down: an expanded tree node
+	Resize, // diagonal lines in the bottom right corner: a window's resize handle
 	// Something loading: a ring with a gap, turning. This is the first of
 	// SPINNER_STEPS icons, each turned a step further, which come after the
 	// others in the atlas (spinner_id). It has to stay last.
@@ -290,11 +291,19 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return triangle(p, {0.28, 0.18}, {0.72, 0.5}, {0.28, 0.82})
 	case .Expanded:
 		return triangle(p, {0.18, 0.28}, {0.82, 0.28}, {0.5, 0.72})
+	case .Resize:
+		// Two lines across the corner, the shorter one nearer to it. More
+		// would run together at the icon's usual size.
+		d := capsule(p, {0.88, 0.32}, {0.32, 0.88}, GRIP_STROKE)
+		return nearer(d, capsule(p, {0.88, 0.64}, {0.64, 0.88}, GRIP_STROKE))
 	case .Spinner:
 		return spinner(p, 0)
 	}
 	return 1
 }
+
+@(private = "file")
+GRIP_STROKE :: 0.11
 
 @(private = "file")
 CHECK_STROKE :: 0.12
@@ -442,6 +451,7 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Check,
 	     .Collapsed,
 	     .Expanded,
+	     .Resize,
 	     .Spinner:
 	}
 	return 0, false

@@ -308,7 +308,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		unread_from: proto.Msg_Id
 		mentions: int
 		if key.root == 0 {
-			unread, read, m := viewed_unread(v)
+			unread, read, m := conn.viewed_unread(v)
 			if unread > 0 {
 				unread_line, unread_from = true, read
 			}
@@ -772,21 +772,6 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 	pending_files(ui, p)
 }
 
-// viewed_unread is what is unread in the conversation being looked at, up to
-// where it has been read, and how many of the unread messages mention us. Call
-// with the View locked.
-viewed_unread :: proc(v: ^conn.View) -> (unread: int, read: proto.Msg_Id, mentions: int) {
-	if ch := viewed_channel(v); ch != nil {
-		return ch.unread, ch.read, ch.mentions
-	}
-	for dm in v.dms {
-		if dm.id == v.viewing {
-			return dm.unread, dm.read, dm.mentions
-		}
-	}
-	return
-}
-
 // message_file is what is known about a file that a message offers: how its
 // transfer is going, if there is one here.
 @(private = "file")
@@ -846,7 +831,7 @@ message_height :: proc(
 		text := message_rich(ui, m.text)
 		body = rich_height(ctx, &text, width)
 	case .System:
-		text := rich_plain(DELETED_TEXT if .Deleted in m.flags else system_line(ui, m))
+		text := rich_plain(DELETED_TEXT if .Deleted in m.flags else conn.system_line(ui.view, m))
 		body = rich_height(ctx, &text, width)
 	case:
 		text := rich_plain(UNKNOWN_KIND_TEXT)
@@ -1025,7 +1010,7 @@ timeline_message :: proc(
 		chat_message(ui, header, header_color, &text, ctx.style.colors[.TEXT], merged, item, tight)
 		message_files(ui, st.key.conv, m, width)
 	case .System:
-		text := rich_plain(system_line(ui, m))
+		text := rich_plain(conn.system_line(ui.view, m))
 		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
 	case:
 		text := rich_plain(UNKNOWN_KIND_TEXT)
@@ -1336,31 +1321,6 @@ draw_chip_emoji :: proc(ui: ^UI, c: Chip, pos: mu.Vec2) {
 		y := pos.y + (ctx.text_height(ctx.style.font) - size) / 2
 		mu.draw_icon(ctx, icon, {x + gap, y, size, size}, {255, 255, 255, 255})
 	}
-}
-
-// system_line is what a system message says: a call's line, with a phone in
-// front of it, or what happened in the channel or on the server.
-@(private = "file")
-system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
-	v := ui.view
-	name_of :: proc(v: ^conn.View, id: proto.Account_Id) -> string {
-		if acc, ok := v.accounts[id]; ok {
-			return acc.display
-		}
-		return "someone"
-	}
-	text := conn.system_text(
-		m.system,
-		m.system_arg,
-		m.text,
-		name_of(v, m.sender),
-		name_of(v, proto.Account_Id(m.system_arg)),
-		m.sender == v.me,
-	)
-	if proto.system_counts_unread(m.system) {
-		return fmt.tprintf("\U0001F4DE %s", text)
-	}
-	return text
 }
 
 // What is left of a deleted message.

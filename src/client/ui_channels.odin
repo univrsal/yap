@@ -81,17 +81,6 @@ viewing_notes :: proc(v: ^conn.View) -> bool {
 	return v.viewing != 0 && v.viewing == notes_conv(v)
 }
 
-// viewed_channel is the channel whose chat is showing, or nil. Call
-// with the View locked.
-viewed_channel :: proc(v: ^conn.View) -> ^conn.View_Channel {
-	for &ch in v.channels {
-		if ch.id == v.viewing {
-			return &ch
-		}
-	}
-	return nil
-}
-
 // rights_here is what we may do in the conversation being shown: a channel's
 // rights as the server told us, or everything but Voice in a DM. Call with the
 // View locked.
@@ -244,7 +233,7 @@ NOTES_NAME :: "Notes to self"
 conversation_header :: proc(ui: ^UI, narrow: bool) {
 	ctx := &ui.ctx
 	v := ui.view
-	ch := viewed_channel(v)
+	ch := conn.viewed_channel(v)
 	notes := ch == nil && viewing_notes(v)
 
 	// The members' button is not there while they are pinned down the side,

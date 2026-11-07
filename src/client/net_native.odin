@@ -2,8 +2,6 @@
 package client
 
 import "client:conn"
-import "common:memtrack"
-import "core:sync"
 import "core:thread"
 
 // The network loop runs on its own thread, so a slow frame never
@@ -21,20 +19,16 @@ net_stop :: proc(ns: ^Net_Session) {
 
 @(private = "file")
 net_thread :: proc(ns: ^Net_Session) {
-	memtrack.thread_init()
-	c := ns.client
-	defer conn.client_close(c)
-	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.password) {
-		return
-	}
-	if ns.channel != "" {
-		conn.conv_start_in(c, ns.channel)
-	} else if ns.look_at != "" {
-		conn.conv_start_viewing(c, ns.look_at)
-	}
-	for !sync.atomic_load(&ns.stop) {
-		if !conn.client_step(c) {
-			return
-		}
-	}
+	conn.net_run(
+		ns.client,
+		{
+			key_path = ns.key_path,
+			server = ns.server,
+			password = ns.password,
+			known_servers = ns.known_servers,
+			channel = ns.channel,
+			look_at = ns.look_at,
+		},
+		&ns.stop,
+	)
 }
