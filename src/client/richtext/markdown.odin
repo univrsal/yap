@@ -1,5 +1,7 @@
 package richtext
 
+import "base:runtime"
+import "core:slice"
 import "core:strings"
 import "core:unicode"
 import "core:unicode/utf8"
@@ -19,7 +21,19 @@ import "client:platform"
 //   > quote             (> > nests)
 //   - item, * item      a bullet, shown as a bullet character
 //   1. item             a numbered item, as written
+//   # Heading           a heading, # to ###### for levels 1 to 6 (closing #
+//                       after a space are dropped)
+//   | a | b |           a table: a row of column names, then a row of dashes
+//   |---|:-:|           for each column (a colon on the side it is aligned
+//   | 1 | 2 |           to, both for the middle), then rows with a | in them.
+//                       Cells are separated by a tab in the text.
 //   [text](url)         a link that shows `text` and goes to a web address
+//   ![alt](url)         a picture (as Mattermost and GitHub write them), shown
+//                       as a link to it that shows `alt`; a size (`=44x22`)
+//                       and a title (`"title"`) after the address are dropped.
+//                       Pictures aren't fetched: a client never goes to an
+//                       address on its own. Inside a link's text
+//                       (`[![alt](img) text](url)`) a picture is just its `alt`.
 //   \*                  a marker that is just the character
 //
 // markdown_parse works on a message as it is shown (see text_display_links), so
@@ -73,6 +87,9 @@ Md_Line_Kind :: enum u8 {
 	Code, // a line of a code block
 	Bullet, // a list item whose text starts with its indent and "• "
 	Number, // a numbered list item whose text starts with its indent and "1. "
+	Heading, // a heading, of `level` 1 to 6
+	Table_Head, // the first row of a table: its column names
+	Table_Row, // a row of a table after the first
 }
 
 // One line of the text as it is in the message. Wrapping is left to the
@@ -82,6 +99,29 @@ Md_Line :: struct {
 	kind:       Md_Line_Kind,
 	quote:      int, // how many levels deep the quote is; 0 if it isn't quoted
 	marker:     int, // the length in bytes of a list item's indent and marker, counted from `start`; wrapped lines are indented to this position
+	level:      int, // .Heading: 1 for #, up to 6 for ######
+	// A table's row: which of Rich_Text.tables, and its cells, one for each of
+	// the table's columns, in order. The cells are separated by a tab, so a
+	// copied table can be pasted into a spreadsheet.
+	table:      int,
+	cells:      []Md_Cell,
+}
+
+// A cell of a table's row: where its text is.
+Md_Cell :: struct {
+	start, end: int,
+}
+
+Md_Align :: enum u8 {
+	Left,
+	Center,
+	Right,
+}
+
+// A table: its columns' alignment, one for each column. Its rows are the lines
+// that refer to it.
+Md_Table :: struct {
+	align: []Md_Align,
 }
 
 // A [text](url) link: the position of its text and the address it goes to.
@@ -102,8 +142,9 @@ Rich_Text :: struct {
 	text:  string, // the text that is drawn, without the markers
 	runs:  []Md_Run,
 	lines: []Md_Line,
-	links: []Md_Link,
-	atoms: []Md_Atom, // the atoms that were passed in, at their positions in `text`; -1 if the atom was removed
+	links:  []Md_Link,
+	atoms:  []Md_Atom, // the atoms that were passed in, at their positions in `text`; -1 if the atom was removed
+	tables: []Md_Table,
 }
 
 // markdown_parse returns `shown` with its markdown worked out. `atoms` are byte
@@ -130,13 +171,26 @@ markdown_parse :: proc(
 		p.at[a.start] = i
 	}
 	lines := make([dynamic]Md_Line, allocator)
+	tables := make([dynamic]Md_Table, allocator)
+
+	// The lines of the source, as a table looks at the line after its first.
+	Src_Line :: struct {
+		start, end: int,
+	}
+	src_lines := make([dynamic]Src_Line, context.temp_allocator)
+	{
+		rest := shown
+		ls := 0
+		for line in strings.split_lines_iterator(&rest) {
+			append(&src_lines, Src_Line{ls, ls + len(line)})
+			ls += len(line) + 1
+		}
+	}
 
 	in_fence := false
-	rest := shown
-	ls := 0 // the position of the line in `shown`
-	for line in strings.split_lines_iterator(&rest) {
-		start := ls
-		ls += len(line) + 1
+	for k := 0; k < len(src_lines); k += 1 {
+		start := src_lines[k].start
+		line := shown[start:src_lines[k].end]
 		trimmed := strings.trim_left(line, " ")
 		fence := strings.has_prefix(trimmed, "```")
 		if in_fence {
@@ -167,18 +221,88 @@ markdown_parse :: proc(
 		ml := Md_Line {
 			start = line_begin(&o, lines[:]),
 		}
-		body := start
 		end := start + len(line)
-		for {
-			if strings.has_prefix(shown[body:end], "> ") {
-				body += 2
-			} else if shown[body:end] == ">" {
-				body += 1
-			} else {
-				break
+		body: int
+		body, ml.quote = quoted(shown, start, end)
+
+		// A table: a row of column names, then a row that says how each column
+		// is aligned (|---|:--:|), with as many columns, and then the rows that
+		// follow with the same quote and a | in them.
+		if k + 1 < len(src_lines) && strings.index_byte(shown[body:end], '|') >= 0 {
+			next := src_lines[k + 1]
+			next_body, next_quote := quoted(shown, next.start, next.end)
+			head := table_split(&p, body, end)
+			align, is_table := table_align(shown[next_body:next.end])
+			if is_table && next_quote == ml.quote && len(align) == len(head) {
+				ml.kind, ml.table = .Table_Head, len(tables)
+				append(&tables, Md_Table{slice.clone(align, allocator)})
+				ml.cells = table_row(&p, head, len(align), allocator)
+				ml.end = out_len(&o)
+				out_bold(&o, ml.start)
+				append(&lines, ml)
+				k += 1
+				for k + 1 < len(src_lines) {
+					row := src_lines[k + 1]
+					row_body, row_quote := quoted(shown, row.start, row.end)
+					if row_quote != ml.quote ||
+					   strings.index_byte(shown[row_body:row.end], '|') < 0 {
+						break
+					}
+					k += 1
+					rl := Md_Line {
+						start = line_begin(&o, lines[:]),
+						kind  = .Table_Row,
+						quote = ml.quote,
+						table = ml.table,
+					}
+					rl.cells = table_row(
+						&p,
+						table_split(&p, row_body, row.end),
+						len(align),
+						allocator,
+					)
+					rl.end = out_len(&o)
+					append(&lines, rl)
+				}
+				continue
 			}
-			ml.quote += 1
 		}
+
+		// A heading: one to six #, a space and its text, which may be followed
+		// by a space and more # that aren't part of it.
+		hashes := 0
+		for body + hashes < end && hashes < 7 && shown[body + hashes] == '#' {
+			hashes += 1
+		}
+		if hashes >= 1 && hashes <= 6 && body + hashes < end && shown[body + hashes] == ' ' {
+			text_start := body + hashes + 1
+			text_end := end
+			for text_end > text_start && shown[text_end - 1] == ' ' {
+				text_end -= 1
+			}
+			closing := text_end
+			for closing > text_start && shown[closing - 1] == '#' {
+				closing -= 1
+			}
+			if closing < text_end && (closing == text_start || shown[closing - 1] == ' ') {
+				text_end = closing
+				for text_end > text_start && shown[text_end - 1] == ' ' {
+					text_end -= 1
+				}
+			}
+			for text_start < text_end && shown[text_start] == ' ' {
+				text_start += 1
+			}
+			if text_start < text_end {
+				ml.kind, ml.level = .Heading, hashes
+				inline(&p, text_start, text_end)
+				ml.end = out_len(&o)
+				out_bold(&o, ml.start)
+				append(&lines, ml)
+				continue
+			}
+		}
+
 		// A list item consists of its indent, followed by "- ", "* " or "1. ".
 		indent := body
 		for indent < end && shown[indent] == ' ' {
@@ -235,15 +359,15 @@ markdown_parse :: proc(
 			}
 		}
 	}
-	return {text, o.runs[:], lines[:], o.links[:], moved}
+	return {text, o.runs[:], lines[:], o.links[:], moved, tables[:]}
 }
 
 // markdown_plain returns a message as shown (see mentions_display and
 // text_display) on a single line with its markdown removed. It is meant for
 // places where a message is summarized in one line. The result is allocated in
-// the temp allocator.
+// the temp allocator. A table's cells are separated by " | ".
 markdown_plain :: proc(shown: string) -> string {
-	if !strings.contains_any(shown, "*_~`>[\\-0123456789") {
+	if !strings.contains_any(shown, "*_~`>[\\-0123456789#|") {
 		return one_line(shown)
 	}
 	links := platform.find_links(shown)
@@ -251,7 +375,12 @@ markdown_plain :: proc(shown: string) -> string {
 	for l, i in links {
 		atoms[i] = {l.start, l.end, true}
 	}
-	return one_line(markdown_parse(shown, atoms).text)
+	rt := markdown_parse(shown, atoms)
+	text := rt.text
+	if len(rt.tables) > 0 {
+		text, _ = strings.replace_all(text, "\t", " | ", context.temp_allocator)
+	}
+	return one_line(text)
 }
 
 // markdown_toggle puts `marker` (`**`, `*`, `__`, `~~` or a backtick) around
@@ -369,6 +498,22 @@ out_put :: proc(o: ^Out, s: string, styles: Md_Styles) {
 	out_run(o, at, out_len(o), styles)
 }
 
+// out_bold makes what was written from `at` on bold (a heading, a table's
+// column names), splitting the run that `at` is in.
+@(private = "file")
+out_bold :: proc(o: ^Out, at: int) {
+	for i := len(o.runs) - 1; i >= 0 && o.runs[i].end > at; i -= 1 {
+		r := &o.runs[i]
+		if r.start < at {
+			tail := Md_Run{at, r.end, r.styles + {.Bold}}
+			r.end = at
+			inject_at(&o.runs, i + 1, tail)
+			return
+		}
+		r.styles += {.Bold}
+	}
+}
+
 @(private = "file")
 out_run :: proc(o: ^Out, start, end: int, styles: Md_Styles) {
 	if end <= start {
@@ -387,6 +532,9 @@ Parser :: struct {
 	atoms: []Md_Atom,
 	at:    map[int]int, // atoms by their start position
 	out:   ^Out,
+	// In a table's cell, where a \| is a | even in code (it would split the
+	// cell otherwise).
+	cell:  bool,
 }
 
 @(private)
@@ -464,6 +612,29 @@ inline :: proc(p: ^Parser, start, end: int) {
 				i += n
 			}
 			continue
+		case '!':
+			if img, ok := find_image(p, i, end); ok {
+				// Its words, or its title if it has none. On its own it is a link
+				// to the picture, which shows the address if it has neither.
+				label_start, label_end := img.alt_start, img.alt_end
+				if label_start == label_end {
+					label_start, label_end = img.title_start, img.title_end
+				}
+				if link_close >= 0 {
+					if label_start < label_end {
+						text(&toks, label_start, label_end)
+					}
+				} else {
+					if label_start == label_end {
+						label_start, label_end = img.url_start, img.url_end
+					}
+					append(&toks, Tok{kind = .Link_Open, start = i, end = i})
+					text(&toks, label_start, label_end)
+					append(&toks, Tok{kind = .Link_Close, start = i, end = i, url = img.url})
+				}
+				i = img.end
+				continue
+			}
 		case '[':
 			if link_close < 0 {
 				if c, e, url, ok := find_link(p, i, end); ok {
@@ -524,12 +695,25 @@ inline :: proc(p: ^Parser, start, end: int) {
 		case .Text:
 			out_copy(o, src, t.start, t.end, t.styles)
 		case .Code:
-			out_copy(o, src, t.start, t.end, t.styles + {.Code})
+			from := t.start
+			if p.cell {
+				for j := t.start; j + 1 < t.end; j += 1 {
+					if src[j] == '\\' && src[j + 1] == '|' {
+						out_copy(o, src, from, j, t.styles + {.Code})
+						from = j + 1
+					}
+				}
+			}
+			out_copy(o, src, from, t.end, t.styles + {.Code})
 		case .Delim:
 			out_copy(o, src, t.start + t.used_left, t.end - t.used_right, t.styles)
 		case .Link_Open:
 			link_start = out_len(o)
 		case .Link_Close:
+			if out_len(o) == link_start {
+				// Its text was only pictures with no words: the address shows.
+				out_put(o, t.url, t.styles)
+			}
 			append(
 				&o.links,
 				Md_Link{link_start, out_len(o), strings.clone(t.url, o.b.buf.allocator)},
@@ -717,6 +901,11 @@ find_link :: proc(p: ^Parser, i, end: int) -> (close, link_end: int, url: string
 		case '\\':
 			j += 2
 			continue
+		case '!':
+			if img, found := find_image(p, j, end); found {
+				j = img.end
+				continue
+			}
 		case '[':
 			return
 		case ']':
@@ -740,6 +929,225 @@ find_link :: proc(p: ^Parser, i, end: int) -> (close, link_end: int, url: string
 		j += 1
 	}
 	return
+}
+
+// A picture: ![alt](url), where the address may be followed by a size
+// (`=44x22`, `=44x`, `=x22`) and a title in double quotes, each after a space.
+@(private = "file")
+Md_Image :: struct {
+	alt_start, alt_end:     int,
+	url_start, url_end:     int,
+	title_start, title_end: int, // empty if it has none
+	url:                    string,
+	end:                    int, // after its `)`
+}
+
+// find_image checks whether a picture starts at `i` (its `!`). Its words may
+// be empty but can't have a `[` or `]` in them, and the address has to be a
+// web address (an atom).
+@(private = "file")
+find_image :: proc(p: ^Parser, i, end: int) -> (img: Md_Image, ok: bool) {
+	src := p.src
+	if i + 1 >= end || src[i + 1] != '[' {
+		return
+	}
+	j := i + 2
+	img.alt_start = j
+	for {
+		if j >= end {
+			return
+		}
+		if a, found := p.at[j]; found {
+			j = p.atoms[a].end
+			continue
+		}
+		if src[j] == '\\' {
+			j += 2
+			continue
+		}
+		if src[j] == '[' {
+			return
+		}
+		if src[j] == ']' {
+			break
+		}
+		j += 1
+	}
+	img.alt_end = j
+	if j + 2 >= end || src[j + 1] != '(' {
+		return
+	}
+	a, found := p.at[j + 2]
+	if !found || !p.atoms[a].url || p.atoms[a].end > end {
+		return
+	}
+	img.url_start, img.url_end = p.atoms[a].start, p.atoms[a].end
+	j = img.url_end
+	spaces :: proc(src: string, j, end: int) -> int {
+		j := j
+		for j < end && src[j] == ' ' {
+			j += 1
+		}
+		return j
+	}
+	// The size.
+	if k := spaces(src, j, end); k > j && k < end && src[k] == '=' {
+		k += 1
+		x := false
+		for k < end && (is_digit(rune(src[k])) || (src[k] == 'x' && !x)) {
+			x = x || src[k] == 'x'
+			k += 1
+		}
+		if !x {
+			return
+		}
+		j = k
+	}
+	// The title.
+	if k := spaces(src, j, end); k > j && k < end && src[k] == '"' {
+		close := strings.index_byte(src[k + 1:end], '"')
+		if close < 0 {
+			return
+		}
+		img.title_start, img.title_end = k + 1, k + 1 + close
+		j = k + close + 2
+	}
+	j = spaces(src, j, end)
+	if j >= end || src[j] != ')' {
+		return
+	}
+	img.end = j + 1
+	img.url = src[img.url_start:img.url_end]
+	if len(img.url) >= 4 && strings.equal_fold(img.url[:4], "www.") {
+		img.url = strings.concatenate({"https://", img.url}, context.temp_allocator)
+	}
+	return img, true
+}
+
+// quoted is where the text of the line src[start:end] starts after its quote
+// markers ("> ", or a ">" that is all there is), and how many there are.
+@(private = "file")
+quoted :: proc(src: string, start, end: int) -> (body, quote: int) {
+	body = start
+	for {
+		if strings.has_prefix(src[body:end], "> ") {
+			body += 2
+		} else if src[body:end] == ">" {
+			body += 1
+		} else {
+			return
+		}
+		quote += 1
+	}
+}
+
+// table_split splits the line src[start:end] of a table into its cells at each
+// | that isn't escaped or in an atom; a | at either end only closes it. Each
+// cell is without the spaces around it. It uses the temp allocator.
+@(private = "file")
+table_split :: proc(p: ^Parser, start, end: int) -> []Md_Cell {
+	src := p.src
+	s, e := start, end
+	for s < e && src[s] == ' ' {
+		s += 1
+	}
+	for e > s && src[e - 1] == ' ' {
+		e -= 1
+	}
+	if s < e && src[s] == '|' {
+		s += 1
+	}
+	if e > s && src[e - 1] == '|' && (e - 2 < s || src[e - 2] != '\\') {
+		e -= 1
+	}
+	cells := make([dynamic]Md_Cell, context.temp_allocator)
+	cell :: proc(cells: ^[dynamic]Md_Cell, src: string, a, b: int) {
+		a, b := a, b
+		for a < b && src[a] == ' ' {
+			a += 1
+		}
+		for b > a && src[b - 1] == ' ' {
+			b -= 1
+		}
+		append(cells, Md_Cell{a, b})
+	}
+	from := s
+	j := s
+	for j < e {
+		if a, found := p.at[j]; found {
+			j = p.atoms[a].end
+			continue
+		}
+		switch src[j] {
+		case '\\':
+			j += 2
+			continue
+		case '|':
+			cell(&cells, src, from, j)
+			from = j + 1
+		}
+		j += 1
+	}
+	cell(&cells, src, from, max(from, min(j, e)))
+	return cells[:]
+}
+
+// table_align reads the line under a table's column names, which has a cell
+// of dashes for each column (|---|:--:|), with a colon on the side the column
+// is aligned to, or on both sides for the middle. It needs at least one |.
+@(private = "file")
+table_align :: proc(line: string) -> (align: []Md_Align, ok: bool) {
+	if strings.index_byte(line, '|') < 0 {
+		return
+	}
+	t := strings.trim_space(line)
+	t = strings.trim_prefix(t, "|")
+	t = strings.trim_suffix(t, "|")
+	out := make([dynamic]Md_Align, context.temp_allocator)
+	for part in strings.split_iterator(&t, "|") {
+		c := strings.trim_space(part)
+		left := strings.has_prefix(c, ":")
+		right := len(c) > 1 && strings.has_suffix(c, ":")
+		dashes := c[1 if left else 0:len(c) - (1 if right else 0)]
+		if len(dashes) == 0 || strings.trim_left(dashes, "-") != "" {
+			return
+		}
+		switch {
+		case left && right:
+			append(&out, Md_Align.Center)
+		case right:
+			append(&out, Md_Align.Right)
+		case:
+			append(&out, Md_Align.Left)
+		}
+	}
+	return out[:], len(out) > 0
+}
+
+// table_row writes a row of a table: `columns` cells, separated by a tab, of
+// which those that the row doesn't have are empty and those it has beyond them
+// are left out. It returns where each cell's text ended up.
+@(private = "file")
+table_row :: proc(
+	p: ^Parser,
+	cells: []Md_Cell,
+	columns: int,
+	allocator: runtime.Allocator,
+) -> []Md_Cell {
+	out := make([]Md_Cell, columns, allocator)
+	for c in 0 ..< columns {
+		if c > 0 {
+			out_put(p.out, "\t", {})
+		}
+		at := out_len(p.out)
+		if c < len(cells) && cells[c].start < cells[c].end {
+			p.cell = true
+			inline(p, cells[c].start, cells[c].end)
+			p.cell = false
+		}
+		out[c] = {at, out_len(p.out)}
+	}
+	return out
 }
 
 @(private = "file")

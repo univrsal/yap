@@ -27,7 +27,11 @@ import "common:proto"
 // each level, with a bar in the step. The wrapped lines of a list item hang
 // under its text, after the bullet or number. The lines of a code block are
 // indented a little inside a box that runs the width of the column, and break
-// anywhere rather than at spaces.
+// anywhere rather than at spaces. A heading of level 1 to 3 is in a bigger
+// font (render.heading_font), so its lines are taller. A table's columns are
+// as wide as their widest cell when they fit, and otherwise share the width
+// and wrap their cells; each row is as tall as its tallest cell, with lines
+// around the cells and the column names on a shaded background.
 //
 // rich_layout is the one place where lines are worked out: message_height
 // measures with it and chat_message draws with it, so a message has exactly the
@@ -52,11 +56,38 @@ Rich :: struct {
 	web:       []platform.Link, // web addresses not taken by a [text](url)
 }
 
-// One line as drawn: text[start:end], starting `x` from the column's left.
+// How far a table's text is inset from its cell's sides, and from the lines
+// between its rows.
+@(private = "file")
+CELL_PAD :: 6
+@(private = "file")
+CELL_VPAD :: 3
+
+// One line as drawn: text[start:end], starting `x` from the column's left, on
+// a row `h` tall, `top` below the row's top. The cells of a table's row are
+// lines of their own that share their rows, side by side.
 Rich_Line :: struct {
-	start, end: int,
-	x:          i32,
-	line:       int, // which of the text's lines (Rich_Text.lines) it belongs to
+	start, end:     int,
+	x:              i32,
+	line:           int, // which of the text's lines (Rich_Text.lines) it belongs to
+	h, top:         i32,
+	same_row:       bool, // on the row of the line before it: a cell after the first
+	// A table's cell: which column (-1 for a line that isn't in a table), and
+	// where the cell is from the column's left. The first of a row's lines
+	// has the line above the row, and the table's last line the one below.
+	cell:           int,
+	cell_x, cell_w: i32,
+	row_first:      bool,
+	table_last:     bool,
+}
+
+// rich_line_font is the font a line of the text is in: a heading's size for a
+// heading, otherwise the current font.
+rich_line_font :: proc(ctx: ^mu.Context, l: richtext.Md_Line) -> mu.Font {
+	if l.kind == .Heading {
+		return render.heading_font(ctx.style.font, l.level, .Regular)
+	}
+	return ctx.style.font
 }
 
 // rich_make builds the drawn form of a message's text as shown
@@ -263,14 +294,24 @@ rich_wrap :: proc(
 // allocator.
 rich_layout :: proc(ctx: ^mu.Context, r: ^Rich, width: i32) -> []Rich_Line {
 	out := make([dynamic]Rich_Line, context.temp_allocator)
-	for l, li in r.lines {
+	for li := 0; li < len(r.lines); {
+		l := r.lines[li]
+		if l.kind == .Table_Head {
+			li = rich_layout_table(ctx, r, li, width, &out)
+			continue
+		}
+		saved := ctx.style.font
+		ctx.style.font = rich_line_font(ctx, l)
+		defer ctx.style.font = saved
+		h := ctx.text_height(ctx.style.font)
 		x := i32(l.quote) * QUOTE_STEP
 		code := l.kind == .Code
 		if code {
 			x += CODE_PAD
 		}
 		if l.start == l.end {
-			append(&out, Rich_Line{l.start, l.end, x, li})
+			append(&out, Rich_Line{start = l.start, end = l.end, x = x, line = li, h = h, cell = -1})
+			li += 1
 			continue
 		}
 		// The lines of a list item after its first hang under its text.
@@ -283,16 +324,155 @@ rich_layout :: proc(ctx: ^mu.Context, r: ^Rich, width: i32) -> []Rich_Line {
 			lx := x if first else x + hang
 			avail := width - lx - (CODE_PAD if code else 0)
 			end, next := rich_wrap(ctx, r, at, l.end, max(avail, 1), code)
-			append(&out, Rich_Line{at, end, lx, li})
+			append(&out, Rich_Line{start = at, end = end, x = lx, line = li, h = h, cell = -1})
 			at = next
 		}
+		li += 1
 	}
 	return out[:]
 }
 
+// rich_layout_table lays out the table whose first row (its column names) is
+// the line `first`, and returns the line after it. Each column is as wide as
+// its widest cell, if they all fit. Otherwise the narrow columns keep their
+// width and the others share what is left equally, and their cells wrap.
+@(private = "file")
+rich_layout_table :: proc(
+	ctx: ^mu.Context,
+	r: ^Rich,
+	first: int,
+	width: i32,
+	out: ^[dynamic]Rich_Line,
+) -> int {
+	head := r.lines[first]
+	last := first
+	for last + 1 < len(r.lines) && r.lines[last + 1].kind == .Table_Row {
+		last += 1
+	}
+	align := r.tables[head.table].align
+	n := len(head.cells)
+	h := ctx.text_height(ctx.style.font)
+	x0 := i32(head.quote) * QUOTE_STEP
+
+	// What the cells' text needs, measured character by character as
+	// rich_wrap measures it (each character's width is rounded up, so that is
+	// a little more than the width of the whole text), and what there is for
+	// it.
+	want := make([]i32, n, context.temp_allocator)
+	for li in first ..= last {
+		for c, i in r.lines[li].cells {
+			w: i32
+			for j := c.start; j < c.end; {
+				_, size := utf8.decode_rune_in_string(r.text[j:c.end])
+				w += ctx.text_width(rich_font(ctx, rich_styles_at(r, j)), r.text[j:j + size])
+				j += size
+			}
+			want[i] = max(want[i], w, 1)
+		}
+	}
+	room := max(width - x0 - i32(n) * 2 * CELL_PAD - 1, i32(n))
+	cols := slice.clone(want, context.temp_allocator)
+	total: i32
+	for w in want {
+		total += w
+	}
+	if total > room {
+		// The columns that need less than an equal share of what is left keep
+		// what they need, until those that are left all need more.
+		fixed := make([]bool, n, context.temp_allocator)
+		left, open := room, i32(n)
+		for changed := true; changed && open > 0; {
+			changed = false
+			share := left / open
+			for w, i in want {
+				if !fixed[i] && w <= share {
+					fixed[i], changed = true, true
+					left -= w
+					open -= 1
+				}
+			}
+		}
+		for &w, i in cols {
+			if !fixed[i] {
+				w = max(left / max(open, 1), 1)
+			}
+		}
+	}
+
+	for li in first ..= last {
+		row := r.lines[li]
+		// Each cell's lines, wrapped to its column.
+		pieces := make([][dynamic][2]int, n, context.temp_allocator)
+		lines := 1
+		for c, i in row.cells {
+			pieces[i] = make([dynamic][2]int, context.temp_allocator)
+			at := c.start
+			for at < c.end {
+				end, next := rich_wrap(ctx, r, at, c.end, cols[i], false)
+				append(&pieces[i], [2]int{at, end})
+				at = next
+			}
+			lines = max(lines, len(pieces[i]))
+		}
+		for v in 0 ..< lines {
+			lh := h
+			top: i32
+			if v == 0 {
+				lh += CELL_VPAD
+				top = CELL_VPAD
+			}
+			if v == lines - 1 {
+				lh += CELL_VPAD
+			}
+			cx := x0
+			for c, i in row.cells {
+				piece := [2]int{c.end, c.end}
+				if v < len(pieces[i]) {
+					piece = pieces[i][v]
+				}
+				free := cols[i] - rich_width(ctx, r, piece[0], piece[1])
+				shift: i32
+				switch align[i] {
+				case .Left:
+				case .Center:
+					shift = max(free / 2, 0)
+				case .Right:
+					shift = max(free, 0)
+				}
+				cw := cols[i] + 2 * CELL_PAD
+				append(
+					out,
+					Rich_Line {
+						start = piece[0],
+						end = piece[1],
+						x = cx + CELL_PAD + shift,
+						line = li,
+						h = lh,
+						top = top,
+						same_row = i > 0,
+						cell = i,
+						cell_x = cx,
+						cell_w = cw,
+						row_first = v == 0,
+						table_last = li == last && v == lines - 1,
+					},
+				)
+				cx += cw
+			}
+		}
+	}
+	return last + 1
+}
+
 // rich_height is how tall the text is at `width`.
 rich_height :: proc(ctx: ^mu.Context, r: ^Rich, width: i32) -> i32 {
-	return i32(len(rich_layout(ctx, r, width))) * ctx.text_height(ctx.style.font)
+	h: i32
+	for vl in rich_layout(ctx, r, width) {
+		if !vl.same_row {
+			h += vl.h
+		}
+	}
+	return h
 }
 
 // rich_link_id names a link in a message for hovering (UI_Chat.hover): the
@@ -308,31 +488,72 @@ rich_link_id :: proc(item: i64, start: int) -> uintptr {
 // otherwise.
 rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 	ctx := &ui.ctx
-	h := ctx.text_height(ctx.style.font)
 	select_item(ui, item, r.text)
 	width := mu.get_layout(ctx).body.w
+	row: mu.Rect
 	for vl in rich_layout(ctx, r, width) {
-		row := mu.layout_next(ctx)
+		if !vl.same_row {
+			mu.layout_row(ctx, {-1}, vl.h)
+			row = mu.layout_next(ctx)
+		}
 		l := r.lines[vl.line]
-		// What is behind the text: a code block's box and the quotes' bars.
+		saved := ctx.style.font
+		ctx.style.font = rich_line_font(ctx, l)
+		defer ctx.style.font = saved
+		// What is behind the text: a code block's box, a table's cell and the
+		// quotes' bars.
 		if l.kind == .Code {
 			qx := i32(l.quote) * QUOTE_STEP
-			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, h}, theme.code_block)
+			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, row.h}, theme.code_block)
 		}
-		for q in 0 ..< l.quote {
-			mu.draw_rect(
-				ctx,
-				{row.x + i32(q) * QUOTE_STEP + QUOTE_BAR_X, row.y, QUOTE_BAR_W, h},
-				theme.quote_bar,
-			)
+		hit_from, hit_to := min(i32), max(i32)
+		if vl.cell >= 0 {
+			rich_cell(ctx, vl, l, row)
+			if vl.cell > 0 {
+				hit_from = row.x + vl.cell_x
+			}
+			if vl.cell < len(l.cells) - 1 {
+				hit_to = row.x + vl.cell_x + vl.cell_w
+			}
+		}
+		if !vl.same_row {
+			for q in 0 ..< l.quote {
+				mu.draw_rect(
+					ctx,
+					{row.x + i32(q) * QUOTE_STEP + QUOTE_BAR_X, row.y, QUOTE_BAR_W, row.h},
+					theme.quote_bar,
+				)
+			}
 		}
 		// Then what is behind its pieces, the selection over that, and then the
 		// pieces.
-		pos := mu.Vec2{row.x + vl.x, row.y}
+		pos := mu.Vec2{row.x + vl.x, row.y + vl.top}
 		rich_pieces(ui, r, vl, l.kind == .Code, pos, color, item, .Back)
-		select_line(ui, item, r.text, vl.start, vl.end, pos, r)
+		select_line(ui, item, r.text, vl.start, vl.end, pos, r, hit_from = hit_from, hit_to = hit_to)
 		rich_pieces(ui, r, vl, l.kind == .Code, pos, color, item, .Front)
 		rich_emoji(ui, r, vl, pos)
+	}
+}
+
+// rich_cell draws what is behind a line of a table's cell: the column names'
+// background, and the lines around the cell that are on this line's part of
+// it (the side lines, the line above the row on its first line and the one
+// below the table on its last).
+@(private = "file")
+rich_cell :: proc(ctx: ^mu.Context, vl: Rich_Line, l: richtext.Md_Line, row: mu.Rect) {
+	x := row.x + vl.cell_x
+	if l.kind == .Table_Head {
+		mu.draw_rect(ctx, {x, row.y, vl.cell_w, row.h}, theme.code_block)
+	}
+	mu.draw_rect(ctx, {x, row.y, 1, row.h}, theme.divider)
+	if vl.cell == len(l.cells) - 1 {
+		mu.draw_rect(ctx, {x + vl.cell_w, row.y, 1, row.h}, theme.divider)
+	}
+	if vl.row_first {
+		mu.draw_rect(ctx, {x, row.y, vl.cell_w + 1, 1}, theme.divider)
+	}
+	if vl.table_last {
+		mu.draw_rect(ctx, {x, row.y + row.h - 1, vl.cell_w + 1, 1}, theme.divider)
 	}
 }
 

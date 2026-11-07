@@ -148,6 +148,71 @@ test_markdown_blocks :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_markdown_headings :: proc(t: ^testing.T) {
+	rt := markdown_parse("# Title\n## The *new* one ##\n###### six\n####### seven\n#tag\n# \n> # quoted", nil)
+	testing.expect_value(
+		t,
+		md_show(rt),
+		"[B:Title]\n[B:The ][BI:new][B: one]\n[B:six]\n####### seven\n#tag\n# \n[B:quoted]",
+	)
+	levels := [?]int{1, 2, 6, 0, 0, 0, 1}
+	for l, i in rt.lines {
+		want := Md_Line_Kind.Heading if levels[i] > 0 else .Plain
+		testing.expectf(t, l.kind == want && l.level == levels[i], "line %d: %v", i, l)
+	}
+	testing.expect_value(t, rt.lines[6].quote, 1)
+	// A # that isn't after a space is part of the text.
+	testing.expect_value(t, markdown_parse("# C# and F#", nil).text, "C# and F#")
+	testing.expect_value(t, markdown_parse("# #", nil).text, "# #")
+	testing.expect_value(t, markdown_plain("# Title\ntext"), "Title text")
+}
+
+@(test)
+test_markdown_tables :: proc(t: ^testing.T) {
+	rt := markdown_parse(
+		"before\n| Job | **State** | n |\n|:----|:-----:|--:|\n| build | ok | 1 |\nx | `a\\|b`\n| only |\nafter",
+		nil,
+	)
+	testing.expect_value(
+		t,
+		md_show(rt),
+		"before\n[B:Job\t][B:State][B:\tn]\nbuild\tok\t1\nx\t[C:a|b]\t\nonly\t\t\nafter",
+	)
+	testing.expect_value(t, len(rt.tables), 1)
+	testing.expect_value(t, len(rt.tables[0].align), 3)
+	testing.expect_value(t, rt.tables[0].align[0], Md_Align.Left)
+	testing.expect_value(t, rt.tables[0].align[1], Md_Align.Center)
+	testing.expect_value(t, rt.tables[0].align[2], Md_Align.Right)
+	kinds := [?]Md_Line_Kind{.Plain, .Table_Head, .Table_Row, .Table_Row, .Table_Row, .Plain}
+	testing.expect_value(t, len(rt.lines), len(kinds))
+	for l, i in rt.lines {
+		testing.expectf(t, l.kind == kinds[i], "line %d: %v", i, l)
+		if l.kind == .Table_Head || l.kind == .Table_Row {
+			testing.expect_value(t, len(l.cells), 3)
+			testing.expect_value(t, l.cells[0].start, l.start)
+			testing.expect_value(t, l.cells[2].end, l.end)
+		}
+	}
+	testing.expect_value(t, rt.text[rt.lines[2].cells[1].start:rt.lines[2].cells[1].end], "ok")
+	testing.expect_value(t, rt.text[rt.lines[4].cells[1].start:rt.lines[4].cells[1].end], "")
+
+	// Not tables: a different number of columns, no | in the second line, and
+	// no row of dashes.
+	for not_table in ([?]string{"a | b\n|---|", "a | b\n--- ---", "a | b\nc | d"}) {
+		rt = markdown_parse(not_table, nil)
+		testing.expectf(t, len(rt.tables) == 0 && rt.text == not_table, "%q: %v", not_table, rt)
+	}
+	// Two tables, the second in a quote, which ends where the quote does.
+	rt = markdown_parse("a|b\n-|-\n> c|\n> -|\n> 1|\nd|e", nil)
+	testing.expect_value(t, len(rt.tables), 2)
+	testing.expect_value(t, rt.text, "a\tb\nc\n1\nd|e")
+	testing.expect_value(t, rt.lines[2].quote, 1)
+	testing.expect_value(t, rt.lines[3].kind, Md_Line_Kind.Plain)
+
+	testing.expect_value(t, markdown_plain("| a | b |\n|---|---|\n| 1 | 2 |"), "a | b 1 | 2")
+}
+
+@(test)
 test_markdown_atoms :: proc(t: ^testing.T) {
 	// Atoms are never looked into, and they move together with the text.
 	text := "hi @foo_bar_baz *x* https://x.org/a_b_c _i_"
@@ -210,6 +275,60 @@ test_markdown_links :: proc(t: ^testing.T) {
 	text = "*a [b* c](https://x.org)"
 	rt = markdown_parse(text, md_atoms(text, "https://x.org"))
 	testing.expect_value(t, md_show(rt), "*a b* c")
+}
+
+@(test)
+test_markdown_images :: proc(t: ^testing.T) {
+	// On its own, a picture is a link to it that shows its words.
+	text := "a ![logo](https://x.org/l.png) b"
+	rt := markdown_parse(text, md_atoms(text, "https://x.org/l.png"))
+	testing.expect_value(t, rt.text, "a logo b")
+	testing.expect_value(t, len(rt.links), 1)
+	testing.expect_value(t, rt.links[0], Md_Link{2, 6, "https://x.org/l.png"})
+	testing.expect_value(t, rt.atoms[0].start, -1)
+
+	// Mattermost's size and title are dropped; without words the title shows,
+	// and without either the address.
+	text = `![](https://x.org/l.png =44x22 "the logo")`
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/l.png"))
+	testing.expect_value(t, rt.text, "the logo")
+	testing.expect_value(t, len(rt.links), 1)
+	text = "![](https://x.org/l.png =x22)"
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/l.png"))
+	testing.expect_value(t, rt.text, "https://x.org/l.png")
+	testing.expect_value(t, rt.atoms[0], Md_Atom{0, 19, true})
+
+	// Inside a link a picture is its words, and the link goes where it goes.
+	text = "[![build](https://x.org/b.png =44x22 \"build (success)\") `full`](https://x.org/job)"
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/b.png", "https://x.org/job"))
+	testing.expect_value(t, md_show(rt), "build [C:full]")
+	testing.expect_value(t, len(rt.links), 1)
+	testing.expect_value(t, rt.links[0], Md_Link{0, 10, "https://x.org/job"})
+	text = "[![](https://x.org/b.png)](https://x.org/job)"
+	rt = markdown_parse(text, md_atoms(text, "https://x.org/b.png", "https://x.org/job"))
+	testing.expect_value(t, rt.text, "https://x.org/job")
+	testing.expect_value(t, len(rt.links), 1)
+
+	// Not pictures: no web address, a size without an x, an open title, and
+	// anything else after the address.
+	for not_image in ([?]string {
+			"![a](b)",
+			"![a](https://x.org =44)",
+			`![a](https://x.org "t)`,
+			"![a](https://x.org x)",
+		}) {
+		atoms: []Md_Atom
+		if strings.contains(not_image, "https") {
+			atoms = md_atoms(not_image, "https://x.org")
+		}
+		rt = markdown_parse(not_image, atoms)
+		testing.expectf(t, len(rt.links) == 0 && rt.text == not_image, "%q: %v", not_image, rt)
+	}
+	// An escaped ! is a link after a !.
+	text = `\![a](https://x.org)`
+	rt = markdown_parse(text, md_atoms(text, "https://x.org"))
+	testing.expect_value(t, rt.text, "!a")
+	testing.expect_value(t, len(rt.links), 1)
 }
 
 @(test)
@@ -293,6 +412,12 @@ test_markdown_random :: proc(t: ^testing.T) {
 		"```",
 		"URL",
 		"@M",
+		"!",
+		" =4x2",
+		"# ",
+		"|",
+		"|-|",
+		"\"",
 	}
 	state: u64 = 0x9e3779b97f4a7c15
 	next :: proc(state: ^u64) -> u64 {
