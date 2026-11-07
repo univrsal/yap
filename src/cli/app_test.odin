@@ -286,26 +286,31 @@ test_slash_commands :: proc(t: ^testing.T) {
 	testing.expect_value(t, vc.name, "dev")
 	conn.command_destroy(cmds[0])
 
-	// What isn't ours is the headless client's: an unknown one is tried as a bot's
-	// command and then answered with the list of commands.
+	// What isn't ours is the headless client's, or a bot's if one has registered
+	// the name; a name nobody knows is answered here.
 	type_text(&f, "/nonsense")
+	press(&f, .Enter)
+	testing.expect_value(t, len(take(&f)), 0)
+	testing.expect(t, strings.contains(f.app.notice, "There is no command /nonsense"), f.app.notice)
+	append(
+		&f.v.bot_commands,
+		conn.Bot_Command_Entry{account = 9, bot = strings.clone("robo"), name = strings.clone("roll"), description = strings.clone("roll a die")},
+	)
+	type_text(&f, "/roll 2d6")
 	press(&f, .Enter)
 	cmds = take(&f)
 	bot, is_bot := find_cmd(conn.Bot_Run_Command, cmds)
 	testing.expect(t, is_bot)
-	testing.expect_value(t, bot.line, "/nonsense")
+	testing.expect_value(t, bot.line, "/roll 2d6")
 	for c in cmds {
 		conn.command_destroy(c)
 	}
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Output)
-	frame(&f)
-	testing.expect(t, screen_has(&f, "commands: /channels"))
-	press(&f, .Escape)
-	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
 
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None) // (no list of commands after a bot's)
 	type_text(&f, "/help")
 	press(&f, .Enter)
 	frame(&f)
+	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Help)
 	testing.expect(t, screen_has(&f, "send the message"))
 	press(&f, .Escape) // any key closes it
 	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.None)
@@ -4817,4 +4822,45 @@ test_down_shows_all_of_the_last_message :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.app.cursor_msg, 60)
 	testing.expect_value(t, f.app.scroll, 0)
 	testing.expect(t, screen_has(&f, "four"))
+}
+
+@(test)
+test_unknown_commands_are_told_and_not_sent :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	discard(&f)
+	type_text(&f, "/bna anna")
+	press(&f, .Enter)
+	testing.expect(t, strings.contains(f.app.notice, "There is no command /bna"), f.app.notice)
+	testing.expect(t, strings.contains(f.app.notice, "Did you mean /ban?"), f.app.notice)
+	testing.expect_value(t, len(take(&f)), 0)
+	// A known one is not.
+	type_text(&f, "/notify")
+	press(&f, .Enter)
+	testing.expect(t, !strings.contains(f.app.notice, "There is no command"), f.app.notice)
+	_, near := closest_command("zzzzzz")
+	testing.expect(t, !near)
+}
+
+@(test)
+test_completing_emoji_shortcodes :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	frame(&f)
+	type_text(&f, "nice :rocke")
+	frame(&f)
+	testing.expect(t, f.app.completion.active)
+	testing.expect_value(t, f.app.completion.items[0].insert, "🚀 ")
+	press(&f, .Tab)
+	testing.expect_value(t, tui.editor_text(&f.app.editor), "nice 🚀 ")
+	// Not in the middle of a word or a time, nor with one letter, nor once closed.
+	for text in ([]string{"10:30", "http://rocket", "a :r", "go :rocket:"}) {
+		tui.editor_clear(&f.app.editor)
+		type_text(&f, text)
+		frame(&f)
+		testing.expect(t, !f.app.completion.active, text)
+	}
 }

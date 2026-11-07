@@ -73,7 +73,9 @@ box shows how it is used, with the argument you are writing in bold. A command
 used without what it needs says how it is meant to be used instead of being sent.
 `/notify mentions` changes how much the channel you are looking at may interrupt
 (`all`, `mentions` or `none`; alone it tells the current level; `/notify dev none`
-names another channel; `Ctrl+K` offers the three as well). `/help <command>` explains one command (with an example), and `/help commands`
+names another channel; `Ctrl+K` offers the three as well). Typing `:rocke` in a message offers the emoji whose shortcode it could be (Tab or
+Enter puts the emoji in; the server's own emoji are offered as `:name:`). A command
+that does not exist is told so, with the nearest one ("Did you mean /ban?"). `/help <command>` explains one command (with an example), and `/help commands`
 lists all of them (Up/Down/PgUp/PgDn scroll). Besides `/join`, `/pins`, `/bookmarks`, `/search [all]`,
 `/servers`, `/server`, `/connect`, `/disconnect`, `/mute`, `/deafen`, `/voice`,
 `/settings`, `/roles`, `/bans`, `/invites`, `/devices` and `/quit`, every command

@@ -4,6 +4,8 @@ import "core:fmt"
 import "core:slice"
 import "core:strings"
 
+import "client:conn"
+import "client:script"
 import "tui"
 
 // What the commands are called, what they take and what they do: shown while a
@@ -134,6 +136,18 @@ COMMAND_DOCS := [?]Command_Doc {
 	{"default", "on|off", "Whether new members join this channel.", ""},
 	{"textonly", "on|off", "Whether this channel has no voice room.", ""},
 	{"rights", "[<role>=<right,...> ...]", "Show what each role may do here, or replace it. Rights: see, write, attach, react, edit, delete, voice, speak, video, none.", "/rights everyone=see,react writers=see,write"},
+	{"addbot", "<username> [name]", "Create a bot; its token is shown once.", ""},
+	{"bottoken", "<account>", "Create another token for a bot, given its account id.", ""},
+	{"tokens", "<account>", "List a bot's tokens, given its account id.", ""},
+	{"login", "<username> <password>", "Log in, if the server asks for it.", ""},
+	{"register", "<username> <password> [email] [invite]", "Create an account, if the server allows it, and log in.", ""},
+	{"deleteme", "<password>", "Delete your own account.", ""},
+	{"listen", "", "Hear your own processed voice (listen back). /unlisten stops it.", ""},
+	{"unlisten", "", "Stop hearing yourself.", ""},
+	{"noavatar", "", "Remove your profile picture.", ""},
+	{"uninvite", "<code>", "Revoke an invite code.", ""},
+	{"view", "<channel>", "Look at a channel (the same as /join).", ""},
+	{"script", "list|reload|on|off|settings|set|servers [file]", "Manage the Lua scripts.", "/script list"},
 	// The program
 	{"help", "[command|commands]", "The keys; /help <command> tells how a command is used; /help commands lists them.", ""},
 	{"quit", "", "Leave (Ctrl+C does too).", ""},
@@ -245,4 +259,74 @@ draw_command_hint :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) -> bool {
 	}
 	tui.put_string(b, x + 2, r.y, strings.concatenate({"— ", d.help}, context.temp_allocator), theme.dim, r.x + r.w)
 	return true
+}
+
+// The commands that the headless client handles and that are left out of
+// COMMAND_DOCS on purpose: they are for debugging.
+UNDOCUMENTED_COMMANDS :: [?]string{"memory", "server-memory"}
+
+// command_known says whether a name (without the slash) is a command of any kind
+// here: one of the table, the aliases, the debugging ones, a script's or a bot's.
+// Call with the View locked.
+command_known :: proc(a: ^App, name: string) -> bool {
+	if _, ok := command_doc(name); ok {
+		return true
+	}
+	for c in UNDOCUMENTED_COMMANDS {
+		if c == name {
+			return true
+		}
+	}
+	switch name {
+	case "q", "exit", "h", "?", "s", "find", "j", "channel":
+		return true
+	}
+	if a.scripts != nil {
+		for info in script.runtime_commands(a.scripts, a.client) {
+			if strings.to_lower(info.name, context.temp_allocator) == name {
+				return true
+			}
+		}
+	}
+	return is_bot_command(a, name)
+}
+
+// is_bot_command says whether a bot has registered a command of that name.
+is_bot_command :: proc(a: ^App, name: string) -> bool {
+	for e in conn.bot_commands_scope(a.view.bot_commands[:], nil, false) {
+		if strings.to_lower(e.name, context.temp_allocator) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// closest_command finds the documented command whose name is nearest to a
+// mistyped one, if it is near enough.
+closest_command :: proc(name: string) -> (found: string, ok: bool) {
+	best := 3
+	for d in COMMAND_DOCS {
+		if dist := edit_distance(name, d.name); dist < best {
+			best, found, ok = dist, d.name, true
+		}
+	}
+	return
+}
+
+@(private = "file")
+edit_distance :: proc(a, b: string) -> int {
+	prev := make([]int, len(b) + 1, context.temp_allocator)
+	cur := make([]int, len(b) + 1, context.temp_allocator)
+	for j in 0 ..= len(b) {
+		prev[j] = j
+	}
+	for i in 1 ..= len(a) {
+		cur[0] = i
+		for j in 1 ..= len(b) {
+			cost := 0 if a[i - 1] == b[j - 1] else 1
+			cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(b)]
 }

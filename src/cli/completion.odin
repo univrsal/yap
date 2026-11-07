@@ -16,7 +16,7 @@ import "tui"
 //
 // This is the terminal's own matching; the window client's is in
 // ui_completion.odin (which is tied to its widgets), so changes to what
-// matches go in both. Emoji shortcodes (:name:) are not completed yet.
+// matches go in both.
 
 COMPLETION_MAX :: 6
 
@@ -67,6 +67,10 @@ completion_update :: proc(a: ^App) {
 		// After a command that takes a person: /call an
 		c.start, c.end = arg_start, cursor
 		user_items(a, strings.to_lower(text[arg_start:cursor], context.temp_allocator))
+	} else if colon, is_emoji := emoji_word(text, cursor); is_emoji {
+		// :roc  ->  🚀
+		c.start, c.end = colon, cursor
+		emoji_items(a, strings.to_lower(text[colon + 1:cursor], context.temp_allocator))
 	} else {
 		start := cursor
 		for start > 0 && word_byte(text[start - 1]) {
@@ -379,4 +383,80 @@ user_items :: proc(a: ^App, prefix: string) {
 		}
 		append(&c.items, Completion_Item{f.insert, f.label})
 	}
+}
+
+// emoji_word says whether the cursor is at the end of an emoji shortcode being
+// typed (:roc), and where its colon is. It needs two letters, and the colon at
+// the start of a word, so that 10:30 and http://... are left alone.
+@(private = "file")
+emoji_word :: proc(text: string, cursor: int) -> (colon: int, ok: bool) {
+	i := cursor
+	for i > 0 && (word_byte(text[i - 1]) && text[i - 1] != '.' || text[i - 1] == '+') {
+		i -= 1
+	}
+	if i == 0 || text[i - 1] != ':' || cursor - i < 2 {
+		return
+	}
+	colon = i - 1
+	if colon > 0 && !strings.is_space(rune(text[colon - 1])) {
+		return
+	}
+	return colon, true
+}
+
+// emoji_items lists the emoji whose shortcodes the typed start could be: those
+// that start with it first, then those that have it inside; the server's own
+// emoji (written :name:) with them.
+@(private = "file")
+emoji_items :: proc(a: ^App, prefix: string) {
+	v, c := a.view, &a.completion
+	for rank in 0 ..< 2 {
+		for e in proto.EMOJI {
+			if len(c.items) >= COMPLETION_MAX {
+				return
+			}
+			names := e.names
+			best := 2
+			for code in strings.split_iterator(&names, " ") {
+				switch {
+				case strings.has_prefix(code, prefix):
+					best = min(best, 0)
+				case strings.contains(code, prefix):
+					best = min(best, 1)
+				}
+			}
+			if best == rank {
+				glyph := utf8_string(e.r)
+				append(
+					&c.items,
+					Completion_Item {
+						strings.concatenate({glyph, " "}, context.temp_allocator),
+						strings.concatenate({glyph, "  :", proto.emoji_name(e), ":"}, context.temp_allocator),
+					},
+				)
+			}
+		}
+		for name in v.emoji.names {
+			if len(c.items) >= COMPLETION_MAX {
+				return
+			}
+			lower := strings.to_lower(name, context.temp_allocator)
+			if (strings.has_prefix(lower, prefix) && rank == 0) || (!strings.has_prefix(lower, prefix) && strings.contains(lower, prefix) && rank == 1) {
+				append(
+					&c.items,
+					Completion_Item {
+						strings.concatenate({":", name, ": "}, context.temp_allocator),
+						strings.concatenate({":", name, ":  (this server's)"}, context.temp_allocator),
+					},
+				)
+			}
+		}
+	}
+}
+
+@(private = "file")
+utf8_string :: proc(r: rune) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	strings.write_rune(&b, r)
+	return strings.to_string(b)
 }

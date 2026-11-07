@@ -209,6 +209,16 @@ def main():
         cli.send("\x15")  # Ctrl+U
         cli.pump(0.2)
 
+        # Emoji shortcodes complete in the message, unknown commands are told.
+        cli.send(":rocke")
+        check(cli.wait_for(":rocket:"), "offers emoji for a typed :shortcode", cli)
+        cli.send("\t")
+        check(cli.wait_for("> 🚀"), "puts the chosen emoji in the message", cli)
+        cli.send("\x15")
+        cli.pump(0.2)
+        cli.send("/bna\r")
+        check(cli.wait_for("There is no command /bna"), "says when a command does not exist", cli)
+
         # Completion, a list dialog and copying a drag with the clipboard escape.
         cli.send("/pi")
         check(cli.wait_for("/pins"), "offers commands while typing one", cli)

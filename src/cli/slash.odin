@@ -117,7 +117,21 @@ run_command :: proc(a: ^App, line: string) {
 		if a.scripts != nil && script.runtime_run_command(a.scripts, a.client, line, viewed_channel_name(a)) {
 			return
 		}
-		if d, ok := command_doc(strings.to_lower(name, context.temp_allocator)); ok && missing_args(d^, rest) {
+		lower := strings.to_lower(name, context.temp_allocator)
+		if !command_known(a, lower) {
+			text := strings.concatenate({"There is no command /", name, "."}, context.temp_allocator)
+			if near, ok := closest_command(lower); ok {
+				text = strings.concatenate({text, " Did you mean /", near, "?"}, context.temp_allocator)
+			}
+			say(a, strings.concatenate({text, " /help commands lists them."}, context.temp_allocator), true)
+			return
+		}
+		if _, ours := command_doc(lower); !ours && is_bot_command(a, lower) {
+			// (The headless client would add its list of commands to the answer.)
+			push(a, conn.Bot_Run_Command{line = strings.clone(line), silent = true})
+			return
+		}
+		if d, ok := command_doc(lower); ok && missing_args(d^, rest) {
 			say(a, strings.concatenate({"Usage: ", usage_line(d^), "  (/help ", d.name, " tells more)"}, context.temp_allocator), true)
 			return
 		}
