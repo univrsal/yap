@@ -128,10 +128,14 @@ design notes, with what was built when, are in
 
 ## Emoji that shift a line (tmux)
 
-Some symbols are emoji too but one cell wide by default (an umbrella, a sun, a
-heart, a beach). Terminals disagree on how wide they are drawn (Konsole draws them
-wide), and tmux counts one cell, so a row with them could end up shifted. In tmux
-or screen `yap-cli` therefore sends those symbols as wide emoji (followed by
-U+FE0F) and counts them as two cells, which tmux, and the terminals behind it,
-keep to. `YAP_CLI_EMOJI=wide` does that everywhere, `YAP_CLI_EMOJI=text` sends them
-in text style (U+FE0E) instead and `YAP_CLI_EMOJI=emoji` changes nothing.
+Terminals and tmux do not always count the same number of cells for an emoji,
+and where they differ the rest of the row is drawn shifted. Inside tmux or screen
+`yap-cli` therefore asks tmux at start how wide it counts every emoji, and draws
+a small mark (▫) in place of the few it counts differently from the width table
+(with tmux 3.8 and Konsole: ☝ ✌ ✍ ⛹ 🏋 🕴, which can take a skin tone). Copying
+the text still gives the emoji. `YAP_CLI_EMOJI=probe` does that everywhere;
+`wide` instead sends the narrow emoji symbols as wide emoji (U+FE0F), `text` in
+text style (U+FE0E), and `emoji` changes nothing.
+
+`scripts/term-widths.py` shows how many cells a terminal counts for some 160
+symbols; run it in the terminal and again inside tmux to compare.

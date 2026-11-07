@@ -39,7 +39,8 @@ run_ui :: proc(opt: Options) -> bool {
 		return false
 	}
 	term: tui.Terminal
-	configure_emoji_width()
+	emoji_mode := emoji_width_mode()
+	configure_emoji_width(emoji_mode)
 	if !tui.terminal_open(&term) {
 		fmt.eprintln("yap-cli needs a terminal on its input and output. Use -print to only list the channels.")
 		return false
@@ -49,6 +50,9 @@ run_ui :: proc(opt: Options) -> bool {
 	// garble it: it goes to the log file instead.
 	redirect_stderr(opt.log_file)
 	defer tui.terminal_close(&term)
+	if emoji_mode == "probe" {
+		probe_emoji_widths(&term)
+	}
 	interrupt_install()
 
 	app: App
@@ -427,27 +431,25 @@ load_server_lists :: proc(a: ^App) {
 }
 
 
-// configure_emoji_width deals with the symbols that are emoji but one cell wide
-// by default (an umbrella, a sun, a heart). Terminals draw them wide or narrow as
-// they like, and tmux counts one cell, which shifts the rest of the row when the
-// terminal draws them wide (Konsole does). Inside tmux or screen they are
-// therefore sent as wide emoji (with U+FE0F) and counted as two cells.
-// YAP_CLI_EMOJI=wide does that everywhere, =text sends them in text style
-// (U+FE0E) instead, =emoji leaves them alone.
+// emoji_width_mode says how the emoji whose widths terminals disagree on are
+// handled: "probe" (the default inside tmux or screen) asks the multiplexer how
+// wide it counts each and draws a mark in place of those it counts differently
+// than the width table does, since the terminal behind it goes by its own idea and
+// the row then shifts. YAP_CLI_EMOJI=probe forces that; "wide" sends the narrow
+// emoji symbols as wide emoji (U+FE0F), "text" in text style (U+FE0E), "emoji"
+// changes nothing.
 @(private = "file")
-configure_emoji_width :: proc() {
+emoji_width_mode :: proc() -> string {
 	mode := os.get_env("YAP_CLI_EMOJI", context.temp_allocator)
 	multiplexer := os.get_env("TMUX", context.temp_allocator) != "" || strings.has_prefix(os.get_env("TERM", context.temp_allocator), "screen")
 	if mode == "" && multiplexer {
-		mode = "wide"
+		return "probe"
 	}
-	narrow_emoji :: proc(r: rune) -> bool {
-		if r < 0x2000 || tui.rune_width(r) != 1 {
-			return false
-		}
-		_, ok := proto.emoji_index(r)
-		return ok
-	}
+	return mode
+}
+
+@(private = "file")
+configure_emoji_width :: proc(mode: string) {
 	switch mode {
 	case "wide":
 		tui.wide_symbols = proc(r: rune) -> bool {
@@ -458,6 +460,41 @@ configure_emoji_width :: proc() {
 			return ok && !tui.in_wide_table(r)
 		}
 	case "text":
-		tui.text_presentation = narrow_emoji
+		tui.text_presentation = proc(r: rune) -> bool {
+			if r < 0x2000 || tui.rune_width(r) != 1 {
+				return false
+			}
+			_, ok := proto.emoji_index(r)
+			return ok
+		}
+	}
+}
+
+// The emoji the multiplexer counts differently from the table.
+@(private = "file")
+disagreed: map[rune]struct{}
+
+@(private = "file")
+probe_emoji_widths :: proc(term: ^tui.Terminal) {
+	runes := make([dynamic]rune, context.temp_allocator)
+	for e in proto.EMOJI {
+		if e.r >= 0x2000 {
+			append(&runes, e.r)
+		}
+	}
+	widths, ok := tui.terminal_probe_widths(term, runes[:], context.temp_allocator)
+	if !ok {
+		return
+	}
+	for r, i in runes {
+		if widths[i] != tui.rune_width(r) {
+			disagreed[r] = {}
+		}
+	}
+	if len(disagreed) > 0 {
+		tui.stand_in = proc(r: rune) -> bool {
+			_, found := disagreed[r]
+			return found
+		}
 	}
 }

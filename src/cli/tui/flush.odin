@@ -11,6 +11,12 @@ import "core:strings"
 // are plain text everywhere.
 text_presentation: proc(r: rune) -> bool
 
+// stand_in, when set, says which runes are drawn as a small mark (▫) in the cells
+// they take: those that tmux counts to another width than the table does, since
+// the terminal behind it then goes by a third idea and the row shifts (see
+// configure_emoji_width in the client).
+stand_in: proc(r: rune) -> bool
+
 // render_diff writes the escape sequences that make a terminal that shows `prev`
 // show `cur` instead, to `out`. With no `prev` (or one of another size) it
 // clears the screen and draws everything. The cursor is left wherever the
@@ -44,6 +50,16 @@ render_diff :: proc(out: ^strings.Builder, prev: ^Buffer, cur: ^Buffer) {
 			if !style_known || style != c.style {
 				write_style(out, c.style)
 				style, style_known = c.style, true
+			}
+			if stand_in != nil && stand_in(c.r) {
+				// A rune the terminal and tmux count differently: a plain mark of
+				// the cells it takes, which they agree on.
+				strings.write_string(out, "▫")
+				if c.width == 2 {
+					strings.write_string(out, " ")
+				}
+				cx, cy = x + int(c.width), y
+				continue
 			}
 			strings.write_rune(out, c.r)
 			if c.width == 2 && wide_symbols != nil && wide_symbols(c.r) {

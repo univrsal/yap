@@ -233,3 +233,20 @@ test_symbols_can_be_wide_emoji :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(text, "☂️"), text)
 	testing.expect(t, strings.contains(text, "\x1b[1;4Hb"), text) // b is in the fourth column
 }
+
+@(test)
+test_runes_the_multiplexer_counts_differently_are_drawn_as_a_mark :: proc(t: ^testing.T) {
+	stand_in = proc(r: rune) -> bool {return r == '🕴'}
+	defer stand_in = nil
+	cur := buffer_make(8, 1)
+	defer buffer_destroy(&cur)
+	put_string(&cur, 0, 0, "a🕴b", {})
+	out: strings.Builder
+	defer strings.builder_destroy(&out)
+	render_diff(&out, nil, &cur)
+	text := strings.to_string(out)
+	testing.expect(t, strings.contains(text, "a▫b"), text)
+	testing.expect(t, !strings.contains(text, "🕴"), text)
+	// The screen itself keeps the emoji (for copying).
+	testing.expect_value(t, buffer_row_text(&cur, 0), "a🕴b")
+}
