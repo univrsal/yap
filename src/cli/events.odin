@@ -196,7 +196,9 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 // pick_last_message puts the message cursor on the newest message of a pane.
 @(private = "file")
 pick_last_message :: proc(a: ^App, p: Pane) {
-	#reverse for r in p.layout.rows {
+	// The last one that is shown (the newest, unless scrolled up).
+	shown := p.layout.rows[:max(len(p.layout.rows) - p.scroll^, 0)]
+	#reverse for r in shown {
 		if r.msg != 0 {
 			a.cursor_msg = r.msg
 			return
@@ -280,13 +282,23 @@ move_cursor :: proc(a: ^App, p: Pane, dir: int) {
 		return
 	}
 	a.cursor_msg = rows[i].msg
-	// Keep the row in view.
+	// Keep all the rows of the message in view (not only its first).
+	first, last := i, i
+	for first > 0 && rows[first - 1].msg == a.cursor_msg {
+		first -= 1
+	}
+	for last + 1 < len(rows) && rows[last + 1].msg == a.cursor_msg {
+		last += 1
+	}
 	h := p.rect.h
-	end := len(rows) - p.scroll^
-	if i >= end {
-		p.scroll^ = len(rows) - i - 1
-	} else if i < end - h {
-		p.scroll^ = len(rows) - i - h
+	end := len(rows) - p.scroll^ // the rows from end-h up to end are shown
+	switch {
+	case last - first + 1 >= h:
+		p.scroll^ = len(rows) - first - h // taller than the pane: its start at the top
+	case last >= end:
+		p.scroll^ = len(rows) - last - 1
+	case first < end - h:
+		p.scroll^ = len(rows) - first - h
 	}
 	p.scroll^ = max(p.scroll^, 0)
 }

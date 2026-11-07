@@ -4792,3 +4792,29 @@ test_going_to_a_message_focuses_the_messages :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.app.cursor_msg, 10)
 	discard(&f)
 }
+
+@(test)
+test_down_shows_all_of_the_last_message :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture(&f)
+	defer fixture_destroy(&f)
+	for i in 0 ..< 40 {
+		add_message(&f.v, 1, proto.Msg_Id(10 + i), 2, T0 + proto.Unix_Ms(i) * MINUTE, "short")
+	}
+	add_message(&f.v, 1, 60, 2, T0 + 50 * MINUTE, "one\ntwo\nthree\nfour")
+	frame(&f)
+	// Somewhere up in the history, picking the messages downwards.
+	f.app.scroll = 30
+	frame(&f)
+	press(&f, .Tab)
+	for _ in 0 ..< 60 {
+		press(&f, .Down)
+		frame(&f)
+		if f.app.cursor_msg == 60 {
+			break
+		}
+	}
+	testing.expect_value(t, f.app.cursor_msg, 60)
+	testing.expect_value(t, f.app.scroll, 0)
+	testing.expect(t, screen_has(&f, "four"))
+}
