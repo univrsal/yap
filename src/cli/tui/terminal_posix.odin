@@ -41,8 +41,8 @@ wake_wr: posix.FD = -1
 @(private = "file")
 resized: bool
 
-SEQ_ENTER :: "\x1b[?1049h\x1b[?25l\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[2J"
-SEQ_LEAVE :: "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?25h\x1b[?1049l\x1b[0m"
+SEQ_ENTER :: "\x1b[?1049h\x1b[?7l\x1b[?25l\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[2J"
+SEQ_LEAVE :: "\x1b[?7h\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?25h\x1b[?1049l\x1b[0m"
 
 // terminal_open puts the terminal in raw mode and on its own screen. It fails if
 // stdin is not a terminal.

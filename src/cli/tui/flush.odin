@@ -39,6 +39,12 @@ render_diff :: proc(out: ^strings.Builder, prev: ^Buffer, cur: ^Buffer) {
 			}
 			strings.write_rune(out, c.r)
 			cx, cy = x + int(c.width), y
+			if uncertain_width(c.r) {
+				// Terminals (and tmux in between) differ on how wide some emoji and
+				// symbols are. Where the cursor is after one is not to be trusted:
+				// the next cell is placed on its own, so the row cannot shift.
+				cx = -1
+			}
 		}
 	}
 	strings.write_string(out, "\x1b[0m")
@@ -77,4 +83,11 @@ write_color :: proc(out: ^strings.Builder, c: Color, base: int) {
 	case .RGB:
 		fmt.sbprintf(out, ";%d;2;%d;%d;%d", base, c.r, c.g, c.b)
 	}
+}
+
+// uncertain_width says whether terminals may disagree about a rune's width:
+// whatever is not plain text, i.e. symbols, emoji and wide characters.
+@(private)
+uncertain_width :: proc(r: rune) -> bool {
+	return r >= 0x2000
 }

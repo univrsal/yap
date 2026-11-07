@@ -603,3 +603,5 @@ found two of my own help lines being cut.
   that each name is there once and has a sentence.
 
 **Notifications and jumping (2026-11-07).** `/notify` is the terminal's own now: with just a level it applies to the conversation being looked at (DMs too), with nothing it says the current level, and `Ctrl+K` lists the three levels for here. Going to a message (from pins, bookmarks or search) puts the focus on the messages, so Up/Down move from the message reached.
+
+**Emoji and tmux (2026-11-07).** Terminals (and tmux between them and us) disagree on the width of some emoji and symbols, and after a character we judge two cells wide but the terminal one, the rest of the row shifts. `render_diff` now places the cell after any rune from U+2000 up on its own (an explicit cursor move), and auto-wrap is off (`?7l`, restored on leaving), so a disagreement spoils one cell at most and cannot wrap or scroll the screen.

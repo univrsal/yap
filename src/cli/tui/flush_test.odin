@@ -187,3 +187,18 @@ test_styles_are_written_when_they_change :: proc(t: ^testing.T) {
 	// Not repeated for each rune.
 	testing.expect_value(t, strings.count(s, "38;5;1"), 1)
 }
+
+@(test)
+test_a_cell_after_an_emoji_is_placed_on_its_own :: proc(t: ^testing.T) {
+	// Terminals disagree on the width of some emoji; if the cursor were left to
+	// move on by itself, the rest of the row would shift where they differ.
+	cur := buffer_make(8, 1)
+	defer buffer_destroy(&cur)
+	put_string(&cur, 0, 0, "a🍞bc", {})
+	out: strings.Builder
+	defer strings.builder_destroy(&out)
+	render_diff(&out, nil, &cur)
+	text := strings.to_string(out)
+	testing.expect(t, strings.contains(text, "🍞\x1b[1;4Hb"), text)
+	testing.expect(t, !strings.contains(text, "ab"), text) // plain text still runs on
+}
