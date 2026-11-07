@@ -190,7 +190,7 @@ group_entry :: proc(v: ^conn.View, dm: ^conn.View_DM) -> Buddy_Entry {
 	e := Buddy_Entry {
 		group     = true,
 		conv      = dm.id,
-		name      = dm_name(v, dm),
+		name      = conn.dm_name(v, dm),
 		status    = fmt.tprintf("%d people", dm.count + 1),
 		unread    = dm.unread,
 		last_time = dm.last_time,
@@ -203,40 +203,6 @@ group_entry :: proc(v: ^conn.View, dm: ^conn.View_DM) -> Buddy_Entry {
 		}
 	}
 	return e
-}
-
-// dm_name is how a DM or a group is named: the other person's name, or the
-// names of the others in a group, joined with commas. The name is in the temp
-// allocator. Call with the View locked.
-dm_name :: proc(v: ^conn.View, dm: ^conn.View_DM) -> string {
-	others := conn.group_members(dm)
-	if len(others) == 0 {
-		others = {dm.with}
-	}
-	names := make([]string, len(others), context.temp_allocator)
-	for id, i in others {
-		names[i] = "someone"
-		if acc, ok := v.accounts[id]; ok {
-			names[i] = acc.display
-		}
-	}
-	return strings.join(names, ", ", context.temp_allocator)
-}
-
-// dm_closed is whether a DM or a group can't be written to any more: a DM with
-// someone whose account was deleted, or a group in which nobody else's
-// account is left (the server refuses it too). Call with the View locked.
-dm_closed :: proc(v: ^conn.View, dm: ^conn.View_DM) -> bool {
-	others := conn.group_members(dm)
-	if len(others) == 0 {
-		others = {dm.with}
-	}
-	for id in others {
-		if acc, ok := v.accounts[id]; !ok || .Deleted not_in acc.flags {
-			return false
-		}
-	}
-	return true
 }
 
 // dm_unread is the total number of unread messages in DMs, excluding DMs

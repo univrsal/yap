@@ -204,11 +204,16 @@ jobs:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: sh build.sh $OPT
+      # The terminal client uses the C libraries build.sh just built. It is for
+      # Unix terminals only, so there is no Windows build of it.
+      - name: Build the terminal client (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: sh build-cli.sh $OPT
       - name: Strip symbols (Linux, macOS)
         # A release doesn't need the symbol table; Windows builds have no
         # debug info in the .exe to begin with.
         if: runner.os != 'Windows' && inputs.release
-        run: strip bin/yap bin/yap-server
+        run: strip bin/yap bin/yap-server bin/yap-cli
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -260,6 +265,20 @@ jobs:
           odin test src/client/conn $collections -vet -strict-style
           odin test src/client $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
+
+      # The terminal client (src/cli) is for Unix terminals only.
+      - name: Test the terminal client
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          . scripts/build/collections.sh
+          odin test src/cli/tui $collections -vet -strict-style
+          odin test src/cli $collections -vet -strict-style
+      # Runs the built client in a pseudo-terminal against a server of its own
+      # (scripts/cli-smoke.py).
+      - name: Try the terminal client in a terminal
+        if: runner.os == 'Linux'
+        run: python3 scripts/cli-smoke.py
 
       - uses: actions/download-artifact@v8
         with:
