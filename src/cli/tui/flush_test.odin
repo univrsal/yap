@@ -202,3 +202,16 @@ test_a_cell_after_an_emoji_is_placed_on_its_own :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(text, "🍞\x1b[1;4Hb"), text)
 	testing.expect(t, !strings.contains(text, "ab"), text) // plain text still runs on
 }
+
+@(test)
+test_symbols_can_be_sent_in_text_style :: proc(t: ^testing.T) {
+	cur := buffer_make(8, 1)
+	defer buffer_destroy(&cur)
+	put_string(&cur, 0, 0, "a☂b", {})
+	text_presentation = proc(r: rune) -> bool {return r == '☂'}
+	defer text_presentation = nil
+	out: strings.Builder
+	defer strings.builder_destroy(&out)
+	render_diff(&out, nil, &cur)
+	testing.expect(t, strings.contains(strings.to_string(out), "☂︎"))
+}

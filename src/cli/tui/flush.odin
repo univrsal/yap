@@ -3,6 +3,14 @@ package tui
 import "core:fmt"
 import "core:strings"
 
+// text_presentation, when set, says which runes are sent followed by the
+// variation selector for text style (U+FE0E). That is for the symbols that are
+// emoji too but are one cell wide by default (an umbrella, a heart, a sun):
+// some terminals draw them as wide emoji while others, and tmux in between,
+// count one cell, which shifts the rest of the row. With the selector they
+// are plain text everywhere.
+text_presentation: proc(r: rune) -> bool
+
 // render_diff writes the escape sequences that make a terminal that shows `prev`
 // show `cur` instead, to `out`. With no `prev` (or one of another size) it
 // clears the screen and draws everything. The cursor is left wherever the
@@ -38,6 +46,9 @@ render_diff :: proc(out: ^strings.Builder, prev: ^Buffer, cur: ^Buffer) {
 				style, style_known = c.style, true
 			}
 			strings.write_rune(out, c.r)
+			if text_presentation != nil && text_presentation(c.r) {
+				strings.write_string(out, "\ufe0e")
+			}
 			cx, cy = x + int(c.width), y
 			if uncertain_width(c.r) {
 				// Terminals (and tmux in between) differ on how wide some emoji and

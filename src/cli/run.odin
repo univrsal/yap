@@ -13,6 +13,7 @@ import "client:conn"
 import "client:platform"
 import "client:script"
 import "client:settings"
+import "common:proto"
 import "tui"
 
 // The terminal loop: draw, wait for a key, the mouse or the connection, handle
@@ -38,6 +39,7 @@ run_ui :: proc(opt: Options) -> bool {
 		return false
 	}
 	term: tui.Terminal
+	configure_emoji_width()
 	if !tui.terminal_open(&term) {
 		fmt.eprintln("yap-cli needs a terminal on its input and output. Use -print to only list the channels.")
 		return false
@@ -421,5 +423,25 @@ load_server_lists :: proc(a: ^App) {
 	defer settings.settings_destroy(&st)
 	for j in st.joined_servers {
 		append(&a.gui_joined, strings.clone(j.address))
+	}
+}
+
+
+// configure_emoji_width makes the symbols that are emoji but narrow by default
+// plain text on the wire when that is needed: inside tmux or screen, whose idea
+// of their width and the terminal's often differ (see tui.text_presentation).
+// YAP_CLI_EMOJI=text forces it, =emoji turns it off.
+@(private = "file")
+configure_emoji_width :: proc() {
+	mode := os.get_env("YAP_CLI_EMOJI", context.temp_allocator)
+	multiplexer := os.get_env("TMUX", context.temp_allocator) != "" || strings.has_prefix(os.get_env("TERM", context.temp_allocator), "screen")
+	if mode == "text" || mode == "" && multiplexer {
+		tui.text_presentation = proc(r: rune) -> bool {
+			if r < 0x2000 || tui.rune_width(r) != 1 {
+				return false
+			}
+			_, ok := proto.emoji_index(r)
+			return ok
+		}
 	}
 }

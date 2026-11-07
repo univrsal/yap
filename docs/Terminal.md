@@ -125,3 +125,12 @@ Screen sharing and cameras, the tray, themes and avatars. Windows is not support
 yet. The
 design notes, with what was built when, are in
 [design/cli-client.md](design/cli-client.md).
+
+## Emoji that shift a line (tmux)
+
+Some symbols are emoji too but one cell wide by default (an umbrella, a sun, a
+heart, a beach). Terminals disagree on how wide they are drawn, and inside tmux or
+screen the rest of the line can end up one cell off. In tmux or screen `yap-cli`
+therefore sends those symbols in text style (followed by U+FE0E), which every layer
+counts as one cell. `YAP_CLI_EMOJI=text` does that everywhere and
+`YAP_CLI_EMOJI=emoji` never does.
