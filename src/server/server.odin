@@ -11,6 +11,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "common:sockbuf"
 import "gate"
 import "mail"
 import "webpush"
@@ -254,8 +255,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	s.sock = sock
 	// Leave room for packets that arrive while an iteration is busy: a
 	// shared screen's keyframe can arrive as hundreds of packets.
-	net.set_option(sock, .Receive_Buffer_Size, 4 * 1024 * 1024)
-	net.set_option(sock, .Send_Buffer_Size, 4 * 1024 * 1024)
+	sockbuf.set_buffer_size(sock, true, 4 * 1024 * 1024)
+	sockbuf.set_buffer_size(sock, false, 4 * 1024 * 1024)
 	// Wake up periodically even when idle so that stale sessions get reaped
 	// and unacked state gets resent. Wake up more often while old messages
 	// are being purged, since that happens a little at a time

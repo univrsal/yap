@@ -1,6 +1,7 @@
 #+build !wasi
 package conn
 
+import "common:sockbuf"
 import log "common:wlog"
 import "core:net"
 import "core:time"
@@ -40,8 +41,8 @@ transport_open :: proc(
 		net.set_blocking(sock, false)
 		// Room for the keyframe of a shared screen, which arrives in hundreds
 		// of packets between two turns of the loop.
-		net.set_option(sock, .Receive_Buffer_Size, 2 * 1024 * 1024)
-		net.set_option(sock, .Send_Buffer_Size, 1024 * 1024)
+		sockbuf.set_buffer_size(sock, true, 2 * 1024 * 1024)
+		sockbuf.set_buffer_size(sock, false, 1024 * 1024)
 	} else {
 		// Short timeout so that the loop can also pace outgoing frames.
 		net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
