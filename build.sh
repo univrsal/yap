@@ -103,16 +103,16 @@ if c_lib_stale $script requests deps/thirdparty/tinyrequests/tinyrequests.h; the
 	c_lib_build $script requests -std=c99 -Os $requests_flags -Ideps/thirdparty/tinyrequests
 fi
 
-# tinyaac, for sharing an application's audio. On Linux it needs the
-# libpipewire-0.3 dev headers to compile against (dlopen'd at runtime,
-# not linked -- see yap_aac.c); on macOS it's Core Audio and AppKit, so
+# tinyaac, for sharing an application's audio. On Linux it compiles against
+# PipeWire's headers, the copy in deps/thirdparty/pipewire (the system's can
+# be too old; the library is dlopen'd at runtime, not linked -- see yap_aac.c); on macOS it's Core Audio and AppKit, so
 # it has to be built as Objective-C, with ARC as tinyaac.h asks. The BSDs get tinyaac's stub,
 # which says application audio is unavailable.
 aac=src/client/audio/aac
 if c_lib_stale $aac aac deps/thirdparty/tinyaac/tinyaac.h; then
 	case "$(uname -s)" in
 	Darwin) aac_flags="-x objective-c -fobjc-arc" ;;
-	Linux) aac_flags="$(pkg-config --cflags libpipewire-0.3)" ;;
+	Linux) aac_flags="-Ideps/thirdparty/pipewire" ;;
 	*) aac_flags= ;;
 	esac
 	c_lib_build $aac aac -std=c99 -Os $aac_flags
