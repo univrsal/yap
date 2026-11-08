@@ -98,7 +98,11 @@ jobs:
       matrix:
         include:
           - name: Linux
-            os: ubuntu-latest
+            # The oldest image there is: what a binary needs of glibc is
+            # decided by the system it was built on, and one built on a
+            # newer system doesn't start on older ones (Ubuntu 22.04's
+            # is the oldest we mean to run on, see the check below).
+            os: ubuntu-22.04
             platform: linux-x64
           - name: Windows
             os: windows-latest
@@ -235,6 +239,11 @@ jobs:
         continue-on-error: true
         shell: cmd
         run: scripts\build\build-video.bat
+
+      - name: Runs on older glibc (Linux)
+        # Ubuntu 22.04's, 2.35. Includes the add-on's FFmpeg libraries.
+        if: runner.os == 'Linux'
+        run: sh scripts/check-glibc.sh 2.35 bin/yap bin/yap-server bin/yap-cli bin/*.so*
 
       - name: Test
         shell: bash
