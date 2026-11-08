@@ -11,7 +11,8 @@
 # On Linux, capturing needs headers to build (the libraries themselves
 # are only loaded at run time): libxcb1-dev libxcb-shm0-dev
 # libxcb-randr0-dev libxcb-composite0-dev libxcb-xfixes0-dev for X11,
-# libglib2.0-dev libpipewire-0.3-dev for Wayland's portal, and
+# libglib2.0-dev for Wayland's portal (PipeWire's headers are in
+# deps/thirdparty/pipewire), and
 # libva-dev for its pictures to reach VA-API without a copy.
 set -e
 cd "$(dirname "$0")/../.."
