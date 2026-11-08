@@ -194,7 +194,7 @@ std::unique_ptr<Gl_Interop> make_gl_interop(void *(*get_proc)(const char *)) {
 	static Dl_Lib lib;
 	static Egl egl;
 	static bool loaded = [] {
-		return lib.open({"libEGL.so.1"}) && lib.sym(egl.GetCurrentDisplay, "eglGetCurrentDisplay") &&
+		return lib.open({"libEGL.so.1", "libEGL.so"}) && lib.sym(egl.GetCurrentDisplay, "eglGetCurrentDisplay") &&
 		       lib.sym(egl.GetProcAddress, "eglGetProcAddress") &&
 		       lib.sym(egl.QueryString, "eglQueryString");
 	}();

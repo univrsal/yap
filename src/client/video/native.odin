@@ -197,31 +197,40 @@ Yv :: struct {
 @(private = "file")
 YV_PROCS :: 31
 
+// Where yap_video is linked into the client (build.sh); elsewhere it's the
+// add-on.
+@(private = "file")
+YV_LINKED :: ODIN_OS == .Linux || ODIN_OS == .OpenBSD || ODIN_OS == .FreeBSD || ODIN_OS == .NetBSD
+
 when ODIN_OS == .Windows {
 	@(private = "file")
 	YV_LIBRARY :: "yap_video.dll"
 } else when ODIN_OS == .Darwin {
 	@(private = "file")
 	YV_LIBRARY :: "libyap_video.dylib"
-} else when ODIN_OS == .Linux {
+} else when YV_LINKED {
 	@(private = "file")
 	YV_LIBRARY :: "libyap_video.a"
 
-	when !#exists(YV_LIBRARY) || !#exists("libstdc++.a") {
-		#panic(
-			"src/client/video/" +
-			YV_LIBRARY +
-			" or libstdc++.a is missing; build them with build.sh",
-		)
+	when !#exists(YV_LIBRARY) {
+		#panic("src/client/video/" + YV_LIBRARY + " is missing; build it with build.sh")
 	}
 
 	// Only the add-on is looked for by its path.
 	_ :: filepath
 
-	// The library is C++, and the C++ runtime is linked in too (the compiler's
-	// libstdc++.a, which build.sh copies here), so the client doesn't need the
-	// system's to be as new as the one it was built with.
-	foreign import yv_lib {YV_LIBRARY, "libstdc++.a"}
+	// The library is C++. On Linux the C++ runtime is linked in too (the
+	// compiler's libstdc++.a, which build.sh copies here), so the client
+	// doesn't need the system's to be as new as the one it was built with.
+	// The BSDs have only one, libc++, part of the base system.
+	when ODIN_OS == .Linux {
+		when !#exists("libstdc++.a") {
+			#panic("src/client/video/libstdc++.a is missing; build it with build.sh")
+		}
+		foreign import yv_lib {YV_LIBRARY, "libstdc++.a"}
+	} else {
+		foreign import yv_lib {YV_LIBRARY, "system:c++", "system:c++abi"}
+	}
 
 	@(private = "file", default_calling_convention = "c")
 	foreign yv_lib {
@@ -393,7 +402,7 @@ loaded :: proc() -> bool {
 // to the executable, if it's there and of our version.
 @(private = "file")
 open_library :: proc() -> bool {
-	when ODIN_OS == .Linux {
+	when YV_LINKED {
 		nv.yv = linked_yv()
 		return true
 	} else {

@@ -18,6 +18,15 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p bin
 
+# The Odin compiler needs a lot of memory for a project this size, more than
+# OpenBSD lets a process have by default (its login class's datasize, 1536M
+# for staff: the compiler dies with "Out of Virtual Memory"). The hard limit
+# is usually higher, so the soft one is raised to it; if it isn't, the build
+# goes on with what there is.
+if [ "$(uname -s)" = OpenBSD ]; then
+	ulimit -d "$(ulimit -H -d)" 2>/dev/null || true
+fi
+
 # The small C libraries in src/client: <dir>/yap_<name>.c compiled into
 # <dir>/libyap_<name>.a.
 # c_lib_stale <dir> <name> <dependency>...: true (and says so) when the
@@ -80,14 +89,12 @@ if c_lib_stale $dialogs dialogs deps/thirdparty/tinydialogs/tinydialogs.h; then
 fi
 
 # Lua, for the client's scripts (src/client/script): the language and the
-# libraries scripts may use, compiled as one file against the source
-# scripts/build/fetch.sh unpacks (scripts/build/lua.version). Again when
-# the version changes.
+# libraries scripts may use, compiled as one file against the source in
+# deps/thirdparty/lua (kept in the repo, see its README). Again when it
+# changes.
 script=src/client/script
-if c_lib_stale $script lua scripts/build/lua.version; then
-	. scripts/build/lua.version
-	sh scripts/build/fetch.sh lua .cache
-	c_lib_build $script lua -std=c99 -Os -I".cache/lua-$lua_version/src"
+if c_lib_stale $script lua deps/thirdparty/lua/lua.h deps/thirdparty/lua/lstrlib.c; then
+	c_lib_build $script lua -std=c99 -Os -Ideps/thirdparty/lua
 fi
 
 # tinyrequests, for the HTTP requests of scripts (src/client/script): WinHTTP
@@ -129,35 +136,43 @@ if [ "$(uname -s)" = Linux ]; then
 	fi
 fi
 
-# Screen sharing (src/video), linked into the client on Linux; elsewhere
-# it's the yap-video add-on (scripts/build/build-video.sh). FFmpeg isn't
+# Screen sharing (src/video), linked into the client on Linux and the BSDs;
+# elsewhere it's the yap-video add-on (scripts/build/build-video.sh). FFmpeg isn't
 # linked: it's opened at run time, from next to yap (the yap-video
 # download for Linux is FFmpeg's libraries) or else the system's 8 or 9
 # (src/video/src/ffmpeg.h), so only its headers are needed here, from
-# the prebuilt FFmpeg scripts/build/fetch.sh fetches on x86_64 and
-# pkg-config's elsewhere. Needs CMake and a C++20 compiler; capturing
+# the prebuilt FFmpeg scripts/build/fetch.sh fetches on x86_64 Linux and
+# pkg-config's elsewhere (the BSDs' ffmpeg package). Needs CMake and a C++20 compiler; capturing
 # needs the headers scripts/build/build-video.sh lists, and a way whose headers
-# are missing is left out. The client is C++ only here, so libstdc++ is
+# are missing is left out. On the BSDs that's X11 only (no portal, no V4L2
+# cameras). On Linux the client is C++ only here, so libstdc++ is
 # linked statically (src/client/video/native.odin): yap then runs
-# where the system's is older than the one it was built with.
-if [ "$(uname -s)" = Linux ]; then
+# where the system's is older than the one it was built with. The BSDs
+# link their libc++.
+case "$(uname -s)" in
+Linux | OpenBSD | FreeBSD | NetBSD)
 	lib=src/client/video/libyap_video.a
 	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/build/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
 		echo "building $lib"
 		ffmpeg_dir=
-		if [ "$(uname -m)" = x86_64 ]; then
+		if [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ]; then
 			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(sh scripts/build/fetch.sh ffmpeg .cache)"
 		fi
+		# A job count, since OpenBSD's make won't take a bare --parallel.
+		jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN)
 		cmake -S src/video -B .cache/video-static -DCMAKE_BUILD_TYPE=Release -DYV_STATIC=ON \
 			$ffmpeg_dir >/dev/null
-		cmake --build .cache/video-static --target yap_video --parallel
+		cmake --build .cache/video-static --target yap_video --parallel "$jobs"
 		cp .cache/video-static/libyap_video.a "$lib"
 	fi
-	# The C++ compiler's own, which the library was built with.
-	if [ ! -f src/client/video/libstdc++.a ] || [ "$lib" -nt src/client/video/libstdc++.a ]; then
-		cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/video/libstdc++.a
+	if [ "$(uname -s)" = Linux ]; then
+		# The C++ compiler's own, which the library was built with.
+		if [ ! -f src/client/video/libstdc++.a ] || [ "$lib" -nt src/client/video/libstdc++.a ]; then
+			cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/video/libstdc++.a
+		fi
 	fi
-fi
+	;;
+esac
 
 # SQLite, for the server's database: one big C file, fetched on first
 # use (scripts/build/fetch.sh) and compiled the way

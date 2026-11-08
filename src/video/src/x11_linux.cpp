@@ -125,7 +125,7 @@ const Xcb &xcb() {
 		Xcb &api = x;
 		{
 			Dl_Lib lib;
-			x.core = lib.open({"libxcb.so.1"}) && XCB_CORE(YV_DL_LOAD) true;
+			x.core = lib.open({"libxcb.so.1", "libxcb.so"}) && XCB_CORE(YV_DL_LOAD) true;
 		}
 		if (!x.core) {
 			log(YV_LOG_INFO, "no libxcb, so no X11 capture");
@@ -133,19 +133,19 @@ const Xcb &xcb() {
 		}
 		{
 			Dl_Lib lib;
-			x.shm = lib.open({"libxcb-shm.so.0"}) && XCB_SHM(YV_DL_LOAD) true;
+			x.shm = lib.open({"libxcb-shm.so.0", "libxcb-shm.so"}) && XCB_SHM(YV_DL_LOAD) true;
 		}
 		{
 			Dl_Lib lib;
-			x.randr = lib.open({"libxcb-randr.so.0"}) && XCB_RANDR(YV_DL_LOAD) true;
+			x.randr = lib.open({"libxcb-randr.so.0", "libxcb-randr.so"}) && XCB_RANDR(YV_DL_LOAD) true;
 		}
 		{
 			Dl_Lib lib;
-			x.composite = lib.open({"libxcb-composite.so.0"}) && XCB_COMPOSITE(YV_DL_LOAD) true;
+			x.composite = lib.open({"libxcb-composite.so.0", "libxcb-composite.so"}) && XCB_COMPOSITE(YV_DL_LOAD) true;
 		}
 		{
 			Dl_Lib lib;
-			x.xfixes = lib.open({"libxcb-xfixes.so.0"}) && XCB_XFIXES(YV_DL_LOAD) true;
+			x.xfixes = lib.open({"libxcb-xfixes.so.0", "libxcb-xfixes.so"}) && XCB_XFIXES(YV_DL_LOAD) true;
 		}
 		log(YV_LOG_DEBUG, "xcb: shm %d, randr %d, composite %d, xfixes %d", x.shm, x.randr,
 		    x.composite, x.xfixes);

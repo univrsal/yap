@@ -11,7 +11,7 @@
 ** matching of one call a budget of steps: the instruction hook of the script's
 ** time limit can't interrupt a single call of a C function, and a pattern like
 ** ("a?"):rep(35) .. "b" on a string of 35 a's takes 2^35 steps. When Lua is
-** updated (scripts/build/lua.version), take the new lstrlib.c and add the same
+** updated (see README.yap in this folder), take the new lstrlib.c and add the same
 ** four lines.
 */
 

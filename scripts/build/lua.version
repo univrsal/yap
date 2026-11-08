@@ -1,5 +1,0 @@
-# The Lua release the client's scripting (src/client/script) is built with:
-# read by scripts/build/fetch.sh (and with it build.sh and web/build.sh) and
-# by build.bat, so lines are name=value and nothing else.
-lua_version=5.4.8
-lua_sha256=4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae

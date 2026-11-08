@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 import "common:proto"
+import "common:sockbuf"
 
 // A headless client: a single connection to a server without UI, audio or
 // rendering, for use by programs such as the bot API's gateway
@@ -184,7 +185,7 @@ open :: proc(c: ^Client, key: ^ecdh.Private_Key, opt: Options) -> bool {
 	}
 	net.set_blocking(sock, false)
 	// Leave room for what a busy server sends between two reads.
-	net.set_option(sock, .Receive_Buffer_Size, 1024 * 1024)
+	sockbuf.set_buffer_size(sock, true, 1024 * 1024)
 	c^ = {
 		opt   = opt,
 		key   = key^,

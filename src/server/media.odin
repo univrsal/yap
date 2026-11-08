@@ -9,6 +9,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "common:sockbuf"
 import "gate"
 
 // The media link (proto.Link.Media) carries all screen sharing. It uses a UDP
@@ -216,8 +217,8 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	m.sock = sock
 	net.set_option(sock, .Receive_Timeout, MEDIA_WAIT)
 	// A keyframe arrives as hundreds of packets at once, so the buffers must be large.
-	net.set_option(sock, .Receive_Buffer_Size, 8 * 1024 * 1024)
-	net.set_option(sock, .Send_Buffer_Size, 8 * 1024 * 1024)
+	sockbuf.set_buffer_size(sock, true, 8 * 1024 * 1024)
+	sockbuf.set_buffer_size(sock, false, 8 * 1024 * 1024)
 	m.enabled = true
 	media_publish(s)
 	m.thread = thread.create_and_start_with_poly_data(m, media_run, init_context = context)

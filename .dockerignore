@@ -12,7 +12,6 @@
 !scripts/build/build-webp.sh
 !scripts/build/webp.version
 !scripts/build/opus.version
-!scripts/build/lua.version
 !scripts/build/version-defines.sh
 
 # But no build output from a local build: the image builds its own, and a

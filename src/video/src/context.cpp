@@ -106,10 +106,15 @@ bool vaapi_installed() {
 	return false;
 #else
 	static bool installed = [] {
-		for (const char *lib : {"libva.so.2", "libva-drm.so.2"}) {
-			void *h = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+		// The unversioned names are for the BSDs, whose loader picks the newest version.
+		const char *const libs[][2] = {{"libva.so.2", "libva.so"}, {"libva-drm.so.2", "libva-drm.so"}};
+		for (const auto &names : libs) {
+			void *h = dlopen(names[0], RTLD_NOW | RTLD_LOCAL);
 			if (!h) {
-				log(YV_LOG_INFO, "no %s, so no VA-API", lib);
+				h = dlopen(names[1], RTLD_NOW | RTLD_LOCAL);
+			}
+			if (!h) {
+				log(YV_LOG_INFO, "no %s, so no VA-API", names[0]);
 				return false;
 			}
 			dlclose(h);
