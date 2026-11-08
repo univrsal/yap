@@ -49,10 +49,25 @@ test_relay :: proc(web := true) -> ^Relay {
 	r := new(Relay)
 	r.web = web
 	r.files = {
-		{name = "index.html", content_type = "text/html; charset=utf-8", data = transmute([]u8)string("<html>yap</html>"), loaded = true},
+		{
+			name = "index.html",
+			content_type = "text/html; charset=utf-8",
+			data = transmute([]u8)string("<html>yap</html>"),
+			loaded = true,
+		},
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"}, // not loaded
-		{name = "index.wasm", content_type = "application/wasm", data = transmute([]u8)string("\x00asm"), loaded = true},
-		{name = "sw.js", content_type = "text/javascript; charset=utf-8", data = transmute([]u8)string("//sw"), loaded = true},
+		{
+			name = "index.wasm",
+			content_type = "application/wasm",
+			data = transmute([]u8)string("\x00asm"),
+			loaded = true,
+		},
+		{
+			name = "sw.js",
+			content_type = "text/javascript; charset=utf-8",
+			data = transmute([]u8)string("//sw"),
+			loaded = true,
+		},
 		{},
 		{},
 		{},
@@ -138,8 +153,18 @@ test_relay_serves_only_what_it_lists :: proc(t: ^testing.T) {
 			"/./index.html",
 			"/icon-192.png", // listed, but no file was found for it
 		}) {
-		res := exchange(t, r, strings.concatenate({"GET ", path, " HTTP/1.1\r\n\r\n"}, context.temp_allocator))
-		testing.expectf(t, status_of(res) == "HTTP/1.1 404 Not Found", "%q: %s", path, status_of(res))
+		res := exchange(
+			t,
+			r,
+			strings.concatenate({"GET ", path, " HTTP/1.1\r\n\r\n"}, context.temp_allocator),
+		)
+		testing.expectf(
+			t,
+			status_of(res) == "HTTP/1.1 404 Not Found",
+			"%q: %s",
+			path,
+			status_of(res),
+		)
 		testing.expectf(t, !strings.contains(res, "<html>"), "%q gave out a file", path)
 	}
 }
@@ -149,8 +174,21 @@ test_relay_answers_only_get :: proc(t: ^testing.T) {
 	r := test_relay()
 	defer free(r)
 	for method in ([]string{"POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"}) {
-		res := exchange(t, r, strings.concatenate({method, " / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"}, context.temp_allocator))
-		testing.expectf(t, status_of(res) == "HTTP/1.1 405 Method Not Allowed", "%s: %s", method, status_of(res))
+		res := exchange(
+			t,
+			r,
+			strings.concatenate(
+				{method, " / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"},
+				context.temp_allocator,
+			),
+		)
+		testing.expectf(
+			t,
+			status_of(res) == "HTTP/1.1 405 Method Not Allowed",
+			"%s: %s",
+			method,
+			status_of(res),
+		)
 	}
 }
 
@@ -169,7 +207,11 @@ test_relay_without_the_web_client_or_the_api :: proc(t: ^testing.T) {
 	res = exchange(t, api_only, "GET / HTTP/1.1\r\n\r\n")
 	testing.expect_value(t, status_of(res), "HTTP/1.1 404 Not Found")
 	testing.expect(t, strings.contains(res, "only provides the API"))
-	res = exchange(t, api_only, "GET /yap/x HTTP/1.1\r\nUpgrade: websocket\r\nSec-WebSocket-Key: abc\r\n\r\n")
+	res = exchange(
+		t,
+		api_only,
+		"GET /yap/x HTTP/1.1\r\nUpgrade: websocket\r\nSec-WebSocket-Key: abc\r\n\r\n",
+	)
 	testing.expect_value(t, status_of(res), "HTTP/1.1 404 Not Found")
 	testing.expect(t, !strings.contains(res, "101"))
 }
@@ -254,7 +296,13 @@ test_relay_carries_packets_both_ways :: proc(t: ^testing.T) {
 		append(&head, ..buf[:n])
 	}
 	testing.expect_value(t, status_of(string(head[:])), "HTTP/1.1 101 Switching Protocols")
-	testing.expect(t, strings.contains(string(head[:]), "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"))
+	testing.expect(
+		t,
+		strings.contains(
+			string(head[:]),
+			"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n",
+		),
+	)
 
 	// A browser's binary message arrives at the server as a datagram.
 	browser := http.Conn {

@@ -18,7 +18,13 @@ Caught :: struct {
 }
 
 @(private = "file")
-catch_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+catch_proc :: proc(
+	data: rawptr,
+	level: log.Level,
+	text: string,
+	options: log.Options,
+	location := #caller_location,
+) {
 	c := cast(^Caught)data
 	if c.count > 0 {
 		strings.write_byte(&c.text, '\n')
@@ -36,8 +42,8 @@ run_headless_command :: proc(a: ^App, line: string) {
 	defer strings.builder_destroy(&caught.text)
 	saved := context.logger
 	context.logger = log.Logger {
-		procedure = catch_proc,
-		data      = &caught,
+		procedure    = catch_proc,
+		data         = &caught,
 		lowest_level = .Debug,
 	}
 	reader := headless.Reader {

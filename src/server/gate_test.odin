@@ -220,7 +220,11 @@ test_finish_source :: proc(t: ^testing.T) {
 		_, result := proto.initiator_read_resp(&ini, buf[:n])
 		testing.expect_value(t, result, proto.Resp_Result.Ok)
 		sess: proto.Session
-		finish, _ := proto.initiator_finish(&ini, &sess, proto.encode_hello(&hello_buf, 1, "wrong"))
+		finish, _ := proto.initiator_finish(
+			&ini,
+			&sess,
+			proto.encode_hello(&hello_buf, 1, "wrong"),
+		)
 		handle_packet(s, finish, victim)
 		// Nothing happened to the handshake: it is still waiting for its Finish.
 		for _, c in s.sessions {

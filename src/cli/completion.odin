@@ -60,7 +60,9 @@ completion_update :: proc(a: ^App) {
 	}
 	text := tui.editor_text(&a.editor)
 	cursor := a.editor.cursor
-	if strings.has_prefix(text, "/") && !strings.has_prefix(text, "//") && !strings.contains_any(text[:cursor], " \t\n") {
+	if strings.has_prefix(text, "/") &&
+	   !strings.has_prefix(text, "//") &&
+	   !strings.contains_any(text[:cursor], " \t\n") {
 		command_items(a, strings.to_lower(text[1:cursor], context.temp_allocator))
 		c.start, c.end = 0, cursor
 	} else if arg_start, is_user_arg := user_argument(text, cursor); is_user_arg {
@@ -76,7 +78,9 @@ completion_update :: proc(a: ^App) {
 		for start > 0 && word_byte(text[start - 1]) {
 			start -= 1
 		}
-		if start == 0 || text[start - 1] != '@' || start > 1 && !strings.is_space(rune(text[start - 2])) {
+		if start == 0 ||
+		   text[start - 1] != '@' ||
+		   start > 1 && !strings.is_space(rune(text[start - 2])) {
 			// A role's name may have spaces; only the usernames are completed past one.
 			mention_roles_with_spaces(a, text, cursor)
 			if len(c.items) == 0 {
@@ -128,7 +132,10 @@ mention_items :: proc(a: ^App, prefix: string) {
 				&found,
 				Candidate {
 					insert = strings.concatenate({"@", acc.username, " "}, context.temp_allocator),
-					label = strings.concatenate({"@", acc.username, "   ", acc.display}, context.temp_allocator),
+					label = strings.concatenate(
+						{"@", acc.username, "   ", acc.display},
+						context.temp_allocator,
+					),
 					key = acc.username,
 					here = here,
 				},
@@ -149,7 +156,8 @@ mention_items :: proc(a: ^App, prefix: string) {
 		append(&c.items, Completion_Item{f.insert, f.label})
 	}
 	for r in v.roles {
-		if richtext.role_mentionable(r) && strings.has_prefix(strings.to_lower(r.name, context.temp_allocator), prefix) {
+		if richtext.role_mentionable(r) &&
+		   strings.has_prefix(strings.to_lower(r.name, context.temp_allocator), prefix) {
 			append(
 				&c.items,
 				Completion_Item {
@@ -161,10 +169,22 @@ mention_items :: proc(a: ^App, prefix: string) {
 	}
 	if .Mention_Everyone in v.permissions {
 		if strings.has_prefix(proto.MENTION_EVERYONE, prefix) {
-			append(&c.items, Completion_Item{"@" + proto.MENTION_EVERYONE + " ", "@" + proto.MENTION_EVERYONE + "   everyone"})
+			append(
+				&c.items,
+				Completion_Item {
+					"@" + proto.MENTION_EVERYONE + " ",
+					"@" + proto.MENTION_EVERYONE + "   everyone",
+				},
+			)
 		}
 		if strings.has_prefix(proto.MENTION_HERE, prefix) {
-			append(&c.items, Completion_Item{"@" + proto.MENTION_HERE + " ", "@" + proto.MENTION_HERE + "   everyone who is online"})
+			append(
+				&c.items,
+				Completion_Item {
+					"@" + proto.MENTION_HERE + " ",
+					"@" + proto.MENTION_HERE + "   everyone who is online",
+				},
+			)
 		}
 	}
 }
@@ -183,7 +203,8 @@ mention_roles_with_spaces :: proc(a: ^App, text: string, cursor: int) {
 		return
 	}
 	for r in v.roles {
-		if richtext.role_mentionable(r) && strings.has_prefix(strings.to_lower(r.name, context.temp_allocator), typed) {
+		if richtext.role_mentionable(r) &&
+		   strings.has_prefix(strings.to_lower(r.name, context.temp_allocator), typed) {
 			append(
 				&c.items,
 				Completion_Item {
@@ -218,7 +239,10 @@ command_items :: proc(a: ^App, prefix: string) {
 					&c.items,
 					Completion_Item {
 						strings.concatenate({"/", info.name, " "}, context.temp_allocator),
-						strings.concatenate({"/", info.name, "   ", info.help, " (script)"}, context.temp_allocator),
+						strings.concatenate(
+							{"/", info.name, "   ", info.help, " (script)"},
+							context.temp_allocator,
+						),
 					},
 				)
 			}
@@ -240,7 +264,10 @@ command_items :: proc(a: ^App, prefix: string) {
 				&c.items,
 				Completion_Item {
 					strings.concatenate({"/", e.name, " "}, context.temp_allocator),
-					strings.concatenate({"/", e.name, "   ", e.description, " (", e.bot, ")"}, context.temp_allocator),
+					strings.concatenate(
+						{"/", e.name, "   ", e.description, " (", e.bot, ")"},
+						context.temp_allocator,
+					),
 				},
 			)
 		}
@@ -272,7 +299,28 @@ completion_key :: proc(a: ^App, k: tui.Key_Event) -> bool {
 		c.dismissed = strings.clone(tui.editor_text(&a.editor)[c.start:c.end])
 		c.active = false
 		clear(&c.items)
-	case .Rune, .Backspace, .Delete, .Left, .Right, .Home, .End, .Insert, .Page_Up, .Page_Down, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
+	case .Rune,
+	     .Backspace,
+	     .Delete,
+	     .Left,
+	     .Right,
+	     .Home,
+	     .End,
+	     .Insert,
+	     .Page_Up,
+	     .Page_Down,
+	     .F1,
+	     .F2,
+	     .F3,
+	     .F4,
+	     .F5,
+	     .F6,
+	     .F7,
+	     .F8,
+	     .F9,
+	     .F10,
+	     .F11,
+	     .F12:
 		return false
 	}
 	return true
@@ -316,7 +364,29 @@ draw_completion :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 }
 
 // The commands that take the name of a person as their first word.
-USER_COMMANDS := [?]string{"call", "dm", "buddy", "unbuddy", "seen", "ban", "unban", "banpurge", "kick", "invite", "admin", "unadmin", "assign", "disable", "enable", "deluser", "servermute", "serverunmute", "voicemove", "voicekick", "purgeuser"}
+USER_COMMANDS := [?]string {
+	"call",
+	"dm",
+	"buddy",
+	"unbuddy",
+	"seen",
+	"ban",
+	"unban",
+	"banpurge",
+	"kick",
+	"invite",
+	"admin",
+	"unadmin",
+	"assign",
+	"disable",
+	"enable",
+	"deluser",
+	"servermute",
+	"serverunmute",
+	"voicemove",
+	"voicekick",
+	"purgeuser",
+}
 
 // user_argument says whether the cursor is in the first word after such a
 // command, and where that word starts.
@@ -364,7 +434,10 @@ user_items :: proc(a: ^App, prefix: string) {
 				&found,
 				Candidate {
 					insert = acc.username,
-					label = strings.concatenate({acc.username, "   ", acc.display}, context.temp_allocator),
+					label = strings.concatenate(
+						{acc.username, "   ", acc.display},
+						context.temp_allocator,
+					),
 					key = acc.username,
 					here = here,
 				},
@@ -431,7 +504,10 @@ emoji_items :: proc(a: ^App, prefix: string) {
 					&c.items,
 					Completion_Item {
 						strings.concatenate({glyph, " "}, context.temp_allocator),
-						strings.concatenate({glyph, "  :", proto.emoji_name(e), ":"}, context.temp_allocator),
+						strings.concatenate(
+							{glyph, "  :", proto.emoji_name(e), ":"},
+							context.temp_allocator,
+						),
 					},
 				)
 			}
@@ -441,12 +517,18 @@ emoji_items :: proc(a: ^App, prefix: string) {
 				return
 			}
 			lower := strings.to_lower(name, context.temp_allocator)
-			if (strings.has_prefix(lower, prefix) && rank == 0) || (!strings.has_prefix(lower, prefix) && strings.contains(lower, prefix) && rank == 1) {
+			if (strings.has_prefix(lower, prefix) && rank == 0) ||
+			   (!strings.has_prefix(lower, prefix) &&
+					   strings.contains(lower, prefix) &&
+					   rank == 1) {
 				append(
 					&c.items,
 					Completion_Item {
 						strings.concatenate({":", name, ": "}, context.temp_allocator),
-						strings.concatenate({":", name, ":  (this server's)"}, context.temp_allocator),
+						strings.concatenate(
+							{":", name, ":  (this server's)"},
+							context.temp_allocator,
+						),
 					},
 				)
 			}

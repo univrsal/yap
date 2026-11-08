@@ -98,7 +98,11 @@ test_account_usage :: proc(t: ^testing.T) {
 	testing.expect_value(t, run_account_command({"list", "x", "y"}), 2)
 	// A config that isn't there is the user's mistake, not a crash.
 	testing.expect_value(t, run_account_command({"list", file_in(c.dir, "missing.json")}), 2)
-	testing.expect_value(t, run_account_command({"add", "alice", file_in(c.dir, "missing.json")}), 2)
+	testing.expect_value(
+		t,
+		run_account_command({"add", "alice", file_in(c.dir, "missing.json")}),
+		2,
+	)
 	// The role command only lists.
 	testing.expect_value(t, run_role_command(nil), 2)
 	testing.expect_value(t, run_role_command({"delete"}), 2)
@@ -189,7 +193,11 @@ test_account_owner :: proc(t: ^testing.T) {
 	{
 		o := reopen(t, c)
 		defer reclose(o)
-		testing.expect(t, .Owner in account_find(&o.a, "alice").flags, "the owner changed for a bot")
+		testing.expect(
+			t,
+			.Owner in account_find(&o.a, "alice").flags,
+			"the owner changed for a bot",
+		)
 	}
 	testing.expect_value(t, run(c, "owner", "bob"), 0)
 
@@ -370,8 +378,21 @@ test_creating_bot_accounts :: proc(t: ^testing.T) {
 	testing.expect_value(t, run3(c, "many", "password", c.config), 2)
 	testing.expect_value(t, run3(c, "-3", "password", c.config), 2)
 	testing.expect_value(t, run3(c, "3", "short", c.config), 2)
-	testing.expect_value(t, run3(c, "3", strings.repeat("p", proto.MAX_ACCOUNT_PASSWORD + 1, context.temp_allocator), c.config), 2)
-	testing.expect_value(t, run_account_command({"bots", "3", "password", file_in(c.dir, "missing.json")}), 2)
+	testing.expect_value(
+		t,
+		run3(
+			c,
+			"3",
+			strings.repeat("p", proto.MAX_ACCOUNT_PASSWORD + 1, context.temp_allocator),
+			c.config,
+		),
+		2,
+	)
+	testing.expect_value(
+		t,
+		run_account_command({"bots", "3", "password", file_in(c.dir, "missing.json")}),
+		2,
+	)
 
 	testing.expect_value(t, run3(c, "3", "password1", c.config), 0)
 	{
@@ -382,7 +403,11 @@ test_creating_bot_accounts :: proc(t: ^testing.T) {
 			acc := account_find(&o.a, name)
 			testing.expectf(t, acc != nil, "%s was not made", name)
 			if acc != nil {
-				testing.expect(t, .Must_Change not_in acc.flags, "bots must not be made to change their password")
+				testing.expect(
+					t,
+					.Must_Change not_in acc.flags,
+					"bots must not be made to change their password",
+				)
 			}
 		}
 		// They share one hash, as documented.

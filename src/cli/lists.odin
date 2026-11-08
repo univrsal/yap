@@ -121,7 +121,14 @@ draw_list :: proc(a: ^App, b: ^tui.Buffer) {
 			a.cursor, a.cursor_shown = {fx + min(tui.string_width(text), fw - 1), y}, true
 		}
 		y += 1
-		tui.put_string(b, r.x + 2, y, fmt.tprintf("in %s (Alt+A switches)", scope), theme.dim, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			y,
+			fmt.tprintf("in %s (Alt+A switches)", scope),
+			theme.dim,
+			r.x + r.w - 1,
+		)
 		y += 1
 	}
 	entries := list_entries(a)
@@ -154,15 +161,25 @@ draw_list :: proc(a: ^App, b: ^tui.Buffer) {
 		status = fmt.tprintf("%d", len(entries))
 	}
 	tui.put_string(b, r.x + 2, r.y + r.h - 3, status, theme.dim, r.x + r.w - 1)
-	tui.put_string(b, r.x + 2, r.y + r.h - 2, "Up/Down: pick   Enter: go to it   Esc: close", theme.dim, r.x + r.w - 1)
+	tui.put_string(
+		b,
+		r.x + 2,
+		r.y + r.h - 2,
+		"Up/Down: pick   Enter: go to it   Esc: close",
+		theme.dim,
+		r.x + r.w - 1,
+	)
 }
 
 @(private = "file")
 list_loading :: proc(v: ^conn.View, kind: List_Kind) -> bool {
 	switch kind {
-	case .Pins: return v.pins.loading
-	case .Bookmarks: return v.bookmarks.loading || !v.bookmarks.listed
-	case .Search: return v.search.loading
+	case .Pins:
+		return v.pins.loading
+	case .Bookmarks:
+		return v.bookmarks.loading || !v.bookmarks.listed
+	case .Search:
+		return v.search.loading
 	}
 	return false
 }
@@ -170,9 +187,12 @@ list_loading :: proc(v: ^conn.View, kind: List_Kind) -> bool {
 @(private = "file")
 list_more :: proc(v: ^conn.View, kind: List_Kind) -> bool {
 	switch kind {
-	case .Pins: return false
-	case .Bookmarks: return v.bookmarks.more
-	case .Search: return v.search.more
+	case .Pins:
+		return false
+	case .Bookmarks:
+		return v.bookmarks.more
+	case .Search:
+		return v.search.more
 	}
 	return false
 }
@@ -245,7 +265,14 @@ ask_more :: proc(a: ^App, count: int) {
 	case .Search:
 		if v.search.more && !v.search.loading {
 			d.asked_more = count
-			push(a, conn.Search_Command{query = strings.clone(v.search.query), all = v.search.conv == 0, more = true})
+			push(
+				a,
+				conn.Search_Command {
+					query = strings.clone(v.search.query),
+					all = v.search.conv == 0,
+					more = true,
+				},
+			)
 		}
 	case .Pins:
 	}
@@ -278,7 +305,11 @@ jump_step :: proc(a: ^App, g: Geometry) {
 	for r, i in a.layout.rows {
 		if r.msg == a.jump_msg && (r.kind == .Head || r.kind == .System) {
 			// In the middle of the screen.
-			a.scroll = clamp(len(a.layout.rows) - i - g.timeline.h / 2, 0, max(len(a.layout.rows) - g.timeline.h, 0))
+			a.scroll = clamp(
+				len(a.layout.rows) - i - g.timeline.h / 2,
+				0,
+				max(len(a.layout.rows) - g.timeline.h, 0),
+			)
 			// The keys move between the messages from there.
 			a.cursor_msg = a.jump_msg
 			a.focus = .Timeline

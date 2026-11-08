@@ -182,8 +182,14 @@ test_files_of_a_message :: proc(t: ^testing.T) {
 	add_account(&v, 2, "anna")
 	m := add_message(&v, 1, 10, 2, T0, "look")
 	m.files = make([]conn.Msg_File, 2)
-	m.files[0] = {name = strings.clone("a.png"), size = 100}
-	m.files[1] = {name = strings.clone("b.zip"), size = 2048}
+	m.files[0] = {
+		name = strings.clone("a.png"),
+		size = 100,
+	}
+	m.files[1] = {
+		name = strings.clone("b.zip"),
+		size = 2048,
+	}
 	l := layout(&v)
 	defer layout_destroy(&l)
 	rows := rows_text(&l)[2:]
@@ -241,7 +247,16 @@ test_replies_say_what_they_reply_to :: proc(t: ^testing.T) {
 
 	// Not in the thread's own window.
 	tl := timeline_of(&v, 1, 10)
-	append(&tl.messages, conn.View_Message{id = 20, sender = 3, time = T0 + MINUTE, thread_root = 10, text = strings.clone("agreed")})
+	append(
+		&tl.messages,
+		conn.View_Message {
+			id = 20,
+			sender = 3,
+			time = T0 + MINUTE,
+			thread_root = 10,
+			text = strings.clone("agreed"),
+		},
+	)
 	l2: Timeline_Layout
 	defer layout_destroy(&l2)
 	layout_update(&l2, &v, {conv = 1, root = 10}, 60, nil, 0)

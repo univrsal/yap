@@ -40,7 +40,8 @@ deliver :: proc(
 acks :: proc(t: ^testing.T, tc: ^Test_Conn) -> []u32 {
 	versions := make([dynamic]u32, context.temp_allocator)
 	for d in tc_datagrams(t, tc) {
-		if kind, ok := proto.message_kind(d); ok && kind == .State_Ack && len(d) == proto.STATE_ACK_SIZE {
+		if kind, ok := proto.message_kind(d);
+		   ok && kind == .State_Ack && len(d) == proto.STATE_ACK_SIZE {
 			append(&versions, proto.decode_state_ack(d))
 		}
 	}
@@ -158,7 +159,11 @@ test_snapshot_in_pieces :: proc(t: ^testing.T) {
 	// A server with a lot of connections needs several State messages.
 	users := make([]proto.User_Info, 300, context.temp_allocator)
 	for &u, i in users {
-		u = {num = proto.User_Num(i + 1), account = proto.Account_Id(1 + i % 3), room = proto.Room(4 if i % 2 == 0 else 5)}
+		u = {
+			num     = proto.User_Num(i + 1),
+			account = proto.Account_Id(1 + i % 3),
+			room    = proto.Room(4 if i % 2 == 0 else 5),
+		}
 	}
 	count := proto.state_chunk_count(300 * proto.USER_SIZE + 6)
 	testing.expect(t, count >= 3, "the snapshot is too small to need pieces")
@@ -196,7 +201,10 @@ test_invalid_snapshot_keeps_the_old_one :: proc(t: ^testing.T) {
 
 	// A snapshot that says more users than it holds.
 	body := make([]u8, 64, context.temp_allocator)
-	encoded, _ := proto.encode_state({your_user = 11, users = {{num = 11, account = 1}, {num = 12, account = 2}}}, body)
+	encoded, _ := proto.encode_state(
+		{your_user = 11, users = {{num = 11, account = 1}, {num = 12, account = 2}}},
+		body,
+	)
 	chunk := make([]u8, proto.MAX_PAYLOAD_SIZE, context.temp_allocator)
 	handle_state_message(c, proto.encode_state_chunk(chunk, 2, encoded[:len(encoded) - 5], 0))
 	testing.expect_value(t, c.channels.applied_version, u32(1))
@@ -312,7 +320,12 @@ test_sound_is_sent_until_the_server_shows_it :: proc(t: ^testing.T) {
 	}
 	set_sound(c, .Deafened, false)
 	set_sound(c, .Muted, false)
-	deliver(&tc, 3, 11, {{num = 11, account = 1, room = 4, flags = {.Muted, .Deafened, .In_Voice}}})
+	deliver(
+		&tc,
+		3,
+		11,
+		{{num = 11, account = 1, room = 4, flags = {.Muted, .Deafened, .In_Voice}}},
+	)
 	_ = tc_datagrams(t, &tc)
 	drive_sound(c)
 	got = sounds_sent(t, &tc)
@@ -343,7 +356,9 @@ test_sound_in_calls_and_hidden_voice :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(sounds_sent(t, &tc)), 1)
 
 	// Somebody who chose not to show that they are talking is shown without it.
-	c.profiles.shared[strings.clone(proto.SETTING_VOICE_SHOWN)] = strings.clone(proto.VOICE_SHOWN_HIDDEN)
+	c.profiles.shared[strings.clone(proto.SETTING_VOICE_SHOWN)] = strings.clone(
+		proto.VOICE_SHOWN_HIDDEN,
+	)
 	deliver(&tc, 3, 11, {{num = 11, account = 1, room = 4, flags = {.Muted}}})
 	_ = tc_datagrams(t, &tc)
 	c.channels.last_sound_sent = {}

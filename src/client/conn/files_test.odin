@@ -233,7 +233,13 @@ offer_file :: proc(c: ^Server_Conn, cmd: Send_File_Command) {
 
 // offered makes an offer and gets it posted as message `id`.
 @(private = "file")
-offered :: proc(t: ^testing.T, r: ^Rig, name: string, data: []u8, id: proto.Msg_Id) -> ^File_Transfer {
+offered :: proc(
+	t: ^testing.T,
+	r: ^Rig,
+	name: string,
+	data: []u8,
+	id: proto.Msg_Id,
+) -> ^File_Transfer {
 	c := &r.tc.c
 	path := write_file(t, r, name, data)
 	offer_file(c, {path = strings.clone(path), to = 2})
@@ -493,7 +499,13 @@ test_incoming_offer_is_checked :: proc(t: ^testing.T) {
 			offer_message(705, "", 100),
 		}) {
 		file_offer_received(c, bad)
-		testing.expectf(t, c.files.transfers[bad.id].state == .Declined, "%q: %v", bad.file_name, c.files.transfers[bad.id].state)
+		testing.expectf(
+			t,
+			c.files.transfers[bad.id].state == .Declined,
+			"%q: %v",
+			bad.file_name,
+			c.files.transfers[bad.id].state,
+		)
 		got := of_kind(t, &r.tc, .File_Cancel)
 		testing.expectf(t, len(got) == 1, "%q: %d cancels", bad.file_name, len(got))
 		if len(got) == 1 {
@@ -680,7 +692,10 @@ test_received_file_that_goes_quiet :: proc(t: ^testing.T) {
 	got := of_kind(t, &r.tc, .File_Cancel)
 	testing.expect_value(t, len(got), 1)
 	// The partial file is thrown away.
-	testing.expect(t, !os.exists(strings.concatenate({offer.path, ".part"}, context.temp_allocator)))
+	testing.expect(
+		t,
+		!os.exists(strings.concatenate({offer.path, ".part"}, context.temp_allocator)),
+	)
 }
 
 @(test)

@@ -139,7 +139,10 @@ test_server_info_event :: proc(t: ^testing.T) {
 	testing.expect_value(t, tc.c.rpc.server.name, "Announced")
 	// Other events are not its business.
 	testing.expect(t, !server_info_event(&tc.c, .Sync_End, nil))
-	testing.expect(t, server_info_event(&tc.c, .Server_Info, info_body({name = "Again", version = "2"})))
+	testing.expect(
+		t,
+		server_info_event(&tc.c, .Server_Info, info_body({name = "Again", version = "2"})),
+	)
 	testing.expect_value(t, tc.c.rpc.server.name, "Again")
 	// One that can't be read is still its event, and changes nothing.
 	testing.expect(t, server_info_event(&tc.c, .Server_Info, []u8{9}))
@@ -194,7 +197,10 @@ test_server_icon_answers :: proc(t: ^testing.T) {
 	s := &tc.c.rpc.server
 
 	ask :: proc(t: ^testing.T, tc: ^Test_Conn, icon: proto.Blob_Id) -> Test_Request {
-		testing.expect(t, server_info_take(&tc.c, info_body({name = "S", version = "1", icon = icon})))
+		testing.expect(
+			t,
+			server_info_take(&tc.c, info_body({name = "S", version = "1", icon = icon})),
+		)
 		r, _ := tc_one(t, tc, .Server_Icon)
 		return r
 	}
@@ -257,8 +263,17 @@ test_server_info_set_without_a_picture :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.notice.count, count)
 
 	// A name or description over the limits is not sent.
-	server_info_set(c, {name = strings.repeat("n", proto.MAX_SERVER_NAME + 1), description = strings.clone("")})
-	server_info_set(c, {name = strings.clone(""), description = strings.repeat("d", proto.MAX_SERVER_DESCRIPTION + 1)})
+	server_info_set(
+		c,
+		{name = strings.repeat("n", proto.MAX_SERVER_NAME + 1), description = strings.clone("")},
+	)
+	server_info_set(
+		c,
+		{
+			name = strings.clone(""),
+			description = strings.repeat("d", proto.MAX_SERVER_DESCRIPTION + 1),
+		},
+	)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 	testing.expect_value(t, v.notice.text, "The server's name or description is too long.")
 }
@@ -279,14 +294,26 @@ test_server_info_set_with_a_picture :: proc(t: ^testing.T) {
 	}
 	// A picture that isn't a square within the limits is refused outright.
 	server_info_set(c, cmd(image(100, 64, 32)))
-	server_info_set(c, cmd(image(100, proto.MAX_SERVER_ICON_SIDE + 1, proto.MAX_SERVER_ICON_SIDE + 1)))
+	server_info_set(
+		c,
+		cmd(image(100, proto.MAX_SERVER_ICON_SIDE + 1, proto.MAX_SERVER_ICON_SIDE + 1)),
+	)
 	server_info_set(c, cmd(image(proto.MAX_SERVER_ICON_SIZE + 1, 64, 64)))
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 	testing.expect_value(t, len(c.blobs.pictures), 0)
 
 	// A good one is uploaded first, with the name and description to set after it.
 	server_info_set(c, cmd(image(100, 64, 64)))
-	server_info_set(c, cmd(image(proto.MAX_SERVER_ICON_SIZE, proto.MAX_SERVER_ICON_SIDE, proto.MAX_SERVER_ICON_SIDE)))
+	server_info_set(
+		c,
+		cmd(
+			image(
+				proto.MAX_SERVER_ICON_SIZE,
+				proto.MAX_SERVER_ICON_SIDE,
+				proto.MAX_SERVER_ICON_SIDE,
+			),
+		),
+	)
 	testing.expect_value(t, len(c.blobs.pictures), 2)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 	if len(c.blobs.pictures) == 2 {
@@ -324,7 +351,10 @@ test_server_info_set_picture_answers :: proc(t: ^testing.T) {
 		return {jpeg = make([]u8, 100), width = 64, height = 64}
 	}
 	post :: proc(t: ^testing.T, tc: ^Test_Conn) -> Test_Request {
-		server_info_set(&tc.c, {name = strings.clone("N"), description = strings.clone("D"), image = image()})
+		server_info_set(
+			&tc.c,
+			{name = strings.clone("N"), description = strings.clone("D"), image = image()},
+		)
 		p := &tc.c.blobs.pictures[0]
 		p.blob = 900
 		p.state = .Put
@@ -383,7 +413,11 @@ test_server_memory_report :: proc(t: ^testing.T) {
 	r, _ = tc_one(t, &tc, .Server_Memory)
 	tc_answer(&tc, r.id, .Ok, []u8{'a', 0x1b, '[', '3', '1', 'm', 'b', '\r', 0xff, 'c', '\n'})
 	report := v.server_memory.report
-	testing.expect(t, !strings.contains_any(report, "\x1b\r\x00"), "control characters in the report")
+	testing.expect(
+		t,
+		!strings.contains_any(report, "\x1b\r\x00"),
+		"control characters in the report",
+	)
 	testing.expect(t, strings.contains(report, "?"))
 	testing.expect(t, strings.has_suffix(report, "c\n"))
 	testing.expect_value(t, v.server_memory.count, 2)

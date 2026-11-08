@@ -44,13 +44,20 @@ open_settings :: proc(a: ^App) {
 setting_value :: proc(a: ^App, s: Setting) -> string {
 	v := &a.voice_settings
 	switch s {
-	case .Input: return v.input_device if v.input_device != "" else "(system default)"
-	case .Output: return v.output_device if v.output_device != "" else "(system default)"
-	case .Quality: return v.quality
-	case .Noise: return "on" if v.noise_suppression else "off"
-	case .Gate: return "on" if v.voice_gate else "off"
-	case .Gate_Open: return fmt.tprintf("%.0f dB", v.gate_open_db)
-	case .Gate_Close: return fmt.tprintf("%.0f dB", v.gate_close_db)
+	case .Input:
+		return v.input_device if v.input_device != "" else "(system default)"
+	case .Output:
+		return v.output_device if v.output_device != "" else "(system default)"
+	case .Quality:
+		return v.quality
+	case .Noise:
+		return "on" if v.noise_suppression else "off"
+	case .Gate:
+		return "on" if v.voice_gate else "off"
+	case .Gate_Open:
+		return fmt.tprintf("%.0f dB", v.gate_open_db)
+	case .Gate_Close:
+		return fmt.tprintf("%.0f dB", v.gate_close_db)
 	}
 	return ""
 }
@@ -83,7 +90,11 @@ setting_change :: proc(a: ^App, s: Setting, dir: int) {
 		v.gate_open_db = clamp(v.gate_open_db + f32(dir * GATE_STEP), audio.MIN_LEVEL_DB, 0)
 		v.gate_close_db = min(v.gate_close_db, v.gate_open_db)
 	case .Gate_Close:
-		v.gate_close_db = clamp(v.gate_close_db + f32(dir * GATE_STEP), audio.MIN_LEVEL_DB, v.gate_open_db)
+		v.gate_close_db = clamp(
+			v.gate_close_db + f32(dir * GATE_STEP),
+			audio.MIN_LEVEL_DB,
+			v.gate_open_db,
+		)
 	}
 	for sv in a.servers {
 		apply_voice_settings(sv.client, v^)
@@ -121,7 +132,14 @@ draw_settings :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, y, LABELS[s], style, r.x + r.w - 1)
 		value := fmt.tprintf("◂ %s ▸", setting_value(a, s))
 		vw := tui.string_width(value)
-		tui.put_string(b, r.x + r.w - vw - 3, y, tui.cut_to_width(value, r.w - 24), style, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + r.w - vw - 3,
+			y,
+			tui.cut_to_width(value, r.w - 24),
+			style,
+			r.x + r.w - 1,
+		)
 		append(&a.hits, Hit{{r.x + 1, y, r.w - 2, 1}, .Setting_Row, u64(s), ""})
 	}
 	y := r.y + 3 + len(Setting)
@@ -131,19 +149,57 @@ draw_settings :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, y, "No audio devices found.", theme.dim, r.x + r.w - 1)
 	}
 	if a.view.mic_open {
-		tui.put_string(b, r.x + 2, y + 1, fmt.tprintf("Microphone: %s", level_bar(a.view.mic_level)), theme.online, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			y + 1,
+			fmt.tprintf("Microphone: %s", level_bar(a.view.mic_level)),
+			theme.online,
+			r.x + r.w - 1,
+		)
 	}
-	tui.put_string(b, r.x + 2, r.y + r.h - 2, "Up/Down: pick   Left/Right: change   Esc: close", theme.dim, r.x + r.w - 1)
+	tui.put_string(
+		b,
+		r.x + 2,
+		r.y + r.h - 2,
+		"Up/Down: pick   Left/Right: change   Esc: close",
+		theme.dim,
+		r.x + r.w - 1,
+	)
 }
 
 settings_key :: proc(a: ^App, k: tui.Key_Event) {
 	d := &a.dialog
 	switch k.key {
-	case .Up: d.sel = (d.sel - 1 + len(Setting)) % len(Setting)
-	case .Down, .Tab: d.sel = (d.sel + 1) % len(Setting)
-	case .Left: setting_change(a, Setting(d.sel), -1)
-	case .Right, .Enter: setting_change(a, Setting(d.sel), 1)
-	case .Escape: dialog_close(a)
-	case .Rune, .Backspace, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
+	case .Up:
+		d.sel = (d.sel - 1 + len(Setting)) % len(Setting)
+	case .Down, .Tab:
+		d.sel = (d.sel + 1) % len(Setting)
+	case .Left:
+		setting_change(a, Setting(d.sel), -1)
+	case .Right, .Enter:
+		setting_change(a, Setting(d.sel), 1)
+	case .Escape:
+		dialog_close(a)
+	case .Rune,
+	     .Backspace,
+	     .Home,
+	     .End,
+	     .Page_Up,
+	     .Page_Down,
+	     .Insert,
+	     .Delete,
+	     .F1,
+	     .F2,
+	     .F3,
+	     .F4,
+	     .F5,
+	     .F6,
+	     .F7,
+	     .F8,
+	     .F9,
+	     .F10,
+	     .F11,
+	     .F12:
 	}
 }

@@ -273,7 +273,10 @@ command_items :: proc(ui: ^UI, c: Composer, text: string, cursor: int) -> bool {
 				strings.concatenate({"/", info.name, "   ", info.help}) if info.help != "" else strings.concatenate({"/", info.name})
 			append(
 				&cm.items,
-				Completion_Item{insert = strings.concatenate({"/", info.name, " "}), label = label},
+				Completion_Item {
+					insert = strings.concatenate({"/", info.name, " "}),
+					label = label,
+				},
 			)
 		}
 	}
@@ -285,13 +288,18 @@ command_items :: proc(ui: ^UI, c: Composer, text: string, cursor: int) -> bool {
 			break
 		}
 		typed := conn.bot_command_typed(e)
-		if !strings.has_prefix(e.name, prefix) && !strings.has_prefix(strings.to_lower(typed, context.temp_allocator), prefix) {
+		if !strings.has_prefix(e.name, prefix) &&
+		   !strings.has_prefix(strings.to_lower(typed, context.temp_allocator), prefix) {
 			continue
 		}
 		name := typed if conn.bot_command_ambiguous(here, e) else e.name
-		usage := strings.concatenate({" ", e.usage}, context.temp_allocator) if e.usage != "" else ""
+		usage :=
+			strings.concatenate({" ", e.usage}, context.temp_allocator) if e.usage != "" else ""
 		label := strings.concatenate({"/", e.name, usage, "   ", e.description, "   · ", e.bot})
-		append(&cm.items, Completion_Item{insert = strings.concatenate({"/", name, " "}), label = label})
+		append(
+			&cm.items,
+			Completion_Item{insert = strings.concatenate({"/", name, " "}), label = label},
+		)
 	}
 	// Once the whole name is typed there is nothing left to complete, and Enter
 	// runs the command.

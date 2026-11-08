@@ -50,7 +50,11 @@ test_address_of :: proc(t: ^testing.T) {
 test_url_base :: proc(t: ^testing.T) {
 	testing.expect_value(t, url_base("imaps://mail.example.org"), "imaps://mail.example.org")
 	testing.expect_value(t, url_base("imaps://mail.example.org/"), "imaps://mail.example.org")
-	testing.expect_value(t, url_base("imaps://mail.example.org:993///"), "imaps://mail.example.org:993")
+	testing.expect_value(
+		t,
+		url_base("imaps://mail.example.org:993///"),
+		"imaps://mail.example.org:993",
+	)
 	testing.expect_value(t, url_base(""), "")
 }
 
@@ -93,9 +97,21 @@ test_tls_is_required_from_remote_servers :: proc(t: ^testing.T) {
 test_rfc5322_date :: proc(t: ^testing.T) {
 	testing.expect_value(t, rfc5322_date(time.unix(0, 0)), "Thu, 01 Jan 1970 00:00:00 +0000")
 	// Numbers are padded to two digits.
-	testing.expect_value(t, rfc5322_date(time.unix(1788577445, 0)), "Sat, 05 Sep 2026 03:04:05 +0000")
-	testing.expect_value(t, rfc5322_date(time.unix(1709210096, 0)), "Thu, 29 Feb 2024 12:34:56 +0000")
-	testing.expect_value(t, rfc5322_date(time.unix(978307199, 0)), "Sun, 31 Dec 2000 23:59:59 +0000")
+	testing.expect_value(
+		t,
+		rfc5322_date(time.unix(1788577445, 0)),
+		"Sat, 05 Sep 2026 03:04:05 +0000",
+	)
+	testing.expect_value(
+		t,
+		rfc5322_date(time.unix(1709210096, 0)),
+		"Thu, 29 Feb 2024 12:34:56 +0000",
+	)
+	testing.expect_value(
+		t,
+		rfc5322_date(time.unix(978307199, 0)),
+		"Sun, 31 Dec 2000 23:59:59 +0000",
+	)
 	// Every weekday and month is named.
 	seen_days, seen_months: map[string]bool
 	defer delete(seen_days)
@@ -192,13 +208,23 @@ test_compose_encodes_subjects_in_whole_characters :: proc(t: ^testing.T) {
 
 			whole := strings.builder_make(context.temp_allocator)
 			for word in strings.split(folded, "\r\n ", context.temp_allocator) {
-				testing.expectf(t, strings.has_prefix(word, "=?UTF-8?B?") && strings.has_suffix(word, "?="), "%q", word)
+				testing.expectf(
+					t,
+					strings.has_prefix(word, "=?UTF-8?B?") && strings.has_suffix(word, "?="),
+					"%q",
+					word,
+				)
 				testing.expect(t, len(word) <= 75, "an encoded word is longer than 75 characters")
 				b64 := word[len("=?UTF-8?B?"):len(word) - 2]
 				raw, err := base64.decode(b64, allocator = context.temp_allocator)
 				testing.expect(t, err == nil)
 				// Each word is valid on its own, so a reader can decode them one by one.
-				testing.expectf(t, utf8.valid_string(string(raw)), "a word of %q splits a character", unit)
+				testing.expectf(
+					t,
+					utf8.valid_string(string(raw)),
+					"a word of %q splits a character",
+					unit,
+				)
 				strings.write_bytes(&whole, raw)
 			}
 			testing.expect_value(t, strings.to_string(whole), subject)

@@ -75,7 +75,8 @@ list_rows :: proc(v: ^conn.View) -> []List_Row {
 	for &dm in dms {
 		online := false
 		for num, u in v.users {
-			if num != v.my_num && (u.account == dm.with || slice.contains(conn.group_members(&dm), u.account)) {
+			if num != v.my_num &&
+			   (u.account == dm.with || slice.contains(conn.group_members(&dm), u.account)) {
 				online = true
 				break
 			}
@@ -122,7 +123,14 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	// The server.
 	tui.fill(b, {r.x, 0, r.w, 1}, theme.bar)
 	name := v.server_name if v.server_name != "" else v.server
-	tui.put_string(b, r.x + 1, 0, name, {fg = theme.bar.fg, bg = theme.bar.bg, attrs = {.Bold}}, r.x + r.w - 1)
+	tui.put_string(
+		b,
+		r.x + 1,
+		0,
+		name,
+		{fg = theme.bar.fg, bg = theme.bar.bg, attrs = {.Bold}},
+		r.x + r.w - 1,
+	)
 
 	// With several servers they are listed first.
 	rail := rail_height(a)
@@ -145,7 +153,8 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 			continue
 		}
 		if row.kind == .Voice_User {
-			style := tui.Style{fg = theme.online.fg, attrs = {.Bold}} if row.user.speaking else theme.dim
+			style :=
+				tui.Style{fg = theme.online.fg, attrs = {.Bold}} if row.user.speaking else theme.dim
 			mark := "▸ "
 			text := row.name
 			if row.user.deafened {
@@ -183,7 +192,8 @@ draw_channels :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 		door_hit: Maybe(Hit)
 		if row.voice && row.kind == .Channel {
 			name_w -= 2
-			door := tui.Style{fg = theme.online.fg, bg = style.bg, attrs = {.Bold}} if row.in_room else tui.Style{fg = theme.dim.fg, bg = style.bg}
+			door :=
+				tui.Style{fg = theme.online.fg, bg = style.bg, attrs = {.Bold}} if row.in_room else tui.Style{fg = theme.dim.fg, bg = style.bg}
 			dx := r.x + 3 + min(tui.string_width(row.name), name_w) + 1
 			tui.put_string(b, dx, y, "♪", door, r.x + r.w)
 			door_hit = Hit{{dx - 1, y, 3, 1}, .Voice_Join, u64(row.conv), ""}
@@ -211,4 +221,3 @@ channel_badge :: proc(unread, mentions: int) -> (text: string, style: tui.Style)
 	}
 	return "", {}
 }
-

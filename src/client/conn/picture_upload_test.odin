@@ -77,7 +77,13 @@ test_picture_is_queued :: proc(t: ^testing.T) {
 	testing.expect(t, v.uploading.avatar && !v.uploading.server)
 
 	// The server's picture is shown as such; names go with it.
-	picture_upload(c, {jpeg = jpeg(100), width = 32, height = 32}, server = true, name = strings.clone("N"), about = strings.clone("A"))
+	picture_upload(
+		c,
+		{jpeg = jpeg(100), width = 32, height = 32},
+		server = true,
+		name = strings.clone("N"),
+		about = strings.clone("A"),
+	)
 	testing.expect(t, v.uploading.avatar && v.uploading.server)
 	testing.expect(t, c.blobs.pictures[1].server)
 	testing.expect(t, c.blobs.pictures[1].tag != p.tag)
@@ -166,7 +172,13 @@ test_server_picture_is_set_with_its_details :: proc(t: ^testing.T) {
 	defer tc_close(&tc)
 	defer blobs_destroy(&tc.c)
 	c := &tc.c
-	picture_upload(c, {jpeg = jpeg(100), width = 32, height = 32}, server = true, name = strings.clone("Name"), about = strings.clone("About"))
+	picture_upload(
+		c,
+		{jpeg = jpeg(100), width = 32, height = 32},
+		server = true,
+		name = strings.clone("Name"),
+		about = strings.clone("About"),
+	)
 	drive_pictures(c)
 	req, _ := tc_one(t, &tc, .Blob_Put)
 	buf: [proto.BLOB_PUT_ANSWER_SIZE]u8
@@ -341,7 +353,11 @@ test_upload_is_rejected_by_the_server :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, upload_need(c, need(99, false, nil, failed = true)))
 	testing.expect_value(t, len(c.blobs.pictures), 0)
-	testing.expect_value(t, v.notice.text, "A picture couldn't be sent because the server rejected the upload.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A picture couldn't be sent because the server rejected the upload.",
+	)
 }
 
 // announced_again answers the Blob_Put that is pending with the same handle.

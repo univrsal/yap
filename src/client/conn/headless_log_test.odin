@@ -171,14 +171,25 @@ test_describe :: proc(t: ^testing.T) {
 
 	forwarded := m
 	forwarded.flags = {.Forwarded}
-	forwarded.forward = {sender = 3, conv = 4}
+	forwarded.forward = {
+		sender = 3,
+		conv   = 4,
+	}
 	testing.expect_value(t, describe(c, forwarded), "hi (forwarded from bob, #4)")
 
 	files := m
 	files.flags = {.Has_Attachments}
 	files.attachment_count = 2
-	files.attachments[0] = {blob = 5, size = 2048, name = "a.txt"}
-	files.attachments[1] = {blob = 0, size = 9, name = "gone.bin"}
+	files.attachments[0] = {
+		blob = 5,
+		size = 2048,
+		name = "a.txt",
+	}
+	files.attachments[1] = {
+		blob = 0,
+		size = 9,
+		name = "gone.bin",
+	}
 	testing.expect_value(
 		t,
 		describe(c, files),

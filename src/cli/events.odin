@@ -33,7 +33,10 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 	}
 	// So does going to another server: a login asked for by one is no reason to
 	// be stuck there.
-	if k.key == .Rune && k.mods == {.Ctrl} && (k.rune == 'n' || k.rune == 'p') && len(a.servers) > 1 {
+	if k.key == .Rune &&
+	   k.mods == {.Ctrl} &&
+	   (k.rune == 'n' || k.rune == 'p') &&
+	   len(a.servers) > 1 {
 		switch_server(a, 1 if k.rune == 'n' else -1)
 		return
 	}
@@ -64,7 +67,27 @@ key_event :: proc(a: ^App, k: tui.Key_Event) {
 				open_emoji_insert(a)
 			}
 			return
-		case .Rune, .Enter, .Tab, .Backspace, .Escape, .Up, .Down, .Left, .Right, .Home, .End, .Page_Up, .Page_Down, .Insert, .Delete, .F1, .F2, .F4, .F10, .F11, .F12:
+		case .Rune,
+		     .Enter,
+		     .Tab,
+		     .Backspace,
+		     .Escape,
+		     .Up,
+		     .Down,
+		     .Left,
+		     .Right,
+		     .Home,
+		     .End,
+		     .Page_Up,
+		     .Page_Down,
+		     .Insert,
+		     .Delete,
+		     .F1,
+		     .F2,
+		     .F4,
+		     .F10,
+		     .F11,
+		     .F12:
 		}
 	}
 	if k.key == .Rune && k.mods == {.Ctrl} && k.rune == 'b' && a.dialog.kind == .None {
@@ -114,7 +137,11 @@ Pane :: struct {
 pane_of :: proc(a: ^App, thread: bool) -> Pane {
 	g := geometry(a)
 	if thread && a.thread != 0 {
-		return {&a.thread_layout, &a.thread_scroll, {g.thread.x, g.thread.y + 1, g.thread.w, g.thread.h - 1}}
+		return {
+			&a.thread_layout,
+			&a.thread_scroll,
+			{g.thread.x, g.thread.y + 1, g.thread.w, g.thread.h - 1},
+		}
 	}
 	return {&a.layout, &a.scroll, g.timeline}
 }
@@ -153,10 +180,14 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 		return
 	case k.key == .Escape:
 		switch {
-		case a.editing != 0: cancel_edit(a)
-		case a.reply_to != 0: cancel_reply(a)
-		case a.thread != 0: close_thread(a)
-		case: a.scroll = 0
+		case a.editing != 0:
+			cancel_edit(a)
+		case a.reply_to != 0:
+			cancel_reply(a)
+		case a.thread != 0:
+			close_thread(a)
+		case:
+			a.scroll = 0
 		}
 		return
 	case k.key == .Tab && k.mods == {}:
@@ -186,7 +217,10 @@ composer_key :: proc(a: ^App, k: tui.Key_Event) {
 		}
 	}
 	if tui.editor_key(&a.editor, k) {
-		if a.editing == 0 && a.viewing != 0 && tui.editor_text(&a.editor) != "" && !strings.has_prefix(tui.editor_text(&a.editor), "/") {
+		if a.editing == 0 &&
+		   a.viewing != 0 &&
+		   tui.editor_text(&a.editor) != "" &&
+		   !strings.has_prefix(tui.editor_text(&a.editor), "/") {
 			// Others see that we are typing.
 			push(a, conn.Typing_Command{thread = {a.viewing, a.reply_to}})
 		}
@@ -238,7 +272,8 @@ timeline_key :: proc(a: ^App, k: tui.Key_Event) {
 			return
 		}
 		switch k.rune {
-		case 'r': start_reply(a, m^)
+		case 'r':
+			start_reply(a, m^)
 		case 'e':
 			if can_edit(a.view, m^) {
 				start_edit(a, m^)
@@ -247,7 +282,8 @@ timeline_key :: proc(a: ^App, k: tui.Key_Event) {
 			if can_delete(a.view, m^) {
 				a.dialog.kind, a.dialog.msg = .Confirm_Delete, m.id
 			}
-		case 'y': copy_text(a, m.text)
+		case 'y':
+			copy_text(a, m.text)
 		case 't':
 			if .Has_Thread in m.flags || m.thread_root != 0 {
 				open_thread(a, thread_root_of(m^))
@@ -318,7 +354,8 @@ menu_key :: proc(a: ^App, k: tui.Key_Event) {
 	case k.key == .Rune && k.mods == {}:
 		// The first letter of an item.
 		for it, i in m.items {
-			if strings.to_lower(it.label[:1], context.temp_allocator) == strings.to_lower(string([]u8{u8(k.rune)}), context.temp_allocator) {
+			if strings.to_lower(it.label[:1], context.temp_allocator) ==
+			   strings.to_lower(string([]u8{u8(k.rune)}), context.temp_allocator) {
 				menu_choose(a, i)
 				return
 			}
@@ -336,9 +373,12 @@ menu_choose :: proc(a: ^App, i: int) {
 	menu_close(a)
 	if server >= 0 {
 		#partial switch action {
-		case .Switch_Server: app_switch(a, server)
-		case .Reconnect_Server: append(&a.requests, Server_Request{kind = .Reconnect, index = server})
-		case .Disconnect_Server: disconnect_server(a, server)
+		case .Switch_Server:
+			app_switch(a, server)
+		case .Reconnect_Server:
+			append(&a.requests, Server_Request{kind = .Reconnect, index = server})
+		case .Disconnect_Server:
+			disconnect_server(a, server)
 		}
 		return
 	}
@@ -359,17 +399,25 @@ menu_choose :: proc(a: ^App, i: int) {
 		return
 	}
 	switch action {
-	case .Reply: start_reply(a, m^)
-	case .React: open_picker(a, id)
+	case .Reply:
+		start_reply(a, m^)
+	case .React:
+		open_picker(a, id)
 	case .Save:
 		push(a, conn.Attach_Save_Command{msg = id, index = arg})
 		say(a, "Saving...")
-	case .Thread: open_thread(a, thread_root_of(m^))
-	case .Bookmark: push(a, conn.Bookmark_Command{id = id, on = !a.view.bookmarks.ids[id]})
-	case .Pin: push(a, conn.Pin_Command{id = id, on = .Pinned not_in m.flags})
-	case .Edit: start_edit(a, m^)
-	case .Copy: copy_text(a, m.text)
-	case .Delete: a.dialog.kind, a.dialog.msg = .Confirm_Delete, id
+	case .Thread:
+		open_thread(a, thread_root_of(m^))
+	case .Bookmark:
+		push(a, conn.Bookmark_Command{id = id, on = !a.view.bookmarks.ids[id]})
+	case .Pin:
+		push(a, conn.Pin_Command{id = id, on = .Pinned not_in m.flags})
+	case .Edit:
+		start_edit(a, m^)
+	case .Copy:
+		copy_text(a, m.text)
+	case .Delete:
+		a.dialog.kind, a.dialog.msg = .Confirm_Delete, id
 	case .Message, .Call, .Switch_Server, .Reconnect_Server, .Disconnect_Server: // (only in other menus)
 	}
 }

@@ -33,7 +33,12 @@ test_every_headless_command_is_documented :: proc(t: ^testing.T) {
 		for u in UNDOCUMENTED_COMMANDS {
 			skipped ||= u == name
 		}
-		testing.expectf(t, documented || skipped, "/%s is handled by the headless client but is not in COMMAND_DOCS", name)
+		testing.expectf(
+			t,
+			documented || skipped,
+			"/%s is handled by the headless client but is not in COMMAND_DOCS",
+			name,
+		)
 	}
 	testing.expect(t, found > 50, "the source was not read")
 }

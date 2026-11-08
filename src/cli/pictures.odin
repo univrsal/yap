@@ -129,7 +129,7 @@ picture_row :: proc(pic: Picture, row: int, allocator := context.allocator) -> [
 		i := row * pic.cols + x
 		t, b := pic.top[i], pic.bottom[i]
 		segs[x] = Seg {
-			text  = "▀",
+			text = "▀",
 			style = {fg = tui.color_rgb(t.r, t.g, t.b), bg = tui.color_rgb(b.r, b.g, b.b)},
 		}
 	}

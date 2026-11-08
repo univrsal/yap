@@ -76,12 +76,20 @@ test_wrap_ranges_cover_the_text :: proc(t: ^testing.T) {
 		for l, i in lines {
 			testing.expectf(t, l.start <= l.end, "width %d line %d", width, i)
 			if i > 0 {
-				testing.expectf(t, l.start >= lines[i - 1].end, "width %d line %d goes back", width, i)
+				testing.expectf(
+					t,
+					l.start >= lines[i - 1].end,
+					"width %d line %d goes back",
+					width,
+					i,
+				)
 			}
 			kept += l.end - l.start
 			testing.expectf(
 				t,
-				string_width(text[l.start:l.end]) <= width || first_rune_size(text[l.start:]) > 0 && string_width(text[l.start:l.end]) == rune_width(first_rune(text[l.start:])),
+				string_width(text[l.start:l.end]) <= width ||
+				first_rune_size(text[l.start:]) > 0 &&
+					string_width(text[l.start:l.end]) == rune_width(first_rune(text[l.start:])),
 				"width %d line %q too wide",
 				width,
 				text[l.start:l.end],

@@ -6,7 +6,12 @@ import "core:testing"
 
 @(test)
 test_command_name_valid :: proc(t: ^testing.T) {
-	for good in ([]string{"a", "roll", "my-cmd_2", strings.repeat("x", MAX_COMMAND_NAME, context.temp_allocator)}) {
+	for good in ([]string {
+			"a",
+			"roll",
+			"my-cmd_2",
+			strings.repeat("x", MAX_COMMAND_NAME, context.temp_allocator),
+		}) {
 		testing.expectf(t, command_name_valid(good), "%q", good)
 	}
 	for bad in ([]string {
@@ -75,8 +80,15 @@ test_bot_commands_limits :: proc(t: ^testing.T) {
 	// The largest set fits the size constant.
 	many := make([]Bot_Command, MAX_BOT_COMMANDS, context.temp_allocator)
 	for &c, i in many {
-		c.name = strings.repeat(string([]u8{u8('a' + i % 26)}), MAX_COMMAND_NAME - 2, context.temp_allocator)
-		c.name = strings.concatenate({c.name, string([]u8{u8('0' + i / 10), u8('0' + i % 10)})}, context.temp_allocator)
+		c.name = strings.repeat(
+			string([]u8{u8('a' + i % 26)}),
+			MAX_COMMAND_NAME - 2,
+			context.temp_allocator,
+		)
+		c.name = strings.concatenate(
+			{c.name, string([]u8{u8('0' + i / 10), u8('0' + i % 10)})},
+			context.temp_allocator,
+		)
 		c.description = strings.repeat("d", MAX_COMMAND_DESCRIPTION, context.temp_allocator)
 		c.usage = strings.repeat("u", MAX_COMMAND_USAGE, context.temp_allocator)
 	}
@@ -86,10 +98,45 @@ test_bot_commands_limits :: proc(t: ^testing.T) {
 	testing.expect(t, ok && len(got) == MAX_BOT_COMMANDS)
 
 	// Too many, a bad name, a text that is too long: not encoded.
-	testing.expect(t, encode_bot_commands(buf[:], make([]Bot_Command, MAX_BOT_COMMANDS + 1, context.temp_allocator)) == nil)
+	testing.expect(
+		t,
+		encode_bot_commands(
+			buf[:],
+			make([]Bot_Command, MAX_BOT_COMMANDS + 1, context.temp_allocator),
+		) ==
+		nil,
+	)
 	testing.expect(t, encode_bot_commands(buf[:], {{name = "Bad"}}) == nil)
-	testing.expect(t, encode_bot_commands(buf[:], {{name = "ok", description = strings.repeat("d", MAX_COMMAND_DESCRIPTION + 1, context.temp_allocator)}}) == nil)
-	testing.expect(t, encode_bot_commands(buf[:], {{name = "ok", usage = strings.repeat("u", MAX_COMMAND_USAGE + 1, context.temp_allocator)}}) == nil)
+	testing.expect(
+		t,
+		encode_bot_commands(
+			buf[:],
+			{
+				{
+					name = "ok",
+					description = strings.repeat(
+						"d",
+						MAX_COMMAND_DESCRIPTION + 1,
+						context.temp_allocator,
+					),
+				},
+			},
+		) ==
+		nil,
+	)
+	testing.expect(
+		t,
+		encode_bot_commands(
+			buf[:],
+			{
+				{
+					name = "ok",
+					usage = strings.repeat("u", MAX_COMMAND_USAGE + 1, context.temp_allocator),
+				},
+			},
+		) ==
+		nil,
+	)
 
 	// A peer that doesn't encode so carefully is dealt with by the decoder.
 	w := Writer {
@@ -126,7 +173,10 @@ test_bot_commands_limits :: proc(t: ^testing.T) {
 	w = Writer {
 		buf = buf[:],
 	}
-	long := strings.concatenate({"  line one\nline\ttwo \x07", strings.repeat("é", 200, context.temp_allocator)}, context.temp_allocator)
+	long := strings.concatenate(
+		{"  line one\nline\ttwo \x07", strings.repeat("é", 200, context.temp_allocator)},
+		context.temp_allocator,
+	)
 	put_u8(&w, 1)
 	put_str8(&w, "cmd")
 	put_str8(&w, long[:min(len(long), 255)])
@@ -164,7 +214,12 @@ test_command_run :: proc(t: ^testing.T) {
 	}
 
 	// No conversation, no bot, a bad name.
-	for bad in ([]Command_Run_Request{{0, 0, 5, "a", ""}, {3, 0, 0, "a", ""}, {3, 0, 5, "A", ""}, {3, 0, 5, "", ""}}) {
+	for bad in ([]Command_Run_Request {
+			{0, 0, 5, "a", ""},
+			{3, 0, 0, "a", ""},
+			{3, 0, 5, "A", ""},
+			{3, 0, 5, "", ""},
+		}) {
 		w := Writer {
 			buf = buf[:],
 		}

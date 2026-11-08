@@ -107,7 +107,11 @@ test_rich_headings :: proc(t: ^testing.T) {
 	// Headings of level 1 to 3 are in fonts of their own, the others are as
 	// big as the text; all of them are bold.
 	r := rich_make("# one\n### three\n#### four\ntext", nil, nil, nil, false)
-	testing.expect_value(t, rich_line_font(ctx, r.lines[0]), render.heading_font(render.CHAT_FONT, 1, .Regular))
+	testing.expect_value(
+		t,
+		rich_line_font(ctx, r.lines[0]),
+		render.heading_font(render.CHAT_FONT, 1, .Regular),
+	)
 	testing.expect(t, rich_line_font(ctx, r.lines[0]) != render.CHAT_FONT)
 	testing.expect(t, rich_line_font(ctx, r.lines[1]) != rich_line_font(ctx, r.lines[0]))
 	testing.expect_value(t, rich_line_font(ctx, r.lines[2]), render.CHAT_FONT)

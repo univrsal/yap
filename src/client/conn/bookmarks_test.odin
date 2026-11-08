@@ -30,7 +30,10 @@ page_body :: proc(list: []proto.Bookmark, more: bool) -> []u8 {
 
 @(private = "file")
 marked :: proc(id: proto.Msg_Id, time: proto.Unix_Ms, text: string) -> proto.Bookmark {
-	return {time = time, msg = {id = id, conv = 3, sender = 2, time = time, kind = .Text, text = text}}
+	return {
+		time = time,
+		msg = {id = id, conv = 3, sender = 2, time = time, kind = .Text, text = text},
+	}
 }
 
 // ---- bookmarks ----
@@ -86,7 +89,12 @@ test_bookmark_list_pages :: proc(t: ^testing.T) {
 	testing.expect(t, dec && before_time == 0 && before == 0)
 
 	// The first page.
-	tc_answer(&tc, r.id, .Ok, page_body({marked(30, 900, "newest"), marked(20, 800, "middle")}, true))
+	tc_answer(
+		&tc,
+		r.id,
+		.Ok,
+		page_body({marked(30, 900, "newest"), marked(20, 800, "middle")}, true),
+	)
 	testing.expect_value(t, len(v.bookmarks.list), 2)
 	testing.expect(t, v.bookmarks.listed && v.bookmarks.more && !v.bookmarks.loading)
 	if len(v.bookmarks.list) == 2 {
@@ -205,7 +213,12 @@ test_bookmarked_message_changes :: proc(t: ^testing.T) {
 	tc_event(&tc, .Bookmarks, proto.encode_bookmarks(&buf, {30}))
 	bookmarks_command(c, {})
 	r, _ := tc_one(t, &tc, .Bookmarks_Get)
-	tc_answer(&tc, r.id, .Ok, page_body({marked(30, 900, "before"), marked(31, 800, "other")}, false))
+	tc_answer(
+		&tc,
+		r.id,
+		.Ok,
+		page_body({marked(30, 900, "before"), marked(31, 800, "other")}, false),
+	)
 
 	// An edit to a bookmarked message is shown in the list; one to another message is not.
 	edited := msg_of({id = 30, conv = 3, sender = 2, kind = .Text, text = "after", edited = 5000})
@@ -255,7 +268,10 @@ test_bookmark_set :: proc(t: ^testing.T) {
 		text:   string,
 	}
 	for k in ([]Case {
-			{.Too_Large, fmt.tprintf("You can't have more than %d bookmarks.", proto.MAX_BOOKMARKS)},
+			{
+				.Too_Large,
+				fmt.tprintf("You can't have more than %d bookmarks.", proto.MAX_BOOKMARKS),
+			},
 			{.Not_Found, "That message no longer exists."},
 			{.Invalid, "A deleted message can't be bookmarked."},
 			{.Internal, "The server failed to change the bookmark (Internal)."},
@@ -305,7 +321,13 @@ test_react :: proc(t: ^testing.T) {
 		text:   string,
 	}
 	for k in ([]Case {
-			{.Too_Large, fmt.tprintf("A message can't have more than %d different reactions.", proto.MAX_REACTIONS)},
+			{
+				.Too_Large,
+				fmt.tprintf(
+					"A message can't have more than %d different reactions.",
+					proto.MAX_REACTIONS,
+				),
+			},
 			{.Invalid, "That emoji can't be used as a reaction here."},
 			{.Not_Found, "The server failed to add the reaction (Not_Found)."},
 		}) {
@@ -349,7 +371,11 @@ test_forward :: proc(t: ^testing.T) {
 	}
 	for k in ([]Case {
 			{.Ok, "Forwarded.", true},
-			{.Not_Found, "The message to forward or the destination conversation no longer exists.", false},
+			{
+				.Not_Found,
+				"The message to forward or the destination conversation no longer exists.",
+				false,
+			},
 			{.Invalid, "That message can't be forwarded.", false},
 			{.Denied, "You don't have permission to post in that conversation.", false},
 			{.Internal, "The server failed to forward the message (Internal).", false},
@@ -410,7 +436,13 @@ test_edit_delete_pin :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.notice.count, count)
 	for k in ([]Case {
 			{.Denied, "You aren't allowed to modify this message."},
-			{.Too_Large, fmt.tprintf("A conversation can't have more than %d pinned messages.", proto.MAX_PINS)},
+			{
+				.Too_Large,
+				fmt.tprintf(
+					"A conversation can't have more than %d pinned messages.",
+					proto.MAX_PINS,
+				),
+			},
 			{.Not_Found, "That message no longer exists."},
 			{.Internal, "The server failed to change the message (Internal)."},
 		}) {

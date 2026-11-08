@@ -20,7 +20,11 @@ same_server :: proc(a, b: string) -> bool {
 // merge_servers is the servers to connect to: the window client's joined ones
 // that are not hidden, then the ones added here (that the window client does not
 // have). The strings are in the temp allocator.
-merge_servers :: proc(joined: []settings.Joined_Server, added: []Saved_Server, hidden: []string) -> []Saved_Server {
+merge_servers :: proc(
+	joined: []settings.Joined_Server,
+	added: []Saved_Server,
+	hidden: []string,
+) -> []Saved_Server {
 	out := make([dynamic]Saved_Server, context.temp_allocator)
 	is_hidden :: proc(address: string, hidden: []string) -> bool {
 		for h in hidden {
@@ -114,7 +118,14 @@ cli_save_servers :: proc(a: ^App) {
 	}
 	clear(&file.servers)
 	for s in a.saved_servers {
-		append(&file.servers, Saved_Server{strings.clone(s.address), strings.clone(s.password), strings.clone(s.channel)})
+		append(
+			&file.servers,
+			Saved_Server {
+				strings.clone(s.address),
+				strings.clone(s.password),
+				strings.clone(s.channel),
+			},
+		)
 	}
 	for h in file.hidden {
 		delete(h)

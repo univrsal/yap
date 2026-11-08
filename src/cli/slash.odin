@@ -19,7 +19,10 @@ run_command :: proc(a: ^App, line: string) {
 	case "quit", "q", "exit":
 		a.quit = true
 	case "help", "h", "?":
-		switch what := strings.trim_left(strings.to_lower(rest, context.temp_allocator), "/"); what {
+		switch what := strings.trim_left(
+			strings.to_lower(rest, context.temp_allocator),
+			"/",
+		); what {
 		case "":
 			dialog_close(a)
 			a.dialog.kind = .Help
@@ -29,7 +32,14 @@ run_command :: proc(a: ^App, line: string) {
 			if d, ok := command_doc(what); ok {
 				show_output(a, command_help(d^))
 			} else {
-				say(a, strings.concatenate({"There is no command /", what, ". /help commands lists them."}, context.temp_allocator), true)
+				say(
+					a,
+					strings.concatenate(
+						{"There is no command /", what, ". /help commands lists them."},
+						context.temp_allocator,
+					),
+					true,
+				)
 			}
 		}
 	case "emoji":
@@ -38,7 +48,11 @@ run_command :: proc(a: ^App, line: string) {
 		open_settings(a)
 	case "call":
 		if rest == "" {
-			say(a, "Whom? /call <name>, or click someone in the member list or the Call button of a DM.", true)
+			say(
+				a,
+				"Whom? /call <name>, or click someone in the member list or the Call button of a DM.",
+				true,
+			)
 			return
 		}
 		run_headless_command(a, line)
@@ -73,14 +87,28 @@ run_command :: proc(a: ^App, line: string) {
 		}
 		password = strings.trim_space(password)
 		remember_server(a, address, password)
-		append(&a.requests, Server_Request{kind = .Connect, address = strings.clone(address), password = strings.clone(password)})
+		append(
+			&a.requests,
+			Server_Request {
+				kind = .Connect,
+				address = strings.clone(address),
+				password = strings.clone(password),
+			},
+		)
 	case "disconnect":
 		index := a.cur
 		if rest != "" {
 			if i, ok := find_server(a, rest); ok {
 				index = i
 			} else {
-				say(a, strings.concatenate({"There is no server ", rest, ". /servers lists them."}, context.temp_allocator), true)
+				say(
+					a,
+					strings.concatenate(
+						{"There is no server ", rest, ". /servers lists them."},
+						context.temp_allocator,
+					),
+					true,
+				)
 				return
 			}
 		}
@@ -114,16 +142,27 @@ run_command :: proc(a: ^App, line: string) {
 		push(a, conn.View_Command{name = strings.clone(strings.trim_left(rest, "#"))})
 	case:
 		// A /command that a script registered, else the headless client's.
-		if a.scripts != nil && script.runtime_run_command(a.scripts, a.client, line, viewed_channel_name(a)) {
+		if a.scripts != nil &&
+		   script.runtime_run_command(a.scripts, a.client, line, viewed_channel_name(a)) {
 			return
 		}
 		lower := strings.to_lower(name, context.temp_allocator)
 		if !command_known(a, lower) {
-			text := strings.concatenate({"There is no command /", name, "."}, context.temp_allocator)
+			text := strings.concatenate(
+				{"There is no command /", name, "."},
+				context.temp_allocator,
+			)
 			if near, ok := closest_command(lower); ok {
-				text = strings.concatenate({text, " Did you mean /", near, "?"}, context.temp_allocator)
+				text = strings.concatenate(
+					{text, " Did you mean /", near, "?"},
+					context.temp_allocator,
+				)
 			}
-			say(a, strings.concatenate({text, " /help commands lists them."}, context.temp_allocator), true)
+			say(
+				a,
+				strings.concatenate({text, " /help commands lists them."}, context.temp_allocator),
+				true,
+			)
 			return
 		}
 		if _, ours := command_doc(lower); !ours && is_bot_command(a, lower) {
@@ -132,7 +171,14 @@ run_command :: proc(a: ^App, line: string) {
 			return
 		}
 		if d, ok := command_doc(lower); ok && missing_args(d^, rest) {
-			say(a, strings.concatenate({"Usage: ", usage_line(d^), "  (/help ", d.name, " tells more)"}, context.temp_allocator), true)
+			say(
+				a,
+				strings.concatenate(
+					{"Usage: ", usage_line(d^), "  (/help ", d.name, " tells more)"},
+					context.temp_allocator,
+				),
+				true,
+			)
 			return
 		}
 		run_headless_command(a, line)
@@ -168,7 +214,14 @@ switch_to_server :: proc(a: ^App, what: string) {
 	if i, ok := find_server(a, what); ok {
 		app_switch(a, i)
 	} else {
-		say(a, strings.concatenate({"There is no server ", what, ". /servers lists them."}, context.temp_allocator), true)
+		say(
+			a,
+			strings.concatenate(
+				{"There is no server ", what, ". /servers lists them."},
+				context.temp_allocator,
+			),
+			true,
+		)
 	}
 }
 
@@ -201,7 +254,14 @@ run_notify :: proc(a: ^App, rest: string) {
 			say(a, "Look at a channel first, or: /notify <channel> all|mentions|none", true)
 			return
 		}
-		say(a, fmt.tprintf("Notifications for %s: %s. /notify all|mentions|none changes that.", here, notify_text(viewed_notify(v))))
+		say(
+			a,
+			fmt.tprintf(
+				"Notifications for %s: %s. /notify all|mentions|none changes that.",
+				here,
+				notify_text(viewed_notify(v)),
+			),
+		)
 	case 1:
 		if level, ok := parse_notify(words[0]); ok {
 			if v.viewing == 0 {
@@ -211,7 +271,11 @@ run_notify :: proc(a: ^App, rest: string) {
 			push(a, conn.Notify_Command{conv = v.viewing, notify = level})
 			say(a, fmt.tprintf("Notifications for %s: %s.", here, notify_text(level)))
 		} else {
-			say(a, fmt.tprintf("Usage: /notify [channel] all|mentions|none — not \"%s\"", words[0]), true)
+			say(
+				a,
+				fmt.tprintf("Usage: /notify [channel] all|mentions|none — not \"%s\"", words[0]),
+				true,
+			)
 		}
 	case:
 		level, ok := parse_notify(words[len(words) - 1])
@@ -219,7 +283,10 @@ run_notify :: proc(a: ^App, rest: string) {
 			say(a, "Usage: /notify [channel] all|mentions|none", true)
 			return
 		}
-		name := strings.trim_left(strings.join(words[:len(words) - 1], " ", context.temp_allocator), "#")
+		name := strings.trim_left(
+			strings.join(words[:len(words) - 1], " ", context.temp_allocator),
+			"#",
+		)
 		push(a, conn.Notify_Command{name = strings.clone(name), notify = level})
 		say(a, fmt.tprintf("Notifications for #%s: %s.", name, notify_text(level)))
 	}

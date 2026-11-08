@@ -56,7 +56,11 @@ test_parse_before_day :: proc(t: ^testing.T) {
 test_format_day :: proc(t: ^testing.T) {
 	testing.expect_value(t, format_day(0), "1970-01-01 00:00 UTC")
 	testing.expect_value(t, format_day(1788220800000), "2026-09-01 00:00 UTC")
-	testing.expect_value(t, format_day(1788220800000 + 13 * 3600_000 + 5 * 60_000), "2026-09-01 13:05 UTC")
+	testing.expect_value(
+		t,
+		format_day(1788220800000 + 13 * 3600_000 + 5 * 60_000),
+		"2026-09-01 13:05 UTC",
+	)
 
 	// The date that was parsed is the date that is shown.
 	ms, ok := parse_before("2026-12-31")
@@ -84,7 +88,11 @@ test_db_files_size :: proc(t: ^testing.T) {
 	// The write-ahead log counts too.
 	testing.expect(
 		t,
-		os.write_entire_file(file_in(dir, "yap.db-wal"), make([]u8, 234, context.temp_allocator)) == nil,
+		os.write_entire_file(
+			file_in(dir, "yap.db-wal"),
+			make([]u8, 234, context.temp_allocator),
+		) ==
+		nil,
 	)
 	testing.expect_value(t, db_files_size(path), i64(1234))
 }

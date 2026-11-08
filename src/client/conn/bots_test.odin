@@ -81,7 +81,10 @@ test_bot_name_is_checked :: proc(t: ^testing.T) {
 	v := open_bots(&tc)
 	defer tc_close(&tc)
 	for bad in ([]string{"", "has space", "UPPER CASE", "bad/slash", "x\x00y"}) {
-		create := Bot_Create_Command{username = strings.clone(bad), display = strings.clone("d")}
+		create := Bot_Create_Command {
+			username = strings.clone(bad),
+			display  = strings.clone("d"),
+		}
 		auth_bot_create(&tc.c, create)
 		command_destroy(create)
 		testing.expectf(t, len(tc_sent(t, &tc)) == 0, "%q was sent", bad)
@@ -218,7 +221,14 @@ test_devices_of_another_account :: proc(t: ^testing.T) {
 		c,
 		42,
 		{
-			{key = {0 = 1}, name = "API token", agent = "bot", created = 100, last_seen = 200, flags = {.Online}},
+			{
+				key = {0 = 1},
+				name = "API token",
+				agent = "bot",
+				created = 100,
+				last_seen = 200,
+				flags = {.Online},
+			},
 			{key = {0 = 2}, name = "old", created = 50},
 		},
 	)

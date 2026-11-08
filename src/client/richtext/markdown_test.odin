@@ -149,7 +149,10 @@ test_markdown_blocks :: proc(t: ^testing.T) {
 
 @(test)
 test_markdown_headings :: proc(t: ^testing.T) {
-	rt := markdown_parse("# Title\n## The *new* one ##\n###### six\n####### seven\n#tag\n# \n> # quoted", nil)
+	rt := markdown_parse(
+		"# Title\n## The *new* one ##\n###### six\n####### seven\n#tag\n# \n> # quoted",
+		nil,
+	)
 	testing.expect_value(
 		t,
 		md_show(rt),
@@ -558,13 +561,29 @@ test_pair_delims_matches_the_reference :: proc(t: ^testing.T) {
 		for &tok in toks {
 			switch k := next(&state) % 10; k {
 			case 0:
-				tok = {kind = .Link_Open, start = at, end = at}
+				tok = {
+					kind  = .Link_Open,
+					start = at,
+					end   = at,
+				}
 			case 1:
-				tok = {kind = .Link_Close, start = at, end = at}
+				tok = {
+					kind  = .Link_Close,
+					start = at,
+					end   = at,
+				}
 			case 2:
-				tok = {kind = .Text, start = at, end = at + 1}
+				tok = {
+					kind  = .Text,
+					start = at,
+					end   = at + 1,
+				}
 			case 3:
-				tok = {kind = .Code, start = at, end = at + 2}
+				tok = {
+					kind  = .Code,
+					start = at,
+					end   = at + 2,
+				}
 			case:
 				size := int(next(&state) % 3) + 1
 				tok = {

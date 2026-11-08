@@ -38,10 +38,7 @@ RFC_BODY :: "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlM
 test_encrypt_rfc8291_example :: proc(t: ^testing.T) {
 	key: ecdh.Private_Key
 	defer ecdh.private_key_clear(&key)
-	testing.expect(
-		t,
-		ecdh.private_key_set_bytes(&key, .SECP256R1, decode64(t, RFC_AS_PRIVATE)),
-	)
+	testing.expect(t, ecdh.private_key_set_bytes(&key, .SECP256R1, decode64(t, RFC_AS_PRIVATE)))
 	body, ok := encrypt_with(
 		transmute([]u8)string(RFC_PLAINTEXT),
 		decode64(t, RFC_UA_PUBLIC),
@@ -118,7 +115,12 @@ test_encrypt_can_be_decrypted :: proc(t: ^testing.T) {
 		b = u8(i * 7 + 1)
 	}
 
-	for text in ([]string{"", "x", RFC_PLAINTEXT, strings.repeat("é", 1000, context.temp_allocator)}) {
+	for text in ([]string {
+			"",
+			"x",
+			RFC_PLAINTEXT,
+			strings.repeat("é", 1000, context.temp_allocator),
+		}) {
 		body, ok := encrypt(transmute([]u8)text, ua_public[:], auth[:], context.temp_allocator)
 		testing.expect(t, ok)
 		testing.expect_value(t, len(body), PUSH_HEADER_SIZE + len(text) + 1 + PUSH_TAG_SIZE)
@@ -283,18 +285,17 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 		return
 	}
 	// The fixed header is the one for ES256.
-	testing.expect_value(
-		t,
-		string(decode64(t, parts[0])),
-		`{"typ":"JWT","alg":"ES256"}`,
-	)
+	testing.expect_value(t, string(decode64(t, parts[0])), `{"typ":"JWT","alg":"ES256"}`)
 
 	claims: struct {
 		aud: string,
 		exp: i64,
 		sub: string,
 	}
-	testing.expect(t, json.unmarshal(decode64(t, parts[1]), &claims, allocator = context.temp_allocator) == nil)
+	testing.expect(
+		t,
+		json.unmarshal(decode64(t, parts[1]), &claims, allocator = context.temp_allocator) == nil,
+	)
 	testing.expect_value(t, claims.aud, "https://push.example.org")
 	testing.expect_value(t, claims.exp, i64(1_800_000_000))
 	testing.expect_value(t, claims.sub, "mailto:ops@example.org")
@@ -309,7 +310,13 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 	testing.expect(t, !ecdsa.verify_raw(&pub, .SHA256, transmute([]u8)tampered, sig))
 
 	// Names are quoted, so that a subject can't add claims of its own.
-	jwt = vapid_jwt(&key, "https://a.example", `mailto:x@y","exp":1,"z":"`, 5, context.temp_allocator)
+	jwt = vapid_jwt(
+		&key,
+		"https://a.example",
+		`mailto:x@y","exp":1,"z":"`,
+		5,
+		context.temp_allocator,
+	)
 	parts = strings.split(jwt, ".", context.temp_allocator)
 	testing.expect_value(t, len(parts), 3)
 	if len(parts) == 3 {
@@ -318,7 +325,10 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 			exp: i64,
 			sub: string,
 		}
-		testing.expect(t, json.unmarshal(decode64(t, parts[1]), &var, allocator = context.temp_allocator) == nil)
+		testing.expect(
+			t,
+			json.unmarshal(decode64(t, parts[1]), &var, allocator = context.temp_allocator) == nil,
+		)
 		testing.expect_value(t, var.exp, i64(5))
 		testing.expect_value(t, var.sub, `mailto:x@y","exp":1,"z":"`)
 	}
@@ -326,8 +336,16 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 
 @(test)
 test_origin :: proc(t: ^testing.T) {
-	testing.expect_value(t, origin("https://push.example.org/send/abc"), "https://push.example.org")
-	testing.expect_value(t, origin("https://push.example.org:8443/x"), "https://push.example.org:8443")
+	testing.expect_value(
+		t,
+		origin("https://push.example.org/send/abc"),
+		"https://push.example.org",
+	)
+	testing.expect_value(
+		t,
+		origin("https://push.example.org:8443/x"),
+		"https://push.example.org:8443",
+	)
 	testing.expect_value(t, origin("https://a/"), "https://a")
 
 	for bad in ([]string {

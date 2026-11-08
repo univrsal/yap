@@ -43,14 +43,14 @@ Form_Field :: struct {
 }
 
 Form :: struct {
-	kind:    Form_Kind,
-	fields:  [dynamic]Form_Field,
-	sel:     int,
+	kind:      Form_Kind,
+	fields:    [dynamic]Form_Field,
+	sel:       int,
 	// What a channel was called and said before it was changed.
-	channel: proto.Conv_Id,
-	name:    string, // owned
-	topic:   string, // owned
-	default: bool,
+	channel:   proto.Conv_Id,
+	name:      string, // owned
+	topic:     string, // owned
+	default:   bool,
 	text_only: bool,
 }
 
@@ -65,7 +65,15 @@ form_destroy :: proc(f: ^Form) {
 }
 
 @(private = "file")
-add_field :: proc(f: ^Form, label: string, kind: Form_Field_Kind, text := "", on := false, choices: []string = nil, hint := "") {
+add_field :: proc(
+	f: ^Form,
+	label: string,
+	kind: Form_Field_Kind,
+	text := "",
+	on := false,
+	choices: []string = nil,
+	hint := "",
+) {
 	fl := Form_Field {
 		label   = label,
 		kind    = kind,
@@ -79,7 +87,13 @@ add_field :: proc(f: ^Form, label: string, kind: Form_Field_Kind, text := "", on
 	append(&f.fields, fl)
 }
 
-PURGE_CHOICES := [?]string{"keep their messages", "remove the last hour", "remove the last day", "remove the last week", "remove all of them"}
+PURGE_CHOICES := [?]string {
+	"keep their messages",
+	"remove the last hour",
+	"remove the last day",
+	"remove the last week",
+	"remove all of them",
+}
 
 // open_form opens a form. Call with the View locked.
 open_form :: proc(a: ^App, kind: Form_Kind) {
@@ -186,11 +200,16 @@ form_submit :: proc(a: ^App) {
 		reason := text_of(f, 1)
 		line: string
 		switch f.fields[2].choice {
-		case 0: line = fmt.tprintf("/ban %s %s", who, reason)
-		case 1: line = fmt.tprintf("/banpurge %s hour %s", who, reason)
-		case 2: line = fmt.tprintf("/banpurge %s day %s", who, reason)
-		case 3: line = fmt.tprintf("/banpurge %s week %s", who, reason)
-		case: line = fmt.tprintf("/banpurge %s all %s", who, reason)
+		case 0:
+			line = fmt.tprintf("/ban %s %s", who, reason)
+		case 1:
+			line = fmt.tprintf("/banpurge %s hour %s", who, reason)
+		case 2:
+			line = fmt.tprintf("/banpurge %s day %s", who, reason)
+		case 3:
+			line = fmt.tprintf("/banpurge %s week %s", who, reason)
+		case:
+			line = fmt.tprintf("/banpurge %s all %s", who, reason)
 		}
 		dialog_close(a)
 		run_headless_command(a, strings.trim_space(line))
@@ -243,11 +262,25 @@ draw_form :: proc(a: ^App, b: ^tui.Buffer) {
 				tui.put_string(b, fx + 9, y, fl.hint, {fg = theme.dim.fg, bg = style.bg}, fx + fw)
 			}
 		case .Choice:
-			tui.put_string(b, fx, y, fmt.tprintf("◂ %s ▸", fl.choices[fl.choice]), style, fx + fw)
+			tui.put_string(
+				b,
+				fx,
+				y,
+				fmt.tprintf("◂ %s ▸", fl.choices[fl.choice]),
+				style,
+				fx + fw,
+			)
 		}
 		append(&a.hits, Hit{{r.x + 1, y, r.w - 2, 1}, .Form_Field, u64(i), ""})
 	}
-	tui.put_string(b, r.x + 2, r.y + r.h - 2, "Tab: next   Space / Left / Right: change   Enter: ok   Esc: cancel", theme.dim, r.x + r.w - 1)
+	tui.put_string(
+		b,
+		r.x + 2,
+		r.y + r.h - 2,
+		"Tab: next   Space / Left / Right: change   Enter: ok   Esc: cancel",
+		theme.dim,
+		r.x + r.w - 1,
+	)
 }
 
 form_key :: proc(a: ^App, k: tui.Key_Event) {
@@ -263,7 +296,8 @@ form_key :: proc(a: ^App, k: tui.Key_Event) {
 		f.sel = (f.sel + 1) % n
 	case k.key == .Up:
 		f.sel = (f.sel - 1 + n) % n
-	case fl.kind == .Toggle && (k.key == .Left || k.key == .Right || k.key == .Rune && k.rune == ' '):
+	case fl.kind == .Toggle &&
+	     (k.key == .Left || k.key == .Right || k.key == .Rune && k.rune == ' '):
 		fl.on = !fl.on
 	case fl.kind == .Choice && k.key == .Left:
 		fl.choice = (fl.choice - 1 + len(fl.choices)) % len(fl.choices)

@@ -155,8 +155,16 @@ test_screen_shows_channels_title_and_status :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(rows[0], "# general"), rows[0])
 	testing.expect(t, strings.contains(rows[0], "Welcome to yap"), rows[0])
 	testing.expect(t, strings.contains(rows[2], "# general"), rows[2])
-	testing.expect(t, strings.contains(rows[3], "# dev") && strings.contains(rows[3], "3"), rows[3])
-	testing.expect(t, strings.contains(rows[4], "# ops") && strings.contains(rows[4], "@1"), rows[4])
+	testing.expect(
+		t,
+		strings.contains(rows[3], "# dev") && strings.contains(rows[3], "3"),
+		rows[3],
+	)
+	testing.expect(
+		t,
+		strings.contains(rows[4], "# ops") && strings.contains(rows[4], "@1"),
+		rows[4],
+	)
 	testing.expect(t, strings.contains(rows[len(rows) - 1], "me"), rows[len(rows) - 1])
 	testing.expect(t, strings.contains(rows[len(rows) - 1], "4 unread (1 @)"), rows[len(rows) - 1])
 	// The conversation being viewed is picked out.
@@ -291,10 +299,19 @@ test_slash_commands :: proc(t: ^testing.T) {
 	type_text(&f, "/nonsense")
 	press(&f, .Enter)
 	testing.expect_value(t, len(take(&f)), 0)
-	testing.expect(t, strings.contains(f.app.notice, "There is no command /nonsense"), f.app.notice)
+	testing.expect(
+		t,
+		strings.contains(f.app.notice, "There is no command /nonsense"),
+		f.app.notice,
+	)
 	append(
 		&f.v.bot_commands,
-		conn.Bot_Command_Entry{account = 9, bot = strings.clone("robo"), name = strings.clone("roll"), description = strings.clone("roll a die")},
+		conn.Bot_Command_Entry {
+			account = 9,
+			bot = strings.clone("robo"),
+			name = strings.clone("roll"),
+			description = strings.clone("roll a die"),
+		},
 	)
 	type_text(&f, "/roll 2d6")
 	press(&f, .Enter)
@@ -608,7 +625,14 @@ test_scrolling_and_reading :: proc(t: ^testing.T) {
 	fixture(&f, 80, 12)
 	defer fixture_destroy(&f)
 	for i in 0 ..< 30 {
-		add_message(&f.v, 1, proto.Msg_Id(10 + i), 2, T0 + proto.Unix_Ms(i) * MINUTE, "line of chat")
+		add_message(
+			&f.v,
+			1,
+			proto.Msg_Id(10 + i),
+			2,
+			T0 + proto.Unix_Ms(i) * MINUTE,
+			"line of chat",
+		)
 	}
 	frame(&f)
 	cmds := take(&f)
@@ -841,7 +865,10 @@ test_typing_indicator :: proc(t: ^testing.T) {
 	testing.expect(t, screen_has(&f, "anna is typing"))
 	f.v.typing[3] = {{1, 0}, time.tick_now()}
 	frame(&f)
-	testing.expect(t, screen_has(&f, "anna and ben are typing") || screen_has(&f, "ben and anna are typing"))
+	testing.expect(
+		t,
+		screen_has(&f, "anna and ben are typing") || screen_has(&f, "ben and anna are typing"),
+	)
 	// Us, other conversations and old notices don't count.
 	clear(&f.v.typing)
 	f.v.typing[1] = {{1, 0}, time.tick_now()}
@@ -912,9 +939,9 @@ test_key_change_dialog :: proc(t: ^testing.T) {
 	fixture(&f)
 	defer fixture_destroy(&f)
 	f.v.key_change = {
-		changed  = true,
-		server   = strings.clone("example.org:7777"),
-		saved    = {0 ..< 32 = 0xaa},
+		changed = true,
+		server = strings.clone("example.org:7777"),
+		saved = {0 ..< 32 = 0xaa},
 		received = {0 ..< 32 = 0xbb},
 	}
 	frame(&f)
@@ -942,9 +969,9 @@ test_trusting_a_new_key :: proc(t: ^testing.T) {
 	path := strings.concatenate({dir, "/known_servers"}, context.temp_allocator)
 	f.app.known_servers = path
 	f.v.key_change = {
-		changed  = true,
-		server   = strings.clone("example.org:7777"),
-		saved    = {0 ..< 32 = 0xaa},
+		changed = true,
+		server = strings.clone("example.org:7777"),
+		saved = {0 ..< 32 = 0xaa},
 		received = {0 ..< 32 = 0xbb},
 	}
 	frame(&f)
@@ -965,8 +992,8 @@ test_a_key_that_cannot_be_saved_is_not_trusted :: proc(t: ^testing.T) {
 	f.app.known_servers = "/nonexistent-directory/known_servers"
 	context.logger = log.nil_logger() // writing the file is going to complain
 	f.v.key_change = {
-		changed  = true,
-		server   = strings.clone("example.org:7777"),
+		changed = true,
+		server = strings.clone("example.org:7777"),
 		received = {0 ..< 32 = 0xbb},
 	}
 	frame(&f)
@@ -1074,8 +1101,18 @@ test_attaching_files_with_a_command :: proc(t: ^testing.T) {
 
 // add_dm adds a DM with someone to the View.
 @(private = "file")
-add_dm :: proc(f: ^Fixture, id: proto.Conv_Id, with: proto.Account_Id, last: proto.Msg_Id, unread := 0, last_time := T0) {
-	append(&f.v.dms, conn.View_DM{id = id, with = with, last = last, unread = unread, last_time = last_time})
+add_dm :: proc(
+	f: ^Fixture,
+	id: proto.Conv_Id,
+	with: proto.Account_Id,
+	last: proto.Msg_Id,
+	unread := 0,
+	last_time := T0,
+) {
+	append(
+		&f.v.dms,
+		conn.View_DM{id = id, with = with, last = last, unread = unread, last_time = last_time},
+	)
 }
 
 @(test)
@@ -1089,13 +1126,19 @@ test_direct_messages_are_listed_under_the_channels :: proc(t: ^testing.T) {
 	add_dm(&f, 51, 3, 12, last_time = T0 + MINUTE) // newer, so first
 	add_dm(&f, 52, 4, 0) // nothing said: not listed
 	add_dm(&f, 53, 1, 5) // with ourselves: the notes
-	f.v.users[7] = {account = 2}
+	f.v.users[7] = {
+		account = 2,
+	}
 	f.v.my_num = 1
 	frame(&f)
 	rows := screen(&f)
 	testing.expect(t, strings.contains(rows[5], "Direct messages"), rows[5])
 	testing.expect(t, strings.contains(rows[6], "○ ben"), rows[6]) // not online
-	testing.expect(t, strings.contains(rows[7], "● anna") && strings.contains(rows[7], " 2 "), rows[7])
+	testing.expect(
+		t,
+		strings.contains(rows[7], "● anna") && strings.contains(rows[7], " 2 "),
+		rows[7],
+	)
 	testing.expect(t, !screen_has(&f, "cy"))
 	testing.expect_value(t, row_text_of_list(&f, 8), "")
 }
@@ -1116,7 +1159,12 @@ test_groups_are_listed_by_their_members :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	add_account(&f.v, 3, "ben")
 	add_account(&f.v, 4, "cy")
-	dm := conn.View_DM{id = 60, last = 3, last_time = T0, count = 2}
+	dm := conn.View_DM {
+		id        = 60,
+		last      = 3,
+		last_time = T0,
+		count     = 2,
+	}
 	dm.members[0], dm.members[1] = 3, 4
 	append(&f.v.dms, dm)
 	frame(&f)
@@ -1208,8 +1256,12 @@ with_members :: proc(f: ^Fixture) {
 	add_account(&f.v, 3, "ben")
 	add_account(&f.v, 4, "Zoe")
 	f.v.my_num = 1
-	f.v.users[7] = {account = 4} // Zoe is here
-	f.v.users[8] = {account = 3} // and ben
+	f.v.users[7] = {
+		account = 4,
+	} 	// Zoe is here
+	f.v.users[8] = {
+		account = 3,
+	} 	// and ben
 	acc := f.v.accounts[3]
 	acc.activity = .Away
 	f.v.accounts[3] = acc
@@ -1235,7 +1287,11 @@ test_the_member_list_shows_who_is_here_first :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(rows[3], "● Zoe ★"), rows[3])
 	testing.expect(t, strings.contains(rows[4], "○ anna"), rows[4])
 	// Away has its own colour, and gone is dim.
-	testing.expect(t, tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 1).style != tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 2).style)
+	testing.expect(
+		t,
+		tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 1).style !=
+		tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 2).style,
+	)
 	testing.expect(t, tui.cell_at(&f.buf, 120 - MEMBERS_W + 1, 4).style == theme.dim)
 	// The chat gives way to it.
 	testing.expect_value(t, tui.cell_at(&f.buf, 120 - MEMBERS_W - 1, 5).r, '│')
@@ -1338,7 +1394,11 @@ test_you_cannot_call_yourself_or_while_in_a_call :: proc(t: ^testing.T) {
 	testing.expect(t, !can_call(&f.app, 0))
 	testing.expect(t, !can_call(&f.app, 99)) // nobody
 	testing.expect(t, can_call(&f.app, 2))
-	f.v.call = {id = 4, status = .Active, peer = 3}
+	f.v.call = {
+		id     = 4,
+		status = .Active,
+		peer   = 3,
+	}
 	testing.expect(t, !can_call(&f.app, 2))
 	// The member menu has no Call then.
 	frame(&f)
@@ -1375,7 +1435,12 @@ test_a_dm_has_a_call_button :: proc(t: ^testing.T) {
 	f.v.viewing = 1
 	frame(&f)
 	testing.expect(t, !strings.contains(screen(&f)[0], "Call"))
-	dm := conn.View_DM{id = 60, last = 3, last_time = T0, count = 2}
+	dm := conn.View_DM {
+		id        = 60,
+		last      = 3,
+		last_time = T0,
+		count     = 2,
+	}
 	dm.members[0], dm.members[1] = 2, 3
 	add_account(&f.v, 3, "ben")
 	append(&f.v.dms, dm)
@@ -1383,7 +1448,11 @@ test_a_dm_has_a_call_button :: proc(t: ^testing.T) {
 	frame(&f)
 	testing.expect(t, !strings.contains(screen(&f)[0], "Call"))
 	f.v.viewing = 50
-	f.v.call = {id = 4, status = .Ringing_Out, peer = 2}
+	f.v.call = {
+		id     = 4,
+		status = .Ringing_Out,
+		peer   = 2,
+	}
 	frame(&f)
 	testing.expect(t, !strings.contains(screen(&f)[0], "📞 Call"))
 }
@@ -1427,7 +1496,9 @@ test_names_are_completed_after_commands_that_take_a_person :: proc(t: ^testing.T
 	fixture(&f)
 	defer fixture_destroy(&f)
 	add_account(&f.v, 3, "annabel")
-	f.v.users[7] = {account = 3} // annabel is here
+	f.v.users[7] = {
+		account = 3,
+	} 	// annabel is here
 	frame(&f)
 	type_text(&f, "/call an")
 	frame(&f)
@@ -1497,7 +1568,13 @@ test_reactions_need_the_right :: proc(t: ^testing.T) {
 	frame(&f)
 	discard(&f)
 	y := row_of(&f, "👍 2")
-	click(&f, geometry(&f.app).timeline.x + f.app.layout.rows[len(f.app.layout.rows) - 1].chips[0].start + 2, y)
+	click(
+		&f,
+		geometry(&f.app).timeline.x +
+		f.app.layout.rows[len(f.app.layout.rows) - 1].chips[0].start +
+		2,
+		y,
+	)
 	testing.expect_value(t, len(take(&f)), 0)
 	click(&f, 40, row_of(&f, "nice"))
 	frame(&f)
@@ -1517,11 +1594,35 @@ a_thread :: proc(f: ^Fixture) {
 	r2.thread_root = 10
 	f.v.roots[10] = {
 		conv = 1,
-		msg  = {id = 10, sender = 2, time = T0, text = strings.clone("shall we ship?"), reply_count = 2},
+		msg = {
+			id = 10,
+			sender = 2,
+			time = T0,
+			text = strings.clone("shall we ship?"),
+			reply_count = 2,
+		},
 	}
 	tl := timeline_of(&f.v, 1, 10)
-	append(&tl.messages, conn.View_Message{id = 11, sender = 1, time = T0 + MINUTE, thread_root = 10, text = strings.clone("yes")})
-	append(&tl.messages, conn.View_Message{id = 12, sender = 2, time = T0 + 2 * MINUTE, thread_root = 10, text = strings.clone("ok then")})
+	append(
+		&tl.messages,
+		conn.View_Message {
+			id = 11,
+			sender = 1,
+			time = T0 + MINUTE,
+			thread_root = 10,
+			text = strings.clone("yes"),
+		},
+	)
+	append(
+		&tl.messages,
+		conn.View_Message {
+			id = 12,
+			sender = 2,
+			time = T0 + 2 * MINUTE,
+			thread_root = 10,
+			text = strings.clone("ok then"),
+		},
+	)
 }
 
 @(test)
@@ -1728,7 +1829,10 @@ test_pins_are_listed_and_gone_to :: proc(t: ^testing.T) {
 	// They arrive.
 	f.v.pins.conv = 1
 	f.v.pins.loading = false
-	append(&f.v.pins.messages, conn.View_Message{id = 10, sender = 2, time = T0, text = strings.clone("hello there")})
+	append(
+		&f.v.pins.messages,
+		conn.View_Message{id = 10, sender = 2, time = T0, text = strings.clone("hello there")},
+	)
 	frame(&f)
 	testing.expect(t, screen_has(&f, "#general  anna: hello there"))
 	press(&f, .Enter)
@@ -1812,7 +1916,13 @@ test_bookmarks_dialog :: proc(t: ^testing.T) {
 	_, ok := find_cmd(conn.Bookmarks_Command, cmds)
 	testing.expect(t, ok)
 	f.v.bookmarks.listed = true
-	append(&f.v.bookmarks.list, conn.View_Bookmark{conv = 2, msg = {id = 77, sender = 2, text = strings.clone("save this")}})
+	append(
+		&f.v.bookmarks.list,
+		conn.View_Bookmark {
+			conv = 2,
+			msg = {id = 77, sender = 2, text = strings.clone("save this")},
+		},
+	)
 	frame(&f)
 	testing.expect(t, screen_has(&f, "#dev  anna: save this"))
 	// Closing stops the list being kept up to date.
@@ -1843,7 +1953,13 @@ test_search :: proc(t: ^testing.T) {
 	testing.expect(t, screen_has(&f, "all conversations"))
 	// Results.
 	f.v.search.query = strings.clone("ship it")
-	append(&f.v.search.found, conn.View_Found{conv = 1, msg = {id = 9, sender = 1, text = strings.clone("we ship it friday")}})
+	append(
+		&f.v.search.found,
+		conn.View_Found {
+			conv = 1,
+			msg = {id = 9, sender = 1, text = strings.clone("we ship it friday")},
+		},
+	)
 	f.v.search.more = true
 	frame(&f)
 	testing.expect(t, screen_has(&f, "#general  me: we ship it friday"))
@@ -1899,7 +2015,10 @@ test_clicking_a_result_goes_to_it :: proc(t: ^testing.T) {
 	some_chat(&f)
 	open_list(&f.app, .Bookmarks)
 	f.v.bookmarks.listed = true
-	append(&f.v.bookmarks.list, conn.View_Bookmark{conv = 1, msg = {id = 11, sender = 1, text = strings.clone("hi anna")}})
+	append(
+		&f.v.bookmarks.list,
+		conn.View_Bookmark{conv = 1, msg = {id = 11, sender = 1, text = strings.clone("hi anna")}},
+	)
 	frame(&f)
 	discard(&f)
 	y := row_of(&f, "#general  me: hi anna")
@@ -1958,7 +2077,9 @@ test_completing_a_mention :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	add_account(&f.v, 3, "annabel")
 	add_account(&f.v, 4, "bob")
-	f.v.users[7] = {account = 3} // annabel is here, anna is not
+	f.v.users[7] = {
+		account = 3,
+	} 	// annabel is here, anna is not
 	frame(&f)
 	type_text(&f, "hi @an")
 	frame(&f)
@@ -2047,7 +2168,10 @@ test_completing_commands_and_roles :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture(&f)
 	defer fixture_destroy(&f)
-	append(&f.v.roles, conn.View_Role{id = 5, name = strings.clone("Team Leads"), flags = {.Mentionable}})
+	append(
+		&f.v.roles,
+		conn.View_Role{id = 5, name = strings.clone("Team Leads"), flags = {.Mentionable}},
+	)
 	append(&f.v.roles, conn.View_Role{id = 6, name = strings.clone("Teapots")})
 	f.v.permissions += {.Mention_Everyone}
 	frame(&f)
@@ -2103,7 +2227,12 @@ test_bot_commands_are_offered :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	append(
 		&f.v.bot_commands,
-		conn.Bot_Command_Entry{account = 9, bot = strings.clone("robo"), name = strings.clone("roll"), description = strings.clone("roll a die")},
+		conn.Bot_Command_Entry {
+			account = 9,
+			bot = strings.clone("robo"),
+			name = strings.clone("roll"),
+			description = strings.clone("roll a die"),
+		},
 	)
 	frame(&f)
 	type_text(&f, "/ro")
@@ -2144,7 +2273,13 @@ test_a_finished_word_does_not_hold_back_enter :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-mention :: proc(f: ^Fixture, name, place, text: string, conv: proto.Conv_Id, dm := false, group := false) {
+mention :: proc(
+	f: ^Fixture,
+	name, place, text: string,
+	conv: proto.Conv_Id,
+	dm := false,
+	group := false,
+) {
 	append(
 		&f.v.mentioned,
 		conn.View_Mention {
@@ -2347,8 +2482,16 @@ test_saving_a_file_of_a_message :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	m := add_message(&f.v, 1, 10, 2, T0, "files")
 	m.files = make([]conn.Msg_File, 2)
-	m.files[0] = {blob = 71, name = strings.clone("a.png"), size = 1000}
-	m.files[1] = {blob = 72, name = strings.clone("b.zip"), size = 2000}
+	m.files[0] = {
+		blob = 71,
+		name = strings.clone("a.png"),
+		size = 1000,
+	}
+	m.files[1] = {
+		blob = 72,
+		name = strings.clone("b.zip"),
+		size = 2000,
+	}
 	frame(&f)
 	discard(&f)
 	click(&f, 40, row_of(&f, "files"))
@@ -2374,18 +2517,33 @@ test_files_show_how_saving_goes :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	m := add_message(&f.v, 1, 10, 2, T0, "files")
 	m.files = make([]conn.Msg_File, 1)
-	m.files[0] = {blob = 71, name = strings.clone("a.png"), size = 1000}
+	m.files[0] = {
+		blob = 71,
+		name = strings.clone("a.png"),
+		size = 1000,
+	}
 	frame(&f)
 	testing.expect(t, screen_has(&f, "📎 a.png  1000 B"))
 	testing.expect(t, !screen_has(&f, "⇩"))
-	f.v.saves[71] = {state = .Receiving, size = 1000, done = 500}
+	f.v.saves[71] = {
+		state = .Receiving,
+		size  = 1000,
+		done  = 500,
+	}
 	frame(&f)
 	testing.expect(t, screen_has(&f, "⇩ 50%"))
-	f.v.saves[71] = {state = .Done, size = 1000, done = 1000, path = strings.clone("/tmp/a.png")}
+	f.v.saves[71] = {
+		state = .Done,
+		size  = 1000,
+		done  = 1000,
+		path  = strings.clone("/tmp/a.png"),
+	}
 	frame(&f)
 	testing.expect(t, screen_has(&f, "✔ saved to /tmp/a.png"))
 	delete(f.v.saves[71].path)
-	f.v.saves[71] = {state = .Failed}
+	f.v.saves[71] = {
+		state = .Failed,
+	}
 	frame(&f)
 	testing.expect(t, screen_has(&f, "could not be saved"))
 }
@@ -2396,7 +2554,11 @@ test_uploads_show_how_far_they_are :: proc(t: ^testing.T) {
 	fixture(&f)
 	defer fixture_destroy(&f)
 	files := make([]conn.View_Pending_File, 1)
-	files[0] = {name = strings.clone("big.zip"), size = 4000, done = 1000}
+	files[0] = {
+		name = strings.clone("big.zip"),
+		size = 4000,
+		done = 1000,
+	}
 	some_chat(&f)
 	append(&f.v.outbox, conn.View_Pending{conv = 1, text = strings.clone("here"), files = files})
 	frame(&f)
@@ -2490,7 +2652,10 @@ test_the_right_button_opens_the_menu_at_once :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	some_chat(&f)
 	frame(&f)
-	app_event(&f.app, tui.Mouse_Event{kind = .Press, button = .Right, x = 40, y = row_of(&f, "hello there")})
+	app_event(
+		&f.app,
+		tui.Mouse_Event{kind = .Press, button = .Right, x = 40, y = row_of(&f, "hello there")},
+	)
 	testing.expect(t, f.app.menu.open)
 }
 
@@ -2550,7 +2715,11 @@ test_several_servers_are_listed_above_the_channels :: proc(t: ^testing.T) {
 	frame(&f)
 	rows := screen(&f)
 	testing.expect(t, strings.contains(rows[1], "● example.org:7777"), rows[1])
-	testing.expect(t, strings.contains(rows[2], "● other.org:7777") && strings.contains(rows[2], " 4 "), rows[2])
+	testing.expect(
+		t,
+		strings.contains(rows[2], "● other.org:7777") && strings.contains(rows[2], " 4 "),
+		rows[2],
+	)
 	testing.expect(t, strings.contains(rows[3], "───"), rows[3])
 	// The channels of the shown server follow.
 	testing.expect(t, strings.contains(rows[4], "Channels"), rows[4])
@@ -2598,7 +2767,11 @@ test_clicking_a_server_shows_it :: proc(t: ^testing.T) {
 	}
 	clear(&f.c2.commands.commands)
 	// The first is now the one with something unread (a mention, in the fixture).
-	testing.expect(t, strings.contains(screen(&f)[1], "example.org") && strings.contains(screen(&f)[1], " @1 "), screen(&f)[1])
+	testing.expect(
+		t,
+		strings.contains(screen(&f)[1], "example.org") && strings.contains(screen(&f)[1], " @1 "),
+		screen(&f)[1],
+	)
 }
 
 @(test)
@@ -2708,7 +2881,11 @@ test_server_commands :: proc(t: ^testing.T) {
 	type_text(&f, "/servers")
 	press(&f, .Enter)
 	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Output)
-	testing.expect_value(t, f.app.dialog.text, "*1  example.org:7777  (Connected)\n 2  other.org:7777  (Connected)\n")
+	testing.expect_value(
+		t,
+		f.app.dialog.text,
+		"*1  example.org:7777  (Connected)\n 2  other.org:7777  (Connected)\n",
+	)
 	press(&f, .Escape)
 	type_text(&f, "/server 2")
 	press(&f, .Enter)
@@ -2814,8 +2991,8 @@ test_a_key_change_on_the_second_server_reconnects_that_one :: proc(t: ^testing.T
 	defer os.remove_all(dir)
 	f.app.known_servers = strings.concatenate({dir, "/known"}, context.temp_allocator)
 	f.v2.key_change = {
-		changed  = true,
-		server   = strings.clone("other.org:7777"),
+		changed = true,
+		server = strings.clone("other.org:7777"),
 		received = {0 ..< 32 = 0xcc},
 	}
 	frame(&f)
@@ -2865,7 +3042,12 @@ test_mentions_on_another_server_say_where :: proc(t: ^testing.T) {
 	second_server(&f)
 	append(
 		&f.v2.mentioned,
-		conn.View_Mention{name = strings.clone("zed"), place = strings.clone("#lobby"), text = strings.clone("psst"), conv = 11},
+		conn.View_Mention {
+			name = strings.clone("zed"),
+			place = strings.clone("#lobby"),
+			text = strings.clone("psst"),
+			conv = 11,
+		},
 	)
 	frame(&f)
 	notices := take_notices(&f.app)
@@ -2886,7 +3068,11 @@ test_a_call_on_another_server_is_announced_once :: proc(t: ^testing.T) {
 	fixture(&f)
 	defer fixture_destroy(&f)
 	second_server(&f)
-	f.v2.call = {id = 9, status = .Ringing_In, peer = 5}
+	f.v2.call = {
+		id     = 9,
+		status = .Ringing_In,
+		peer   = 5,
+	}
 	frame(&f)
 	frame(&f)
 	notices := take_notices(&f.app)
@@ -3045,7 +3231,7 @@ test_scripts_may_change_or_stop_a_message :: proc(t: ^testing.T) {
 
 	type_text(&f, "my password is x")
 	press(&f, .Enter)
-	for c in take(&f) { // (typing notices are fine)
+	for c in take(&f) { 	// (typing notices are fine)
 		_, is_chat := c.(conn.Chat_Command)
 		testing.expect(t, !is_chat)
 		conn.command_destroy(c)
@@ -3062,7 +3248,12 @@ test_script_commands_are_completed :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	rt := with_scripts(&f)
 	defer end_scripts(&f, rt)
-	script.runtime_add(rt, "dice.lua", `yap.register_command("roll", "Roll dice", function() end)`, script.Script_Config{})
+	script.runtime_add(
+		rt,
+		"dice.lua",
+		`yap.register_command("roll", "Roll dice", function() end)`,
+		script.Script_Config{},
+	)
 	frame(&f)
 	type_text(&f, "/ro")
 	frame(&f)
@@ -3080,7 +3271,12 @@ test_what_scripts_notify_of_becomes_a_notice :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	rt := with_scripts(&f)
 	defer end_scripts(&f, rt)
-	script.runtime_add(rt, "n.lua", `yap.notify("Title", "text of it")`, script.Script_Config{permissions = {"notify"}})
+	script.runtime_add(
+		rt,
+		"n.lua",
+		`yap.notify("Title", "text of it")`,
+		script.Script_Config{permissions = {"notify"}},
+	)
 	script.runtime_step(rt, 10 * time.Millisecond)
 	script_notices(&f.app)
 	notices := take_notices(&f.app)
@@ -3109,7 +3305,10 @@ test_the_roles_command_shows_the_roles :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture(&f)
 	defer fixture_destroy(&f)
-	append(&f.v.roles, conn.View_Role{id = 5, name = strings.clone("Mods"), perms = {.Invite, .Pin_Messages}})
+	append(
+		&f.v.roles,
+		conn.View_Role{id = 5, name = strings.clone("Mods"), perms = {.Invite, .Pin_Messages}},
+	)
 	append(&f.v.roles, conn.View_Role{id = 2, name = strings.clone("everyone")})
 	acc := f.v.accounts[2]
 	acc.roles = make([]proto.Role_Id, 1)
@@ -3154,8 +3353,14 @@ test_bans_invites_and_devices_fill_in_when_they_arrive :: proc(t: ^testing.T) {
 
 	type_text(&f, "/invites")
 	press(&f, .Enter)
-	append(&f.v.invites.list, proto.Invite{code = strings.clone("ABCD-1234"), creator = 1, max_uses = 5, uses = 2})
-	append(&f.v.invites.list, proto.Invite{code = strings.clone("OLD"), creator = 1, revoked = true})
+	append(
+		&f.v.invites.list,
+		proto.Invite{code = strings.clone("ABCD-1234"), creator = 1, max_uses = 5, uses = 2},
+	)
+	append(
+		&f.v.invites.list,
+		proto.Invite{code = strings.clone("OLD"), creator = 1, revoked = true},
+	)
 	frame(&f)
 	testing.expect(t, screen_has(&f, "ABCD-1234  used 2 of 5  by me"))
 	testing.expect(t, screen_has(&f, "OLD  used 0  by me  (revoked)"))
@@ -3175,9 +3380,22 @@ test_bans_invites_and_devices_fill_in_when_they_arrive :: proc(t: ^testing.T) {
 @(private = "file")
 voice_room :: proc(f: ^Fixture) {
 	f.v.my_num = 1
-	f.v.users[1] = {account = 1, room = 1, in_voice = true}
-	f.v.users[7] = {account = 2, room = 1, in_voice = true}
-	f.v.users[8] = {account = 3, room = 1, in_voice = true, muted = true}
+	f.v.users[1] = {
+		account  = 1,
+		room     = 1,
+		in_voice = true,
+	}
+	f.v.users[7] = {
+		account  = 2,
+		room     = 1,
+		in_voice = true,
+	}
+	f.v.users[8] = {
+		account  = 3,
+		room     = 1,
+		in_voice = true,
+		muted    = true,
+	}
 	add_account(&f.v, 3, "ben")
 	delete(f.v.channels[0].members)
 	f.v.channels[0].members = make([]proto.User_Num, 3)
@@ -3212,7 +3430,11 @@ test_a_speaker_is_picked_out :: proc(t: ^testing.T) {
 	frame(&f)
 	x := col_of(&f, 4, "anna")
 	testing.expect(t, .Bold in tui.cell_at(&f.buf, x, 4).style.attrs)
-	testing.expect(t, tui.cell_at(&f.buf, x, 3).style == theme.dim || tui.cell_at(&f.buf, col_of(&f, 3, "me"), 3).style == theme.dim)
+	testing.expect(
+		t,
+		tui.cell_at(&f.buf, x, 3).style == theme.dim ||
+		tui.cell_at(&f.buf, col_of(&f, 3, "me"), 3).style == theme.dim,
+	)
 }
 
 @(test)
@@ -3385,7 +3607,11 @@ test_an_incoming_call_can_be_answered_or_declined :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture(&f)
 	defer fixture_destroy(&f)
-	f.v.call = {id = 4, status = .Ringing_In, peer = 2}
+	f.v.call = {
+		id     = 4,
+		status = .Ringing_In,
+		peer   = 2,
+	}
 	frame(&f)
 	testing.expect_value(t, f.app.dialog.kind, Dialog_Kind.Call)
 	testing.expect(t, screen_has(&f, "anna is calling you"))
@@ -3404,7 +3630,11 @@ test_an_incoming_call_can_be_answered_or_declined :: proc(t: ^testing.T) {
 	_, hung := find_cmd(conn.Call_Hangup_Command, cmds)
 	testing.expect(t, hung)
 	// Declining.
-	f.v.call = {id = 5, status = .Ringing_In, peer = 2}
+	f.v.call = {
+		id     = 5,
+		status = .Ringing_In,
+		peer   = 2,
+	}
 	frame(&f)
 	press(&f, .Escape)
 	cmds = take(&f)
@@ -3427,7 +3657,11 @@ test_calls_can_be_made_with_the_headless_commands :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, cc.name, "anna")
 	conn.command_destroy(cc)
-	f.v.call = {id = 4, status = .Ringing_Out, peer = 2}
+	f.v.call = {
+		id     = 4,
+		status = .Ringing_Out,
+		peer   = 2,
+	}
 	frame(&f)
 	testing.expect(t, strings.contains(screen(&f)[f.buf.h - 1], "calling anna"))
 	// Nothing to hang up when there is no call.
@@ -3505,8 +3739,10 @@ test_the_settings_dialog_shows_and_changes_the_voice :: proc(t: ^testing.T) {
 	last_g: conn.Gate_Command
 	for c in cmds {
 		#partial switch v in c {
-		case conn.Quality_Command: last_q = v
-		case conn.Gate_Command: last_g = v
+		case conn.Quality_Command:
+			last_q = v
+		case conn.Gate_Command:
+			last_g = v
 		}
 	}
 	testing.expect_value(t, last_q.quality, audio.Quality.High)
@@ -3551,7 +3787,14 @@ test_voice_settings_come_from_the_window_clients_until_changed :: proc(t: ^testi
 	defer os.remove_all(dir)
 	gui := strings.concatenate({dir, "/settings.json"}, context.temp_allocator)
 	cli := strings.concatenate({dir, "/cli.json"}, context.temp_allocator)
-	testing.expect(t, os.write_entire_file(gui, `{"input_device": "Window Mic", "quality": "music", "noise_suppression": false}`) == nil)
+	testing.expect(
+		t,
+		os.write_entire_file(
+			gui,
+			`{"input_device": "Window Mic", "quality": "music", "noise_suppression": false}`,
+		) ==
+		nil,
+	)
 	v := voice_settings_load(cli, gui)
 	testing.expect_value(t, v.input_device, "Window Mic")
 	testing.expect_value(t, v.quality, "music")
@@ -3611,7 +3854,10 @@ test_the_palette_goes_to_a_conversation :: proc(t: ^testing.T) {
 @(test)
 test_the_palette_matches_letters_in_order :: proc(t: ^testing.T) {
 	testing.expect(t, palette_match("Pinned messages", "pm") > 0)
-	testing.expect(t, palette_match("Pinned messages", "pin") > palette_match("Pinned messages", "pgs"))
+	testing.expect(
+		t,
+		palette_match("Pinned messages", "pin") > palette_match("Pinned messages", "pgs"),
+	)
 	testing.expect_value(t, palette_match("Pinned messages", "mp"), 0)
 	testing.expect_value(t, palette_match("Pinned messages", "xyz"), 0)
 	testing.expect(t, palette_match("Pinned messages", "") > 0)
@@ -3920,7 +4166,11 @@ test_the_help_is_not_cut_off :: proc(t: ^testing.T) {
 picture_message :: proc(f: ^Fixture, png: []u8, ready: bool) {
 	m := add_message(&f.v, 1, 10, 2, T0, "look")
 	m.files = make([]conn.Msg_File, 1)
-	m.files[0] = {blob = 71, name = strings.clone("pic.png"), size = u64(len(png))}
+	m.files[0] = {
+		blob = 71,
+		name = strings.clone("pic.png"),
+		size = u64(len(png)),
+	}
 	if ready {
 		f.v.blobs[71] = {
 			state = .Ready,
@@ -4010,7 +4260,11 @@ test_pictures_in_a_thread_pane :: proc(t: ^testing.T) {
 	a_thread(&f)
 	r := f.v.roots[10]
 	r.msg.files = make([]conn.Msg_File, 1)
-	r.msg.files[0] = {blob = 72, name = strings.clone("pic.png"), size = u64(len(RED_OVER_BLUE_PNG))}
+	r.msg.files[0] = {
+		blob = 72,
+		name = strings.clone("pic.png"),
+		size = u64(len(RED_OVER_BLUE_PNG)),
+	}
 	f.v.roots[10] = r
 	f.v.blobs[72] = {
 		state = .Ready,
@@ -4474,8 +4728,14 @@ joined :: proc(address, password: string) -> settings.Joined_Server {
 }
 
 @(test)
-test_the_servers_to_connect_to_are_the_window_clients_less_those_taken_away :: proc(t: ^testing.T) {
-	gui := []settings.Joined_Server{joined("a.example", "pw-a"), joined("b.example:7777", ""), joined("c.example:9000", "")}
+test_the_servers_to_connect_to_are_the_window_clients_less_those_taken_away :: proc(
+	t: ^testing.T,
+) {
+	gui := []settings.Joined_Server {
+		joined("a.example", "pw-a"),
+		joined("b.example:7777", ""),
+		joined("c.example:9000", ""),
+	}
 	added := []Saved_Server{{"d.example", "pw-d", ""}, {"a.example:7777", "other", ""}}
 	hidden := []string{"b.example"} // (the default port is the same server)
 	got := merge_servers(gui, added, hidden)
@@ -4645,7 +4905,14 @@ test_the_palette_can_disconnect_and_a_failed_server_says_how :: proc(t: ^testing
 	f.v2.error = strings.clone("The server is too old.")
 	app_switch(&f.app, 1)
 	frame(&f)
-	testing.expect(t, strings.contains(screen(&f)[0], "The server is too old. — /disconnect removes this server"), screen(&f)[0])
+	testing.expect(
+		t,
+		strings.contains(
+			screen(&f)[0],
+			"The server is too old. — /disconnect removes this server",
+		),
+		screen(&f)[0],
+	)
 	open_palette(&f.app)
 	type_text(&f, "forget other")
 	press(&f, .Enter)

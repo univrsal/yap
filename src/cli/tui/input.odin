@@ -234,16 +234,26 @@ decode_escape :: proc(b: []u8) -> (n: int, ev: Event, status: Status) {
 		}
 		key: Key
 		switch b[2] {
-		case 'P': key = .F1
-		case 'Q': key = .F2
-		case 'R': key = .F3
-		case 'S': key = .F4
-		case 'A': key = .Up
-		case 'B': key = .Down
-		case 'C': key = .Right
-		case 'D': key = .Left
-		case 'H': key = .Home
-		case 'F': key = .End
+		case 'P':
+			key = .F1
+		case 'Q':
+			key = .F2
+		case 'R':
+			key = .F3
+		case 'S':
+			key = .F4
+		case 'A':
+			key = .Up
+		case 'B':
+			key = .Down
+		case 'C':
+			key = .Right
+		case 'D':
+			key = .Left
+		case 'H':
+			key = .Home
+		case 'F':
+			key = .End
 		case:
 			return 3, nil, .Skip
 		}
@@ -300,34 +310,58 @@ decode_csi :: proc(b: []u8) -> (n: int, ev: Event, status: Status) {
 
 	key: Key
 	switch final {
-	case 'A': key = .Up
-	case 'B': key = .Down
-	case 'C': key = .Right
-	case 'D': key = .Left
-	case 'H': key = .Home
-	case 'F': key = .End
-	case 'P': key = .F1
-	case 'Q': key = .F2
-	case 'R': key = .F3
-	case 'S': key = .F4
+	case 'A':
+		key = .Up
+	case 'B':
+		key = .Down
+	case 'C':
+		key = .Right
+	case 'D':
+		key = .Left
+	case 'H':
+		key = .Home
+	case 'F':
+		key = .End
+	case 'P':
+		key = .F1
+	case 'Q':
+		key = .F2
+	case 'R':
+		key = .F3
+	case 'S':
+		key = .F4
 	case 'Z':
 		return n, Key_Event{key = .Tab, mods = {.Shift}}, .Event
 	case '~':
 		switch nums[0] {
-		case 1, 7: key = .Home
-		case 2: key = .Insert
-		case 3: key = .Delete
-		case 4, 8: key = .End
-		case 5: key = .Page_Up
-		case 6: key = .Page_Down
-		case 15: key = .F5
-		case 17: key = .F6
-		case 18: key = .F7
-		case 19: key = .F8
-		case 20: key = .F9
-		case 21: key = .F10
-		case 23: key = .F11
-		case 24: key = .F12
+		case 1, 7:
+			key = .Home
+		case 2:
+			key = .Insert
+		case 3:
+			key = .Delete
+		case 4, 8:
+			key = .End
+		case 5:
+			key = .Page_Up
+		case 6:
+			key = .Page_Down
+		case 15:
+			key = .F5
+		case 17:
+			key = .F6
+		case 18:
+			key = .F7
+		case 19:
+			key = .F8
+		case 20:
+			key = .F9
+		case 21:
+			key = .F10
+		case 23:
+			key = .F11
+		case 24:
+			key = .F12
 		case:
 			return n, nil, .Skip
 		}
@@ -376,16 +410,24 @@ decode_mouse :: proc(params: string, release: bool) -> Event {
 		ev.kind = .Wheel_Down if b & 1 != 0 else .Wheel_Up
 	case:
 		switch b & 3 {
-		case 0: ev.button = .Left
-		case 1: ev.button = .Middle
-		case 2: ev.button = .Right
-		case 3: ev.button = .None // motion with no button held
+		case 0:
+			ev.button = .Left
+		case 1:
+			ev.button = .Middle
+		case 2:
+			ev.button = .Right
+		case 3:
+			ev.button = .None // motion with no button held
 		}
 		switch {
-		case release: ev.kind = .Release
-		case motion && ev.button == .None: ev.kind = .Move
-		case motion: ev.kind = .Drag
-		case: ev.kind = .Press
+		case release:
+			ev.kind = .Release
+		case motion && ev.button == .None:
+			ev.kind = .Move
+		case motion:
+			ev.kind = .Drag
+		case:
+			ev.kind = .Press
 		}
 	}
 	return ev

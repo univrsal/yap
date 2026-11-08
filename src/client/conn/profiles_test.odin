@@ -103,7 +103,11 @@ test_setting_put :: proc(t: ^testing.T) {
 	// A key or value the server would refuse is not sent.
 	setting_put(c, "Bad Key", "x")
 	setting_put(c, "", "x")
-	setting_put(c, "ui/big", strings.repeat("x", proto.MAX_SETTING_VALUE + 1, context.temp_allocator))
+	setting_put(
+		c,
+		"ui/big",
+		strings.repeat("x", proto.MAX_SETTING_VALUE + 1, context.temp_allocator),
+	)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 	testing.expect_value(t, len(c.profiles.shared), 0)
 	setting_put(c, "ui/big", strings.repeat("x", proto.MAX_SETTING_VALUE, context.temp_allocator))
@@ -250,7 +254,11 @@ test_avatar_set :: proc(t: ^testing.T) {
 
 	// One that is within the limits (the largest allowed included) is uploaded.
 	avatar_set(&tc.c, image(100, 64, 64), false)
-	avatar_set(&tc.c, image(proto.MAX_AVATAR_SIZE, proto.MAX_AVATAR_SIDE, proto.MAX_AVATAR_SIDE), false)
+	avatar_set(
+		&tc.c,
+		image(proto.MAX_AVATAR_SIZE, proto.MAX_AVATAR_SIDE, proto.MAX_AVATAR_SIDE),
+		false,
+	)
 	testing.expect_value(t, len(tc.c.blobs.pictures), 2)
 	if len(tc.c.blobs.pictures) == 2 {
 		testing.expect_value(t, tc.c.blobs.pictures[0].put.size, 100)

@@ -60,7 +60,11 @@ test_search_pages :: proc(t: ^testing.T) {
 		&tc,
 		r.id,
 		.Ok,
-		answer_body(70, proto.MORE_BEFORE, {hit(90, 3, "hello there"), hit(80, 3, "world, hello")}),
+		answer_body(
+			70,
+			proto.MORE_BEFORE,
+			{hit(90, 3, "hello there"), hit(80, 3, "world, hello")},
+		),
 	)
 	testing.expect_value(t, len(v.search.found), 2)
 	testing.expect(t, v.search.more && !v.search.loading)

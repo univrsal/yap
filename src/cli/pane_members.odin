@@ -65,9 +65,12 @@ activity_mark :: proc(m: Member_Row) -> (string, tui.Style) {
 		return "○", theme.dim
 	}
 	switch m.activity {
-	case .Away: return "●", {fg = tui.color_index(214)}
-	case .Busy: return "●", {fg = tui.color_index(203)}
-	case .Online, .Offline: return "●", theme.online
+	case .Away:
+		return "●", {fg = tui.color_index(214)}
+	case .Busy:
+		return "●", {fg = tui.color_index(203)}
+	case .Online, .Offline:
+		return "●", theme.online
 	}
 	return "●", theme.online
 }
@@ -86,8 +89,16 @@ draw_members :: proc(a: ^App, b: ^tui.Buffer, g: Geometry) {
 	for m in rows {
 		online += 1 if m.online else 0
 	}
-	title := "Members" if loading && len(rows) == 0 else fmt.tprintf("Members  %d/%d", online, len(rows))
-	tui.put_string(b, r.x + 1, 0, title, {fg = theme.bar.fg, bg = theme.bar.bg, attrs = {.Bold}}, r.x + r.w)
+	title :=
+		"Members" if loading && len(rows) == 0 else fmt.tprintf("Members  %d/%d", online, len(rows))
+	tui.put_string(
+		b,
+		r.x + 1,
+		0,
+		title,
+		{fg = theme.bar.fg, bg = theme.bar.bg, attrs = {.Bold}},
+		r.x + r.w,
+	)
 
 	visible := r.h - 1
 	a.members_scroll = clamp(a.members_scroll, 0, max(len(rows) - visible, 0))

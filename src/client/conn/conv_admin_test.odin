@@ -22,7 +22,11 @@ open_channel_admin :: proc(tc: ^Test_Conn) -> ^View {
 	tc_conv(tc, 5, "Gaming")
 	tc.c.convs.viewing = 4
 	buf: [proto.ROLE_MAX_SIZE]u8
-	tc_event(tc, .Role_Changed, proto.encode_role(buf[:], {id = proto.EVERYONE_ROLE, name = "everyone"}))
+	tc_event(
+		tc,
+		.Role_Changed,
+		proto.encode_role(buf[:], {id = proto.EVERYONE_ROLE, name = "everyone"}),
+	)
 	tc_event(tc, .Role_Changed, proto.encode_role(buf[:], {id = 10, name = "Mods", position = 1}))
 	return tc_view(tc)
 }
@@ -167,7 +171,11 @@ test_conv_rights_fetch :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.rights_map.count, count + 1)
 	if testing.expect_value(t, len(v.rights_map.entries), 2) {
 		testing.expect_value(t, v.rights_map.entries[1].role, proto.Role_Id(10))
-		testing.expect_value(t, v.rights_map.entries[1].rights, proto.Conv_Rights{.See, .Write, .Delete})
+		testing.expect_value(
+			t,
+			v.rights_map.entries[1].rights,
+			proto.Conv_Rights{.See, .Write, .Delete},
+		)
 	}
 
 	// Refused: the map is emptied and the user told why.
@@ -250,7 +258,10 @@ test_conv_update :: proc(t: ^testing.T) {
 	defer tc_close(&tc)
 	c := &tc.c
 
-	conv_update(c, {mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC, name = "Hall", topic = "Hi"})
+	conv_update(
+		c,
+		{mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC, name = "Hall", topic = "Hi"},
+	)
 	r, ok := tc_one(t, &tc, .Conv_Update)
 	testing.expect(t, ok)
 	u, u_ok := proto.decode_conv_update(r.body)

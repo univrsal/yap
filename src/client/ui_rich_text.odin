@@ -310,7 +310,10 @@ rich_layout :: proc(ctx: ^mu.Context, r: ^Rich, width: i32) -> []Rich_Line {
 			x += CODE_PAD
 		}
 		if l.start == l.end {
-			append(&out, Rich_Line{start = l.start, end = l.end, x = x, line = li, h = h, cell = -1})
+			append(
+				&out,
+				Rich_Line{start = l.start, end = l.end, x = x, line = li, h = h, cell = -1},
+			)
 			li += 1
 			continue
 		}
@@ -529,7 +532,17 @@ rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 		// pieces.
 		pos := mu.Vec2{row.x + vl.x, row.y + vl.top}
 		rich_pieces(ui, r, vl, l.kind == .Code, pos, color, item, .Back)
-		select_line(ui, item, r.text, vl.start, vl.end, pos, r, hit_from = hit_from, hit_to = hit_to)
+		select_line(
+			ui,
+			item,
+			r.text,
+			vl.start,
+			vl.end,
+			pos,
+			r,
+			hit_from = hit_from,
+			hit_to = hit_to,
+		)
 		rich_pieces(ui, r, vl, l.kind == .Code, pos, color, item, .Front)
 		rich_emoji(ui, r, vl, pos)
 	}

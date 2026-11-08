@@ -212,10 +212,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 			},
 		)
 	case strings.has_prefix(line, "/login "):
-		username, _, password := strings.partition(
-			strings.trim_space(line[len("/login "):]),
-			" ",
-		)
+		username, _, password := strings.partition(strings.trim_space(line[len("/login "):]), " ")
 		conn.push_command(
 			q,
 			conn.Login_Command {
@@ -303,10 +300,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 			log.warn("/revoke takes a device's key (64 hex digits)")
 		}
 	case strings.has_prefix(line, "/adduser "):
-		username, _, rest := strings.partition(
-			strings.trim_space(line[len("/adduser "):]),
-			" ",
-		)
+		username, _, rest := strings.partition(strings.trim_space(line[len("/adduser "):]), " ")
 		password, _, display := strings.partition(rest, " ")
 		conn.push_command(
 			q,
@@ -317,10 +311,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 			},
 		)
 	case strings.has_prefix(line, "/addbot "):
-		username, _, display := strings.partition(
-			strings.trim_space(line[len("/addbot "):]),
-			" ",
-		)
+		username, _, display := strings.partition(strings.trim_space(line[len("/addbot "):]), " ")
 		conn.push_command(
 			q,
 			conn.Bot_Create_Command {
@@ -356,10 +347,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 	case line == "/mute" || line == "/unmute":
 		conn.push_command(q, conn.Mute_Command{muted = line == "/mute", feedback = true})
 	case line == "/deafen" || line == "/undeafen":
-		conn.push_command(
-			q,
-			conn.Deafen_Command{deafened = line == "/deafen", feedback = true},
-		)
+		conn.push_command(q, conn.Deafen_Command{deafened = line == "/deafen", feedback = true})
 	case line == "/typing":
 		conn.push_command(q, conn.Typing_Command{})
 	case line == "/status", strings.has_prefix(line, "/status "):
@@ -394,9 +382,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 	case strings.has_prefix(line, "/unset "):
 		conn.push_command(
 			q,
-			conn.Setting_Command {
-				key = strings.clone(strings.trim_space(line[len("/unset "):])),
-			},
+			conn.Setting_Command{key = strings.clone(strings.trim_space(line[len("/unset "):]))},
 		)
 	case line == "/members":
 		conn.push_command(q, conn.Members_Command{})
@@ -513,10 +499,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 			},
 		)
 	case strings.has_prefix(line, "/voicemove "):
-		name, _, channel := strings.partition(
-			strings.trim_space(line[len("/voicemove "):]),
-			" ",
-		)
+		name, _, channel := strings.partition(strings.trim_space(line[len("/voicemove "):]), " ")
 		conn.push_command(
 			q,
 			conn.Voice_Move_Command {
@@ -747,9 +730,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 	case strings.has_prefix(line, "/seen "):
 		conn.push_command(
 			q,
-			conn.Last_Seen_Command {
-				name = strings.clone(strings.trim_space(line[len("/seen "):])),
-			},
+			conn.Last_Seen_Command{name = strings.clone(strings.trim_space(line[len("/seen "):]))},
 		)
 	case line == "/buddies":
 		conn.push_command(q, conn.Buddies_Command{})
@@ -764,10 +745,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 		)
 	case strings.has_prefix(line, "/dm "):
 		to, _, text := strings.partition(strings.trim_space(line[len("/dm "):]), " ")
-		conn.push_command(
-			q,
-			conn.DM_Command{name = strings.clone(to), text = typed_lines(text)},
-		)
+		conn.push_command(q, conn.DM_Command{name = strings.clone(to), text = typed_lines(text)})
 	case strings.has_prefix(line, "/group "):
 		names := strings.trim_space(line[len("/group "):])
 		conn.push_command(q, conn.Group_Command{names = strings.clone(names)})
@@ -821,11 +799,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 		if n, ok := strconv.parse_u64(id); ok {
 			conn.push_command(
 				q,
-				conn.Edit_Command {
-					id = proto.Msg_Id(n),
-					text = typed_lines(text),
-					typed = true,
-				},
+				conn.Edit_Command{id = proto.Msg_Id(n), text = typed_lines(text), typed = true},
 			)
 		}
 	case strings.has_prefix(line, "/delete "):
@@ -909,9 +883,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 	case line == "/browse", strings.has_prefix(line, "/browse "):
 		conn.push_command(
 			q,
-			conn.Browse_Command {
-				query = strings.clone(strings.trim_space(line[len("/browse"):])),
-			},
+			conn.Browse_Command{query = strings.clone(strings.trim_space(line[len("/browse"):]))},
 		)
 	case strings.has_prefix(line, "/subscribe "), strings.has_prefix(line, "/unsubscribe "):
 		_, _, name := strings.partition(line, " ")
@@ -926,10 +898,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 		name, _, topic := strings.partition(strings.trim_space(line[len("/create "):]), " ")
 		conn.push_command(
 			q,
-			conn.Create_Channel_Command {
-				name = strings.clone(name),
-				topic = strings.clone(topic),
-			},
+			conn.Create_Channel_Command{name = strings.clone(name), topic = strings.clone(topic)},
 		)
 	case reader.scripts != nil && (line == "/script" || strings.has_prefix(line, "/script ")):
 		script_command(reader.scripts, line)
@@ -937,10 +906,7 @@ handle_line :: proc(reader: ^Reader, line: string, attached: ^[dynamic]string) {
 		script.runtime_queue_command(reader.scripts, reader.c, line)
 	case strings.has_prefix(line, "/") && len(line) > 1:
 		// A command of a bot, if one has it; if not, the help follows.
-		conn.push_command(
-			q,
-			conn.Bot_Run_Command{line = strings.clone(line), silent = true},
-		)
+		conn.push_command(q, conn.Bot_Run_Command{line = strings.clone(line), silent = true})
 		fallthrough
 	case:
 		log.warn(

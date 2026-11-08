@@ -75,7 +75,9 @@ slice_clone :: proc(data: []u8) -> []u8 {
 @(private = "file")
 attach_path :: proc(c: ^Server_Conn, path: string) {
 	files := make([]Attach_File, 1)
-	files[0] = {path = strings.clone(path)}
+	files[0] = {
+		path = strings.clone(path),
+	}
 	tc_run(attach_send, c, Attach_Send_Command{files = files})
 }
 
@@ -83,7 +85,10 @@ attach_path :: proc(c: ^Server_Conn, path: string) {
 send :: proc(c: ^Server_Conn, text: string, files: ..Attach_File) {
 	list := make([]Attach_File, len(files))
 	copy(list, files)
-	cmd := Attach_Send_Command{text = strings.clone(text), files = list}
+	cmd := Attach_Send_Command {
+		text  = strings.clone(text),
+		files = list,
+	}
 	attach_send(c, cmd)
 	command_destroy(cmd)
 }
@@ -124,7 +129,9 @@ test_attach_refusals :: proc(t: ^testing.T) {
 		text:  string,
 	}
 	// No files, or too many.
-	few := Attach_Send_Command{text = strings.clone("x")}
+	few := Attach_Send_Command {
+		text = strings.clone("x"),
+	}
 	attach_send(c, few)
 	command_destroy(few)
 	testing.expect_value(t, v.notice.text, "A message can have at most 10 files attached.")
@@ -132,7 +139,9 @@ test_attach_refusals :: proc(t: ^testing.T) {
 	for &f in many {
 		f = pasted("a.png", content(10))
 	}
-	too_many := Attach_Send_Command{files = many}
+	too_many := Attach_Send_Command {
+		files = many,
+	}
 	attach_send(c, too_many)
 	command_destroy(too_many)
 	testing.expect_value(t, v.notice.count, 2)
@@ -145,18 +154,30 @@ test_attach_refusals :: proc(t: ^testing.T) {
 
 	// Empty, too big, nameless, unreadable. The second of two being bad refuses both.
 	send(c, "x", pasted("a.png", nil)) // nil data is read from a path that is not there
-	testing.expect_value(t, v.notice.text, "A file could not be read, so the message was not sent.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A file could not be read, so the message was not sent.",
+	)
 	// A file with nothing in it (on disk: an empty slice in memory reads as none).
 	empty, _ := os.join_path({r.dir, "empty.png"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(empty, nil) == nil)
 	attach_path(c, empty)
 	testing.expect_value(t, v.notice.text, "Empty files cannot be sent.")
 	send(c, "x", pasted("big.png", content(101)))
-	testing.expect_value(t, v.notice.text, "A file is larger than the maximum size this server allows.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A file is larger than the maximum size this server allows.",
+	)
 	send(c, "x", pasted("", content(10)))
 	testing.expect_value(t, v.notice.text, "A file has a name that cannot be used.")
 	send(c, "x", pasted("fine.png", content(10)), pasted("big.png", content(101)))
-	testing.expect_value(t, v.notice.text, "A file is larger than the maximum size this server allows.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A file is larger than the maximum size this server allows.",
+	)
 	testing.expect_value(t, len(c.attach.posts), 0)
 	testing.expect_value(t, len(tc_sent(t, &r.tc)), 0)
 
@@ -244,7 +265,10 @@ test_uploading_and_posting :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, string(stored), string(data))
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	handle_upload_ack(c, proto.transfer_encode_ack(&recv, out[:], .Upload_Ack, 77, 0, time.tick_now()))
+	handle_upload_ack(
+		c,
+		proto.transfer_encode_ack(&recv, out[:], .Upload_Ack, 77, 0, time.tick_now()),
+	)
 	testing.expect_value(t, p.files[0].state, Upload_State.Done)
 	testing.expect(t, !p.queued)
 	attachments_step(c)
@@ -325,7 +349,10 @@ test_one_file_at_a_time :: proc(t: ^testing.T) {
 	proto.transfer_receiver_init(&recv, 50)
 	defer proto.transfer_receiver_destroy(&recv)
 	proto.transfer_got(&recv, 0, 50)
-	handle_upload_ack(c, proto.transfer_encode_ack(&recv, out[:], .Upload_Ack, 1, 0, time.tick_now()))
+	handle_upload_ack(
+		c,
+		proto.transfer_encode_ack(&recv, out[:], .Upload_Ack, 1, 0, time.tick_now()),
+	)
 	_ = tc_datagrams(t, &r.tc)
 	attachments_step(c)
 	req, ok = tc_one(t, &r.tc, .Attach_Put)
@@ -430,7 +457,10 @@ upload_all :: proc(t: ^testing.T, r: ^Rig, id: u64, size: int) {
 	proto.transfer_receiver_init(&recv, u64(size))
 	defer proto.transfer_receiver_destroy(&recv)
 	proto.transfer_got(&recv, 0, size)
-	handle_upload_ack(c, proto.transfer_encode_ack(&recv, out[:], .Upload_Ack, id, 0, time.tick_now()))
+	handle_upload_ack(
+		c,
+		proto.transfer_encode_ack(&recv, out[:], .Upload_Ack, id, 0, time.tick_now()),
+	)
 	attachments_step(c)
 }
 
@@ -490,7 +520,11 @@ test_giving_up_on_a_silent_server :: proc(t: ^testing.T) {
 	f.last_heard = time.tick_add(time.tick_now(), -(FILE_TIMEOUT + time.Second))
 	attachments_step(c)
 	testing.expect_value(t, len(c.attach.posts), 0)
-	testing.expect_value(t, v.notice.text, "A file could not be sent because the server rejected it.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A file could not be sent because the server rejected it.",
+	)
 }
 
 @(test)
@@ -510,7 +544,11 @@ test_server_stops_an_upload :: proc(t: ^testing.T) {
 	// Failed to store it: the message is given up.
 	handle_transfer_cancel(c, proto.encode_transfer_cancel(&buf, 52, .Failed))
 	testing.expect_value(t, len(c.attach.posts), 0)
-	testing.expect_value(t, v.notice.text, "The server failed to store a file, so the message was not sent.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"The server failed to store a file, so the message was not sent.",
+	)
 	// For a transfer we know nothing of: nothing.
 	handle_transfer_cancel(c, proto.encode_transfer_cancel(&buf, 999, .Failed))
 }
@@ -556,7 +594,11 @@ test_post_refused_after_the_upload :: proc(t: ^testing.T) {
 	tc_answer(&r.tc, req.id, .Denied)
 	testing.expect_value(t, len(c.msgs.outbox), 0)
 	testing.expect_value(t, len(c.attach.posts), 0)
-	testing.expect_value(t, v.notice.text, "A message wasn't posted because you can't write or attach files there.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A message wasn't posted because you can't write or attach files there.",
+	)
 }
 
 @(test)
@@ -661,7 +703,12 @@ test_saving_refusals :: proc(t: ^testing.T) {
 	c := &r.tc.c
 	with_file(&r, "report.zip", 100, 700)
 	tc_message_with_files(&r.tc, 3, 41, {{blob = 0, size = 100, name = "gone.zip"}})
-	tc_message_with_files(&r.tc, 3, 42, {{blob = 701, size = proto.MAX_FILE_SIZE + 1, name = "huge.zip"}})
+	tc_message_with_files(
+		&r.tc,
+		3,
+		42,
+		{{blob = 701, size = proto.MAX_FILE_SIZE + 1, name = "huge.zip"}},
+	)
 
 	// Not a message of ours, not a file of it.
 	attach_save(c, {msg = 999, index = 0})
@@ -679,7 +726,9 @@ test_saving_refusals :: proc(t: ^testing.T) {
 	blocker, _ := os.join_path({r.dir, "blocker"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(blocker, "x") == nil)
 	delete(c.files.download_dir)
-	c.files.download_dir = strings.clone(strings.concatenate({blocker, "/sub"}, context.temp_allocator))
+	c.files.download_dir = strings.clone(
+		strings.concatenate({blocker, "/sub"}, context.temp_allocator),
+	)
 	context.logger = expected_errors()
 	attach_save(c, {msg = 40, index = 0})
 	testing.expect_value(
@@ -819,7 +868,10 @@ test_save_resumes_after_a_restart :: proc(t: ^testing.T) {
 	tc_answer(&r.tc, req.id, .Ok, proto.encode_attach_get_answer(&buf, u64(len(data)), 7))
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	s0, e0 := proto.file_chunk_range(u64(len(data)), 0)
-	handle_download_chunk(c, proto.encode_transfer_chunk(out[:], .Download_Chunk, 7, 0, data[s0:e0]))
+	handle_download_chunk(
+		c,
+		proto.encode_transfer_chunk(out[:], .Download_Chunk, 7, 0, data[s0:e0]),
+	)
 	sv := c.attach.saves[700]
 	testing.expect_value(t, sv.recv.done, e0 - s0)
 	_ = tc_datagrams(t, &r.tc)
@@ -843,7 +895,10 @@ test_save_resumes_after_a_restart :: proc(t: ^testing.T) {
 	}
 	for index in 1 ..< 3 {
 		s, e := proto.file_chunk_range(u64(len(data)), u32(index))
-		handle_download_chunk(c, proto.encode_transfer_chunk(out[:], .Download_Chunk, 8, u32(index), data[s:e]))
+		handle_download_chunk(
+			c,
+			proto.encode_transfer_chunk(out[:], .Download_Chunk, 8, u32(index), data[s:e]),
+		)
 	}
 	testing.expect_value(t, sv.state, Save_State.Done)
 	saved, err := os.read_entire_file(sv.path, context.temp_allocator)
@@ -908,7 +963,10 @@ test_which_files_are_previewed :: proc(t: ^testing.T) {
 	testing.expect(t, preview_wanted("PHOTO.JPG", 1000))
 	testing.expect(t, preview_wanted("a.b.jpeg", 1))
 	for ext in ([]string{"gif", "bmp", "webp"}) {
-		testing.expect(t, preview_wanted(strings.concatenate({"x.", ext}, context.temp_allocator), 10))
+		testing.expect(
+			t,
+			preview_wanted(strings.concatenate({"x.", ext}, context.temp_allocator), 10),
+		)
 	}
 	testing.expect(t, preview_wanted("big.png", PREVIEW_MAX))
 	testing.expect(t, !preview_wanted("big.png", PREVIEW_MAX + 1))
@@ -947,7 +1005,10 @@ test_previewing_a_picture :: proc(t: ^testing.T) {
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	for index in 0 ..< 2 {
 		s, e := proto.file_chunk_range(u64(len(data)), u32(index))
-		handle_download_chunk(c, proto.encode_transfer_chunk(out[:], .Download_Chunk, 15, u32(index), data[s:e]))
+		handle_download_chunk(
+			c,
+			proto.encode_transfer_chunk(out[:], .Download_Chunk, 15, u32(index), data[s:e]),
+		)
 	}
 	// The picture goes to the pictures that messages show, not to a file.
 	fetch := c.blobs.cache[800] or_else nil

@@ -312,16 +312,25 @@ test_handshake_cookie :: proc(t: ^testing.T) {
 test_json_nesting_ok :: proc(t: ^testing.T) {
 	deep :: proc(n: int, open, close: string) -> string {
 		return strings.concatenate(
-			{strings.repeat(open, n, context.temp_allocator), strings.repeat(close, n, context.temp_allocator)},
+			{
+				strings.repeat(open, n, context.temp_allocator),
+				strings.repeat(close, n, context.temp_allocator),
+			},
 			context.temp_allocator,
 		)
 	}
-	testing.expect(t, json_nesting_ok(transmute([]u8)string(`{"a": [1, {"b": "]]]"}], "c": "\"[[["}`)))
+	testing.expect(
+		t,
+		json_nesting_ok(transmute([]u8)string(`{"a": [1, {"b": "]]]"}], "c": "\"[[["}`)),
+	)
 	testing.expect(t, json_nesting_ok(transmute([]u8)deep(JSON_MAX_DEPTH, "[", "]")))
 	testing.expect(t, !json_nesting_ok(transmute([]u8)deep(JSON_MAX_DEPTH + 1, "[", "]")))
 	testing.expect(t, !json_nesting_ok(transmute([]u8)deep(JSON_MAX_DEPTH + 1, `{"a":`, "}")))
 	// Brackets in strings don't count, escaped quotes don't end them.
-	testing.expect(t, json_nesting_ok(transmute([]u8)strings.repeat(`"[[[\"[[["`, 1000, context.temp_allocator)))
+	testing.expect(
+		t,
+		json_nesting_ok(transmute([]u8)strings.repeat(`"[[[\"[[["`, 1000, context.temp_allocator)),
+	)
 	// A long run of openers is refused without much work (and without a crash).
 	big := make([]u8, 500 * 1024, context.temp_allocator)
 	for &b in big {
@@ -329,5 +338,13 @@ test_json_nesting_ok :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, !json_nesting_ok(big))
 	// Closers that were never opened don't go below zero.
-	testing.expect(t, json_nesting_ok(transmute([]u8)strings.concatenate({strings.repeat("]", 100, context.temp_allocator), "[[["}, context.temp_allocator)))
+	testing.expect(
+		t,
+		json_nesting_ok(
+			transmute([]u8)strings.concatenate(
+				{strings.repeat("]", 100, context.temp_allocator), "[[["},
+				context.temp_allocator,
+			),
+		),
+	)
 }

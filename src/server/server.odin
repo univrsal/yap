@@ -447,7 +447,10 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	if (u == nil || u.account == nil) && !unlogged_room(s, from) {
 		// Too many sessions that haven't logged in, from this address or in
 		// all. The client will try again.
-		log.debugf("no room for another session that hasn't logged in, from %v", net.to_string(from))
+		log.debugf(
+			"no room for another session that hasn't logged in, from %v",
+			net.to_string(from),
+		)
 		drop_session(s, idx)
 		return
 	}

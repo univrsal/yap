@@ -35,9 +35,12 @@ test_styled_markdown :: proc(t: ^testing.T) {
 	bold, italic, code := false, false, false
 	for s in lines[0] {
 		switch s.text {
-		case "bold": bold = .Bold in s.style.attrs
-		case "slanted": italic = .Italic in s.style.attrs
-		case "code": code = s.style.bg == theme.code.bg
+		case "bold":
+			bold = .Bold in s.style.attrs
+		case "slanted":
+			italic = .Italic in s.style.attrs
+		case "code":
+			code = s.style.bg == theme.code.bg
 		case:
 			testing.expectf(t, s.style.attrs == {}, "%q should be plain", s.text)
 		}
@@ -53,12 +56,21 @@ test_styled_wraps :: proc(t: ^testing.T) {
 	for g in got {
 		testing.expectf(t, tui.string_width(g) <= 12, "%q is too wide", g)
 	}
-	testing.expect_value(t, strings.join(got, " ", context.temp_allocator), "one two three four five six")
+	testing.expect_value(
+		t,
+		strings.join(got, " ", context.temp_allocator),
+		"one two three four five six",
+	)
 }
 
 @(test)
 test_styled_lists_and_quotes :: proc(t: ^testing.T) {
-	lines := styled_lines("> quoted\n- item one\n- item two is long enough to wrap around", nil, 22, {})
+	lines := styled_lines(
+		"> quoted\n- item one\n- item two is long enough to wrap around",
+		nil,
+		22,
+		{},
+	)
 	got := plain(lines)
 	testing.expect(t, strings.has_prefix(got[0], "▎ "), got[0])
 	testing.expect(t, strings.contains(got[1], "item one"))

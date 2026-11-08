@@ -3,9 +3,9 @@ package main
 import "core:strings"
 
 import "client:conn"
+import "client:richtext"
 import "client:script"
 import "common:proto"
-import "client:richtext"
 import "tui"
 
 // What the message box does with what is written in it.
@@ -51,9 +51,21 @@ submit :: proc(a: ^App) {
 	text = text[1:] if strings.has_prefix(text, "//") else text
 	// The scripts may change the message or stop it.
 	if a.scripts != nil && a.editing == 0 {
-		filtered, cancel, by := script.runtime_filter_send(a.scripts, a.client, viewed_channel_name(a), text)
+		filtered, cancel, by := script.runtime_filter_send(
+			a.scripts,
+			a.client,
+			viewed_channel_name(a),
+			text,
+		)
 		if cancel {
-			say(a, strings.concatenate({by, " stopped the message from being sent."}, context.temp_allocator), true)
+			say(
+				a,
+				strings.concatenate(
+					{by, " stopped the message from being sent."},
+					context.temp_allocator,
+				),
+				true,
+			)
 			return
 		}
 		text = filtered

@@ -10,7 +10,14 @@ import "core:testing"
 
 @(private = "file")
 sample_message :: proc(id: Msg_Id, text: string) -> Message {
-	return Message{id = id, conv = 3, sender = 9, time = Unix_Ms(1000 + id), kind = .Text, text = text}
+	return Message {
+		id = id,
+		conv = 3,
+		sender = 9,
+		time = Unix_Ms(1000 + id),
+		kind = .Text,
+		text = text,
+	}
 }
 
 // ---- bookmarks ----
@@ -224,7 +231,10 @@ test_bookmark_changed :: proc(t: ^testing.T) {
 test_msg_search :: proc(t: ^testing.T) {
 	buf: [MSG_SEARCH_MAX_SIZE]u8
 	s, ok := decode_msg_search(
-		encode_msg_search(&buf, {conv = 4, before = 99, limit = 20, query = `from:alice "exact phrase" word`}),
+		encode_msg_search(
+			&buf,
+			{conv = 4, before = 99, limit = 20, query = `from:alice "exact phrase" word`},
+		),
 	)
 	testing.expect(t, ok)
 	testing.expect_value(t, s.conv, Conv_Id(4))
@@ -287,7 +297,11 @@ test_msg_search_malformed :: proc(t: ^testing.T) {
 
 @(test)
 test_search_answer :: proc(t: ^testing.T) {
-	msgs := []Message{sample_message(90, "alpha"), sample_message(80, "beta beta"), sample_message(70, "")}
+	msgs := []Message {
+		sample_message(90, "alpha"),
+		sample_message(80, "beta beta"),
+		sample_message(70, ""),
+	}
 	out: [2048]u8
 	body, fitted := encode_search_answer(out[:], 65, MORE_BEFORE, msgs)
 	testing.expect_value(t, fitted, 3)
@@ -333,7 +347,9 @@ test_search_answer :: proc(t: ^testing.T) {
 @(test)
 test_attach_put :: proc(t: ^testing.T) {
 	buf: [ATTACH_PUT_MAX_SIZE]u8
-	p, ok := decode_attach_put(encode_attach_put(buf[:], {size = 1 << 40, name = "holiday photos.zip"}))
+	p, ok := decode_attach_put(
+		encode_attach_put(buf[:], {size = 1 << 40, name = "holiday photos.zip"}),
+	)
 	testing.expect(t, ok)
 	testing.expect_value(t, p.size, u64(1 << 40))
 	testing.expect_value(t, p.name, "holiday photos.zip")

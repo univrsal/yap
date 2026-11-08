@@ -237,8 +237,8 @@ test_outbox_opens_a_dm_first :: proc(t: ^testing.T) {
 
 	// The server tells us about the DM and then answers.
 	c.convs.convs[5] = {
-		kind          = .DM,
-		accounts      = {0 = 1, 1 = 2},
+		kind = .DM,
+		accounts = {0 = 1, 1 = 2},
 		account_count = 2,
 	}
 	buf: [4]u8

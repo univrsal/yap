@@ -5,8 +5,8 @@ import "core:c"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
-import "core:time"
 import "core:sys/posix"
+import "core:time"
 
 foreign import libc "system:c"
 
@@ -184,7 +184,14 @@ terminal_flush :: proc(b: ^strings.Builder) {
 // each rune: it prints the rune in the first column and asks where the cursor is.
 // Under tmux the answers are tmux's own idea, not that of the terminal behind it.
 // Gives nothing if the terminal does not answer in time.
-terminal_probe_widths :: proc(t: ^Terminal, runes: []rune, allocator := context.allocator) -> (widths: []int, ok: bool) {
+terminal_probe_widths :: proc(
+	t: ^Terminal,
+	runes: []rune,
+	allocator := context.allocator,
+) -> (
+	widths: []int,
+	ok: bool,
+) {
 	BATCH :: 64
 	widths = make([]int, len(runes), allocator)
 	pending := make([dynamic]u8, context.temp_allocator)

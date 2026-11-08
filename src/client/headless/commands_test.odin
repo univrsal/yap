@@ -48,7 +48,16 @@ type_line :: proc(ty: ^Typing, line: string) -> []conn.Command {
 
 // one returns the command a line was queued as, which must be of type T.
 @(private = "file")
-one :: proc(t: ^testing.T, ty: ^Typing, line: string, $T: typeid, loc := #caller_location) -> (cmd: T, ok: bool) {
+one :: proc(
+	t: ^testing.T,
+	ty: ^Typing,
+	line: string,
+	$T: typeid,
+	loc := #caller_location,
+) -> (
+	cmd: T,
+	ok: bool,
+) {
 	got := type_line(ty, line)
 	if len(got) != 1 {
 		testing.expectf(t, false, "%q: expected one command, got %d", line, len(got), loc = loc)
@@ -130,7 +139,11 @@ test_roles_and_perms :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, parse_perms(""), proto.Permissions{})
 	testing.expect_value(t, parse_perms(" , ,"), proto.Permissions{})
-	testing.expect_value(t, parse_perms("invite, PIN_MESSAGES"), proto.Permissions{.Invite, .Pin_Messages})
+	testing.expect_value(
+		t,
+		parse_perms("invite, PIN_MESSAGES"),
+		proto.Permissions{.Invite, .Pin_Messages},
+	)
 	// An unknown one is left out; the rest still count.
 	testing.expect_value(t, parse_perms("Invite,fly"), proto.Permissions{.Invite})
 

@@ -33,7 +33,14 @@ people_again :: proc(tc: ^Test_Conn) {
 
 @(private = "file")
 conv_record :: proc(id: proto.Conv_Id, name: string, flags := proto.Conv_Flags{}) -> proto.Conv {
-	return {id = id, kind = .Channel, name = name, member = true, flags = flags, rights = proto.CONV_RIGHTS_ALL}
+	return {
+		id = id,
+		kind = .Channel,
+		name = name,
+		member = true,
+		flags = flags,
+		rights = proto.CONV_RIGHTS_ALL,
+	}
 }
 
 @(private = "file")
@@ -354,7 +361,9 @@ test_a_changed_server_key_is_shown :: proc(t: ^testing.T) {
 	view_clear_key_change(v)
 	testing.expect(t, !v.key_change.changed)
 
-	c.server_key = {0 = 5}
+	c.server_key = {
+		0 = 5,
+	}
 	publish_server_key(c)
 	testing.expect_value(t, v.server_key, c.server_key)
 }
