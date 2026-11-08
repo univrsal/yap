@@ -39,12 +39,9 @@ if [ ! -f "$opus_lib" ]; then
 	cmake --build "$opus_build" --parallel
 fi
 
-# Lua, for the client's scripts (src/client/script). The source is fetched
-# into web/deps too (scripts/build/lua.version) and compiled below with the
-# page, as is everything in C.
-. scripts/build/lua.version
-lua_src=$deps/lua-$lua_version/src
-sh scripts/build/fetch.sh lua "$deps"
+# Lua, for the client's scripts (src/client/script): the source in
+# deps/thirdparty/lua, compiled below with the page, as is everything in C.
+lua_src=deps/thirdparty/lua
 
 # What web/touch.js calls (src/client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_touch_scroll_end,_web_text_rune,_web_text_backspace,_web_text_enter

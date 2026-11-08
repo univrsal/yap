@@ -17,20 +17,15 @@
 #   webp    libwebp source, in <deps-dir>/libwebp-<version>. build.sh builds it
 #           into src/common/webp (build.bat does the same on Windows); a web
 #           build leaves pictures to the browser and doesn't need it.
-#   lua     the Lua source, in <deps-dir>/lua-<version>. The client's scripting
-#           (src/client/script) compiles the parts of it that scripts get
-#           (the language and its string, table, math, utf8 and coroutine
-#           libraries, but no file or process access) into one C file, for
-#           every target including the web.
 #   ffmpeg  a prebuilt FFmpeg for x86_64 Linux (scripts/build/ffmpeg.version),
 #           in <deps-dir>/<name>. Prints that folder. Windows has
 #           build-video.bat, macOS build-ffmpeg-macos.sh. Tried from
 #           yap's release mirror first, then BtbN's.
 #
-# Usage: scripts/build/fetch.sh <opus|sqlite|webp|lua|ffmpeg> <deps-dir>
+# Usage: scripts/build/fetch.sh <opus|sqlite|webp|ffmpeg> <deps-dir>
 set -e
-what=${1:?usage: fetch.sh <opus|sqlite|webp|lua|ffmpeg> <deps-dir>}
-deps=${2:?usage: fetch.sh <opus|sqlite|webp|lua|ffmpeg> <deps-dir>}
+what=${1:?usage: fetch.sh <opus|sqlite|webp|ffmpeg> <deps-dir>}
+deps=${2:?usage: fetch.sh <opus|sqlite|webp|ffmpeg> <deps-dir>}
 here=$(dirname "$0")
 unpack=-xzf
 print=
@@ -58,14 +53,6 @@ webp)
 	url=https://storage.googleapis.com/downloads.webmproject.org/releases/webp/$file
 	sha=$webp_sha256
 	marker=$dir
-	;;
-lua)
-	. "$here/lua.version"
-	dir=lua-$lua_version
-	file=$dir.tar.gz
-	url=https://www.lua.org/ftp/$file
-	sha=$lua_sha256
-	marker=$dir/src/lua.h
 	;;
 ffmpeg)
 	# Without the CRs a Windows checkout gives it (core.autocrlf).

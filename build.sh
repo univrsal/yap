@@ -89,14 +89,12 @@ if c_lib_stale $dialogs dialogs deps/thirdparty/tinydialogs/tinydialogs.h; then
 fi
 
 # Lua, for the client's scripts (src/client/script): the language and the
-# libraries scripts may use, compiled as one file against the source
-# scripts/build/fetch.sh unpacks (scripts/build/lua.version). Again when
-# the version changes.
+# libraries scripts may use, compiled as one file against the source in
+# deps/thirdparty/lua (kept in the repo, see its README). Again when it
+# changes.
 script=src/client/script
-if c_lib_stale $script lua scripts/build/lua.version; then
-	. scripts/build/lua.version
-	sh scripts/build/fetch.sh lua .cache
-	c_lib_build $script lua -std=c99 -Os -I".cache/lua-$lua_version/src"
+if c_lib_stale $script lua deps/thirdparty/lua/lua.h deps/thirdparty/lua/lstrlib.c; then
+	c_lib_build $script lua -std=c99 -Os -Ideps/thirdparty/lua
 fi
 
 # tinyrequests, for the HTTP requests of scripts (src/client/script): WinHTTP
