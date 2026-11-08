@@ -59,6 +59,15 @@ const Version versions[] = {
 // Where else to look, after dlopen's own search ("" ): Homebrew's on
 // Apple silicon and on Intel, and MacPorts'.
 const char *const system_dirs[] = {"", "/opt/homebrew/lib/", "/usr/local/lib/", "/opt/local/lib/"};
+#elif defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__)
+// The ports' sonames are their own numbers (OpenBSD's libavcodec.so.27.1 is
+// FFmpeg 8's), so the loader is asked for the newest and the versions inside
+// say whether it's one we take.
+const Version versions[] = {
+	{62, 60, 9, "libavutil.so", "libswresample.so", "libavcodec.so", "libswscale.so"},
+	{63, 61, 10, "libavutil.so", "libswresample.so", "libavcodec.so", "libswscale.so"},
+};
+const char *const system_dirs[] = {""};
 #else
 const Version versions[] = {
 	{62, 60, 9, "libavutil.so.60", "libswresample.so.6", "libavcodec.so.62", "libswscale.so.9"},

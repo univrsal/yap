@@ -59,13 +59,22 @@ else()
 	# are needed to build: the libraries are loaded at run time
 	# (src/dl_linux.h), so the library loads without them. A way of
 	# capturing whose headers are missing is left out.
-	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_linux.cpp src/capture_linux.cpp src/camera_v4l2.cpp src/camera_fake.cpp)
+	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_linux.cpp src/capture_linux.cpp src/camera_fake.cpp)
+	if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+		list(APPEND SOURCES src/camera_v4l2.cpp)
+	else()
+		# The BSDs: no V4L2 and no portal (no PipeWire session to ask), so X11
+		# capture and the fake camera only.
+		list(APPEND SOURCES src/camera_none.cpp)
+	endif()
 	find_package(PkgConfig REQUIRED)
 	pkg_check_modules(XCB IMPORTED_TARGET xcb xcb-shm xcb-randr xcb-composite xcb-xfixes)
 	# PipeWire's headers are the ones in deps/thirdparty/pipewire, not the
 	# system's: Ubuntu 22.04's are too old for what the code uses, and the
 	# library is dlopen'd, so which headers it was built against doesn't matter.
-	pkg_check_modules(PORTAL IMPORTED_TARGET gio-unix-2.0)
+	if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+		pkg_check_modules(PORTAL IMPORTED_TARGET gio-unix-2.0)
+	endif()
 	if(XCB_FOUND)
 		list(APPEND SOURCES src/x11_linux.cpp)
 		list(APPEND CAPTURE_INCLUDES ${XCB_INCLUDE_DIRS})
@@ -87,7 +96,9 @@ else()
 			list(APPEND CAPTURE_DEFINES YV_NO_DMABUF)
 		endif()
 	else()
-		message(WARNING "no GIO headers (libglib2.0-dev): no portal capture")
+		if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+			message(WARNING "no GIO headers (libglib2.0-dev): no portal capture")
+		endif()
 		list(APPEND CAPTURE_DEFINES YV_NO_PORTAL)
 	endif()
 endif()

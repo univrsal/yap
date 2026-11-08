@@ -46,7 +46,7 @@ const Va &va() {
 		}
 		Va &api = v;
 		Dl_Lib lib;
-		v.ok = lib.open({"libva.so.2"}) && VA_FUNCS(YV_DL_LOAD) true;
+		v.ok = lib.open({"libva.so.2", "libva.so"}) && VA_FUNCS(YV_DL_LOAD) true;
 	});
 	return v;
 }
