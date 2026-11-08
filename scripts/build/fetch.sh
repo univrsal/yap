@@ -24,7 +24,8 @@
 #           every target including the web.
 #   ffmpeg  a prebuilt FFmpeg for x86_64 Linux (scripts/build/ffmpeg.version),
 #           in <deps-dir>/<name>. Prints that folder. Windows has
-#           build-video.bat, macOS build-ffmpeg-macos.sh.
+#           build-video.bat, macOS build-ffmpeg-macos.sh. Tried from
+#           yap's release mirror first, then BtbN's.
 #
 # Usage: scripts/build/fetch.sh <opus|sqlite|webp|lua|ffmpeg> <deps-dir>
 set -e
@@ -71,7 +72,8 @@ ffmpeg)
 	eval "$(tr -d '\r' <"$here/ffmpeg.version")"
 	dir=$ffmpeg_linux
 	file=$dir.tar.xz
-	url=https://github.com/BtbN/FFmpeg-Builds/releases/download/$ffmpeg_release/$file
+	# yap's own mirror first (it can't be pruned out from under us), then BtbN.
+	url="https://github.com/univrsal/yap/releases/download/$ffmpeg_mirror_tag/$file https://github.com/BtbN/FFmpeg-Builds/releases/download/$ffmpeg_release/$file"
 	sha=$ffmpeg_linux_sha256
 	marker=$dir/include
 	unpack=-xJf
@@ -88,7 +90,19 @@ if [ ! -e "$deps/$marker" ]; then
 	tarball=$deps/$file
 	if [ ! -f "$tarball" ]; then
 		echo "fetching $dir" >&2
-		curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$tarball.part" "$url"
+		got=
+		for u in $url; do
+			if curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$tarball.part" "$u"; then
+				got=1
+				break
+			fi
+			echo "fetch.sh: $u failed" >&2
+		done
+		if [ -z "$got" ]; then
+			echo "fetch.sh: couldn't download $file; see scripts/build/ffmpeg.version" >&2
+			rm -f "$tarball.part"
+			exit 1
+		fi
 		mv "$tarball.part" "$tarball"
 	fi
 	if command -v sha256sum >/dev/null; then
