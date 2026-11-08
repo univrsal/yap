@@ -30,12 +30,21 @@ add_account :: proc(v: ^conn.View, id: proto.Account_Id, name: string) {
 add_channel :: proc(v: ^conn.View, id: proto.Conv_Id, name: string, unread := 0, mentions := 0) {
 	append(
 		&v.channels,
-		conn.View_Channel{id = id, name = strings.clone(name), unread = unread, mentions = mentions},
+		conn.View_Channel {
+			id = id,
+			name = strings.clone(name),
+			unread = unread,
+			mentions = mentions,
+		},
 	)
 }
 
 // timeline_of gives the window of a conversation, made if there was none.
-timeline_of :: proc(v: ^conn.View, conv: proto.Conv_Id, root := proto.Msg_Id(0)) -> ^conn.View_Timeline {
+timeline_of :: proc(
+	v: ^conn.View,
+	conv: proto.Conv_Id,
+	root := proto.Msg_Id(0),
+) -> ^conn.View_Timeline {
 	key := conn.Timeline_Key{conv, root}
 	if key not_in v.timelines {
 		v.timelines[key] = {}
@@ -54,7 +63,10 @@ add_message :: proc(
 	text: string,
 ) -> ^conn.View_Message {
 	tl := timeline_of(v, conv)
-	append(&tl.messages, conn.View_Message{id = id, sender = sender, time = time, text = strings.clone(text)})
+	append(
+		&tl.messages,
+		conn.View_Message{id = id, sender = sender, time = time, text = strings.clone(text)},
+	)
 	tl.revision += 1
 	return &tl.messages[len(tl.messages) - 1]
 }

@@ -141,7 +141,13 @@ test_bot_commands_connections :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	id, _ := proto.decode_account_id(body)
-	status, _ = ts_ask(t, &ts, admin, .Bot_Token_Add, proto.encode_bot_token_add(buf[:], id, ts_bot_key(2), ""))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Bot_Token_Add,
+		proto.encode_bot_token_add(buf[:], id, ts_bot_key(2), ""),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	one := ts_connect(&ts, ts_bot_key(1))
 	two := ts_connect(&ts, ts_bot_key(2))
@@ -165,7 +171,13 @@ test_bot_commands_connections :: proc(t: ^testing.T) {
 
 	// Logging out, such as when the bot is disabled, ends them too.
 	disable_buf: [5]u8
-	status, _ = ts_ask(t, &ts, admin, .Account_Disable, proto.encode_account_disable(&disable_buf, id, true))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Disable,
+		proto.encode_account_disable(&disable_buf, id, true),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	_, lists = ts_commands_changed(t, ts_events(t, &ts, alice))
 	testing.expect_value(t, len(lists), 1)
@@ -399,7 +411,13 @@ test_command_run_routing :: proc(t: ^testing.T) {
 		proto.encode_bot_create(buf[:], "dicebot", "", ts_bot_key(1), ""),
 	)
 	bot_id, _ := proto.decode_account_id(body)
-	status, _ = ts_ask(t, &ts, admin, .Bot_Token_Add, proto.encode_bot_token_add(buf[:], bot_id, ts_bot_key(2), ""))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Bot_Token_Add,
+		proto.encode_bot_token_add(buf[:], bot_id, ts_bot_key(2), ""),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	old := ts_connect(&ts, ts_bot_key(1))
 	new := ts_connect(&ts, ts_bot_key(2))

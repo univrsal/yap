@@ -208,7 +208,14 @@ commands_set_run :: proc(c: ^Conn, j: ^Job) {
 		}
 		for other in list[:i] {
 			if other.name == name {
-				reply(j, error_reply(400, "invalid", fmt.tprintf("There are two commands called %q.", name)))
+				reply(
+					j,
+					error_reply(
+						400,
+						"invalid",
+						fmt.tprintf("There are two commands called %q.", name),
+					),
+				)
 				return
 			}
 		}

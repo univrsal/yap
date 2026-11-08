@@ -36,7 +36,15 @@ voice_users :: proc(v: ^conn.View, ch: conn.View_Channel) -> []Voice_User {
 		if acc, known := v.accounts[u.account]; known {
 			name = acc.display
 		}
-		append(&out, Voice_User{name = name, speaking = conn.is_speaking(v, num), muted = u.muted, deafened = u.deafened})
+		append(
+			&out,
+			Voice_User {
+				name = name,
+				speaking = conn.is_speaking(v, num),
+				muted = u.muted,
+				deafened = u.deafened,
+			},
+		)
 	}
 	return out[:]
 }
@@ -63,7 +71,10 @@ set_muted :: proc(a: ^App, muted: bool, feedback := true) {
 	}
 	a.muted = muted
 	for s, i in a.servers {
-		conn.push_command(&s.client.commands, conn.Mute_Command{muted = muted, feedback = feedback && i == a.cur})
+		conn.push_command(
+			&s.client.commands,
+			conn.Mute_Command{muted = muted, feedback = feedback && i == a.cur},
+		)
 	}
 	say(a, "Muted." if muted else "Unmuted.")
 }
@@ -79,16 +90,25 @@ set_deafened :: proc(a: ^App, deafened: bool) {
 		a.muted_before_deafen = a.muted
 		a.muted = true
 		for s in a.servers {
-			conn.push_command(&s.client.commands, conn.Mute_Command{muted = true, feedback = false})
+			conn.push_command(
+				&s.client.commands,
+				conn.Mute_Command{muted = true, feedback = false},
+			)
 		}
 	} else {
 		a.muted = a.muted_before_deafen
 		for s in a.servers {
-			conn.push_command(&s.client.commands, conn.Mute_Command{muted = a.muted, feedback = false})
+			conn.push_command(
+				&s.client.commands,
+				conn.Mute_Command{muted = a.muted, feedback = false},
+			)
 		}
 	}
 	for s, i in a.servers {
-		conn.push_command(&s.client.commands, conn.Deafen_Command{deafened = deafened, feedback = i == a.cur})
+		conn.push_command(
+			&s.client.commands,
+			conn.Deafen_Command{deafened = deafened, feedback = i == a.cur},
+		)
 	}
 	say(a, "Deafened." if deafened else "Hearing again.")
 }
@@ -197,7 +217,11 @@ can_call :: proc(a: ^App, account: proto.Account_Id) -> bool {
 // start_call calls somebody. Call with the View locked.
 start_call :: proc(a: ^App, account: proto.Account_Id) {
 	if !can_call(a, account) {
-		say(a, "That person can't be called now." if a.view.call.status == .None else "You are in a call already.", true)
+		say(
+			a,
+			"That person can't be called now." if a.view.call.status == .None else "You are in a call already.",
+			true,
+		)
 		return
 	}
 	push(a, conn.Call_Command{account = account})

@@ -50,8 +50,14 @@ test_snapshot_channels :: proc(t: ^testing.T) {
 	v.status = .Connected
 	v.login.state = .Done
 	v.my_name = strings.clone("anna")
-	append(&v.channels, conn.View_Channel{name = strings.clone("general"), unread = 3, mentions = 1})
-	append(&v.channels, conn.View_Channel{name = strings.clone("dev"), topic = strings.clone("code")})
+	append(
+		&v.channels,
+		conn.View_Channel{name = strings.clone("general"), unread = 3, mentions = 1},
+	)
+	append(
+		&v.channels,
+		conn.View_Channel{name = strings.clone("dev"), topic = strings.clone("code")},
+	)
 	text, failed := snapshot(&v)
 	defer delete(text)
 	testing.expect_value(

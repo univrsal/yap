@@ -91,7 +91,11 @@ test_no_sink_no_events :: proc(t: ^testing.T) {
 
 	event_connected(&tc.c)
 	event_disconnected(&tc.c, "gone")
-	tc_event(&tc, .Msg_New, message_body({id = 1, conv = 1, sender = 2, kind = .Text, text = "hi"}))
+	tc_event(
+		&tc,
+		.Msg_New,
+		message_body({id = 1, conv = 1, sender = 2, kind = .Text, text = "hi"}),
+	)
 	testing.expect_value(t, len(tc_events(&tc)), 0)
 }
 
@@ -132,9 +136,17 @@ test_message_event :: proc(t: ^testing.T) {
 
 	// A message that mentions us says so, shown with the display name instead of the token.
 	text := fmt.tprintf("hey %s, look", proto.mention_token(1))
-	tc_event(&tc, .Msg_New, message_body({id = 2, conv = 1, sender = 2, kind = .Text, text = text}))
+	tc_event(
+		&tc,
+		.Msg_New,
+		message_body({id = 2, conv = 1, sender = 2, kind = .Text, text = text}),
+	)
 	// Ours is ours.
-	tc_event(&tc, .Msg_New, message_body({id = 3, conv = 1, sender = 1, kind = .Text, text = "mine"}))
+	tc_event(
+		&tc,
+		.Msg_New,
+		message_body({id = 3, conv = 1, sender = 1, kind = .Text, text = "mine"}),
+	)
 	events = tc_events(&tc)
 	testing.expect_value(t, len(events), 2)
 	if len(events) == 2 {
@@ -150,7 +162,11 @@ test_message_event :: proc(t: ^testing.T) {
 
 	// The same message arriving again (once as our post's answer, once as the
 	// announcement) is told once.
-	tc_event(&tc, .Msg_New, message_body({id = 3, conv = 1, sender = 1, kind = .Text, text = "mine"}))
+	tc_event(
+		&tc,
+		.Msg_New,
+		message_body({id = 3, conv = 1, sender = 1, kind = .Text, text = "mine"}),
+	)
 	testing.expect_value(t, len(tc_events(&tc)), 0)
 }
 

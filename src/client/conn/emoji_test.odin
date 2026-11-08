@@ -10,7 +10,11 @@ import "common:proto"
 
 @(private = "file")
 sheet_body :: proc(sheet: proto.Emoji_Sheet) -> []u8 {
-	out := make([]u8, proto.emoji_sheet_max_size(len(sheet.names), len(sheet.animated)), context.temp_allocator)
+	out := make(
+		[]u8,
+		proto.emoji_sheet_max_size(len(sheet.names), len(sheet.animated)),
+		context.temp_allocator,
+	)
 	return proto.encode_emoji_sheet(out, sheet)
 }
 
@@ -73,7 +77,11 @@ test_emoji_sheet_replaces_the_old_one :: proc(t: ^testing.T) {
 	defer blobs_destroy(&tc.c)
 	c := &tc.c
 
-	tc_event(&tc, .Emoji_Sheet, sheet_body({blob = 900, size = 100, cell = 32, names = {"a", "b"}}))
+	tc_event(
+		&tc,
+		.Emoji_Sheet,
+		sheet_body({blob = 900, size = 100, cell = 32, names = {"a", "b"}}),
+	)
 	tc_event(&tc, .Emoji_Sheet, sheet_body({blob = 910, size = 100, cell = 24, names = {"c"}}))
 	testing.expect_value(t, c.emoji.blob, proto.Blob_Id(910))
 	testing.expect_value(t, c.emoji.cell, 24)
@@ -127,7 +135,11 @@ test_typed_text_is_stored_as_tokens :: proc(t: ^testing.T) {
 	testing.expect_value(t, typed_text(c, "@alice hi"), "<@2> hi")
 	testing.expect_value(t, typed_text(c, "well done :tada:"), "well done 🎉")
 	testing.expect_value(t, typed_text(c, "party :party: time"), "party :party: time")
-	testing.expect_value(t, typed_text(c, "@alice :tada: :party: :nonsense:"), "<@2> 🎉 :party: :nonsense:")
+	testing.expect_value(
+		t,
+		typed_text(c, "@alice :tada: :party: :nonsense:"),
+		"<@2> 🎉 :party: :nonsense:",
+	)
 	// Not a name that exists, not a shortcode.
 	testing.expect_value(t, typed_text(c, "@nobody and a:b"), "@nobody and a:b")
 	testing.expect_value(t, typed_text(c, ""), "")

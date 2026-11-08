@@ -2265,7 +2265,10 @@ test_gateway_commands :: proc(t: ^testing.T) {
 		&ts,
 		admin,
 		.Command_Run,
-		proto.encode_command_run(run_buf[:], {conv = home, account = bot, name = "roll", args = "2d6"}),
+		proto.encode_command_run(
+			run_buf[:],
+			{conv = home, account = bot, name = "roll", args = "2d6"},
+		),
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	ws_wait_for(t, &ts, w, "COMMAND", "")
@@ -2429,8 +2432,8 @@ test_gateway_upload_cut_short :: proc(t: ^testing.T) {
 		return
 	}
 	testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
-		return len(s.attach.uploads) == 0
-	}), "the server kept the upload")
+			return len(s.attach.uploads) == 0
+		}), "the server kept the upload")
 
 	gt_run(t, ts, &f.h, f.token, {{"GET", "/api/v1/me", "", 200}})
 }
@@ -2459,8 +2462,8 @@ test_gateway_upload_cancelled :: proc(t: ^testing.T) {
 	// As soon as the server has accepted it, and before any of it has
 	// arrived, the server gives up on it.
 	if testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
-		return len(s.attach.uploads) == 1
-	})) {
+			return len(s.attach.uploads) == 1
+		})) {
 		for _, up in s.attach.uploads {
 			buf: [proto.TRANSFER_CANCEL_SIZE]u8
 			cancel := proto.encode_transfer_cancel(&buf, up.id, .Failed)
@@ -2542,8 +2545,8 @@ test_gateway_download_cut_short :: proc(t: ^testing.T) {
 		return
 	}
 	testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
-		return len(s.attach.downloads) == 0
-	}), "the server kept sending the attachment")
+			return len(s.attach.downloads) == 0
+		}), "the server kept sending the attachment")
 }
 
 // Uploads refused before their body is read. A small body is read anyway so

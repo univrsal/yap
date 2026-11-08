@@ -61,10 +61,13 @@ cli_file_save :: proc(path: string, f: Cli_File) -> bool {
 	if path == "" {
 		return false
 	}
-	data, err := json.marshal(f, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
+	data, err := json.marshal(
+		f,
+		{pretty = true, use_spaces = true, spaces = 2},
+		context.temp_allocator,
+	)
 	if err != nil {
 		return false
 	}
 	return common.store_write(path, string(data), private = true)
 }
-

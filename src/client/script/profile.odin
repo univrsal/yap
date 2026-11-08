@@ -19,8 +19,8 @@
 // reading more than it did.
 package script
 
-import "core:fmt"
 import log "common:wlog"
+import "core:fmt"
 import "core:slice"
 import "core:strings"
 import "core:time"

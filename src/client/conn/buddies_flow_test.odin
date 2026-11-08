@@ -189,7 +189,7 @@ test_group_command :: proc(t: ^testing.T) {
 	// By accounts.
 	cmd := Group_Command {
 		accounts = {0 = 2, 1 = 3, 2 = 4},
-		count    = 3,
+		count = 3,
 	}
 	group_command(c, cmd)
 	r, ok = tc_one(t, &tc, .Group_Open)
@@ -348,7 +348,11 @@ test_last_seen_command :: proc(t: ^testing.T) {
 	out: [256]u8
 	body := proto.encode_last_seen_answer(
 		out[:],
-		{{account = 2, time = 123456}, {account = 3, time = proto.LAST_SEEN_HIDDEN}, {account = 4, time = 0}},
+		{
+			{account = 2, time = 123456},
+			{account = 3, time = proto.LAST_SEEN_HIDDEN},
+			{account = 4, time = 0},
+		},
 	)
 	tc_answer(&tc, r.id, .Ok, body)
 	testing.expect_value(t, v.last_seen[2], proto.Unix_Ms(123456))
@@ -358,7 +362,7 @@ test_last_seen_command :: proc(t: ^testing.T) {
 	// Several at once; unknown names and an empty request send nothing.
 	cmd := Last_Seen_Command {
 		accounts = {0 = 2, 1 = 3},
-		count    = 2,
+		count = 2,
 	}
 	last_seen_command(c, cmd)
 	r, _ = tc_one(t, &tc, .Last_Seen)

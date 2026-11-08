@@ -38,7 +38,10 @@ test_role_events :: proc(t: ^testing.T) {
 	defer tc_close(&tc)
 	c := &tc.c
 
-	role_event(&tc, {id = 10, name = "Moderator", perms = {.Ban_Members, .Mute_Members}, position = 1})
+	role_event(
+		&tc,
+		{id = 10, name = "Moderator", perms = {.Ban_Members, .Mute_Members}, position = 1},
+	)
 	role_event(&tc, {id = 11, name = "Helper", perms = {.Invite}, position = 2})
 	testing.expect_value(t, len(c.auth.roles), 2)
 	testing.expect_value(t, c.auth.roles[10].name, "Moderator")
@@ -81,10 +84,27 @@ test_role_commands :: proc(t: ^testing.T) {
 	v := open_admin(&tc)
 	defer tc_close(&tc)
 	c := &tc.c
-	role_event(&tc, {id = 10, name = "Mods", perms = {.Ban_Members}, color = proto.ROLE_COLOR_SET | 0xff8800, flags = {}})
+	role_event(
+		&tc,
+		{
+			id = 10,
+			name = "Mods",
+			perms = {.Ban_Members},
+			color = proto.ROLE_COLOR_SET | 0xff8800,
+			flags = {},
+		},
+	)
 
 	// Making a role.
-	role_set(c, {id = 0, name = "Helpers", perms = {.Invite, .Pin_Messages}, color = proto.ROLE_COLOR_SET | 0x112233})
+	role_set(
+		c,
+		{
+			id = 0,
+			name = "Helpers",
+			perms = {.Invite, .Pin_Messages},
+			color = proto.ROLE_COLOR_SET | 0x112233,
+		},
+	)
 	r, ok := tc_one(t, &tc, .Role_Set)
 	testing.expect(t, ok)
 	role, role_ok := proto.decode_role(r.body)
@@ -197,7 +217,17 @@ test_account_role_commands :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 
 	// More roles than an account can have: nothing is sent.
-	account_roles_set(c, {name = "alice", role_names = strings.repeat("mods,", proto.MAX_ACCOUNT_ROLES + 1, context.temp_allocator)})
+	account_roles_set(
+		c,
+		{
+			name = "alice",
+			role_names = strings.repeat(
+				"mods,",
+				proto.MAX_ACCOUNT_ROLES + 1,
+				context.temp_allocator,
+			),
+		},
+	)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 }
 
@@ -427,7 +457,11 @@ test_server_mute :: proc(t: ^testing.T) {
 	buf: [512]u8
 	tc_event(&tc, .Account_Changed, proto.encode_account(buf[:], account))
 	testing.expect(t, server_muted(c))
-	testing.expect_value(t, v.notice.text, "A moderator muted you on this server. Nobody here hears you.")
+	testing.expect_value(
+		t,
+		v.notice.text,
+		"A moderator muted you on this server. Nobody here hears you.",
+	)
 	testing.expect(t, !v.notice.ok)
 
 	account.flags = {}

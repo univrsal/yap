@@ -1,9 +1,9 @@
 #+build !wasi
 package conn
 
-import "core:log"
 import "core:crypto/ecdh"
 import "core:fmt"
+import "core:log"
 import "core:net"
 import "core:strings"
 import "core:testing"
@@ -135,11 +135,7 @@ tc_sent :: proc(t: ^testing.T, tc: ^Test_Conn) -> []Test_Request {
 		if !ok {
 			break
 		}
-		testing.expect_value(
-			t,
-			proto.stream_receive(&tc.peer, frame),
-			proto.Stream_Error.None,
-		)
+		testing.expect_value(t, proto.stream_receive(&tc.peer, frame), proto.Stream_Error.None)
 		ack_buf: [proto.STREAM_ACK_SIZE]u8
 		if ack, due := proto.stream_ack(&tc.peer, &ack_buf); due {
 			proto.stream_acked(&tc.c.stream, ack)
@@ -183,7 +179,14 @@ tc_view :: proc(tc: ^Test_Conn) -> ^View {
 
 // tc_one returns the only request the client has sent, and fails if it sent
 // another number.
-tc_one :: proc(t: ^testing.T, tc: ^Test_Conn, op: proto.Request_Op) -> (r: Test_Request, ok: bool) {
+tc_one :: proc(
+	t: ^testing.T,
+	tc: ^Test_Conn,
+	op: proto.Request_Op,
+) -> (
+	r: Test_Request,
+	ok: bool,
+) {
 	sent := tc_sent(t, tc)
 	if len(sent) != 1 {
 		testing.expectf(t, false, "expected one %v request, got %d", op, len(sent))
@@ -313,12 +316,12 @@ tc_message_with_files :: proc(
 		tc.c.msgs.caches[key] = cache
 	}
 	m := Msg {
-		id    = id,
+		id     = id,
 		sender = 2,
-		kind  = .Text,
-		flags = {.Has_Attachments},
-		text  = strings.clone("files"),
-		files = make([]Msg_File, len(files)),
+		kind   = .Text,
+		flags  = {.Has_Attachments},
+		text   = strings.clone("files"),
+		files  = make([]Msg_File, len(files)),
 	}
 	for f, i in files {
 		m.files[i] = f

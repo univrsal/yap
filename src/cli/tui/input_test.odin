@@ -37,7 +37,16 @@ rn :: proc(r: rune, mods := Mods{}) -> Event {
 test_plain_keys :: proc(t: ^testing.T) {
 	ev := decode_all("ab é日\r\t\x7f")
 	defer free_events(ev)
-	want := [?]Event{rn('a'), rn('b'), rn(' '), rn('é'), rn('日'), key(.Enter), key(.Tab), key(.Backspace)}
+	want := [?]Event {
+		rn('a'),
+		rn('b'),
+		rn(' '),
+		rn('é'),
+		rn('日'),
+		key(.Enter),
+		key(.Tab),
+		key(.Backspace),
+	}
 	testing.expect_value(t, len(ev), len(want))
 	for w, i in want {
 		testing.expect_value(t, ev[i], w)
@@ -56,12 +65,25 @@ test_control_keys :: proc(t: ^testing.T) {
 
 @(test)
 test_arrows_and_friends :: proc(t: ^testing.T) {
-	ev := decode_all("\x1b[A\x1b[B\x1b[C\x1b[D\x1b[H\x1b[F\x1b[5~\x1b[6~\x1b[3~\x1b[2~\x1b[15~\x1b[24~\x1bOP\x1b[Z")
+	ev := decode_all(
+		"\x1b[A\x1b[B\x1b[C\x1b[D\x1b[H\x1b[F\x1b[5~\x1b[6~\x1b[3~\x1b[2~\x1b[15~\x1b[24~\x1bOP\x1b[Z",
+	)
 	defer free_events(ev)
 	want := [?]Event {
-		key(.Up), key(.Down), key(.Right), key(.Left), key(.Home), key(.End),
-		key(.Page_Up), key(.Page_Down), key(.Delete), key(.Insert), key(.F5), key(.F12),
-		key(.F1), key(.Tab, {.Shift}),
+		key(.Up),
+		key(.Down),
+		key(.Right),
+		key(.Left),
+		key(.Home),
+		key(.End),
+		key(.Page_Up),
+		key(.Page_Down),
+		key(.Delete),
+		key(.Insert),
+		key(.F5),
+		key(.F12),
+		key(.F1),
+		key(.Tab, {.Shift}),
 	}
 	testing.expect_value(t, len(ev), len(want))
 	for w, i in want {

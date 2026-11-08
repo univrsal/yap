@@ -87,9 +87,18 @@ test_file_openable :: proc(t: ^testing.T) {
 test_find_links_long_input :: proc(t: ^testing.T) {
 	cases := [?]string {
 		// Closing brackets cut off one at a time used to be counted again each time.
-		strings.concatenate({"https://a", strings.repeat(")", 60000, context.temp_allocator)}, context.temp_allocator),
-		strings.concatenate({"https://a(", strings.repeat("]", 60000, context.temp_allocator)}, context.temp_allocator),
-		strings.concatenate({"www.a", strings.repeat(".", 60000, context.temp_allocator)}, context.temp_allocator),
+		strings.concatenate(
+			{"https://a", strings.repeat(")", 60000, context.temp_allocator)},
+			context.temp_allocator,
+		),
+		strings.concatenate(
+			{"https://a(", strings.repeat("]", 60000, context.temp_allocator)},
+			context.temp_allocator,
+		),
+		strings.concatenate(
+			{"www.a", strings.repeat(".", 60000, context.temp_allocator)},
+			context.temp_allocator,
+		),
 		strings.repeat("www.a ", 10000, context.temp_allocator),
 		strings.repeat("http://", 8000, context.temp_allocator),
 	}

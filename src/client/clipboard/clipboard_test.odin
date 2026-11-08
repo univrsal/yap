@@ -235,7 +235,9 @@ test_decode_other_formats_are_refused :: proc(t: ^testing.T) {
 	_, err := decode(ppm)
 	testing.expect_value(t, err, Error.Decode_Failed)
 
-	hdr := transmute([]u8)string("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n\x80\x80\x80\x80")
+	hdr := transmute([]u8)string(
+		"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n\x80\x80\x80\x80",
+	)
 	_, err = decode(hdr)
 	testing.expect_value(t, err, Error.Decode_Failed)
 

@@ -37,7 +37,13 @@ notices_update :: proc(a: ^App, mentions: []conn.View_Mention) {
 		if (m.dm || m.group) && m.conv == v.viewing && a.scroll == 0 {
 			continue
 		}
-		append(&a.notices, Notice{strings.clone(conn.mention_title(m, on)), strings.clone(richtext.markdown_plain(m.text))})
+		append(
+			&a.notices,
+			Notice {
+				strings.clone(conn.mention_title(m, on)),
+				strings.clone(richtext.markdown_plain(m.text)),
+			},
+		)
 	}
 	switch v.call.status {
 	case .Ringing_In:
@@ -47,7 +53,13 @@ notices_update :: proc(a: ^App, mentions: []conn.View_Mention) {
 			if acc, ok := v.accounts[v.call.peer]; ok {
 				name = acc.display
 			}
-			append(&a.notices, Notice{fmt.aprintf("%s is calling you%s", name, on), strings.clone("/answer to pick up, /hangup to decline")})
+			append(
+				&a.notices,
+				Notice {
+					fmt.aprintf("%s is calling you%s", name, on),
+					strings.clone("/answer to pick up, /hangup to decline"),
+				},
+			)
 		}
 	case .None:
 		a.call_announced = 0
@@ -113,7 +125,13 @@ notices_background :: proc(a: ^App) {
 		defer sync.mutex_unlock(&s.view.mutex)
 		on := fmt.tprintf(" on %s", server_name(s.view))
 		for m in mentions {
-			append(&a.notices, Notice{strings.clone(conn.mention_title(m, on)), strings.clone(richtext.markdown_plain(m.text))})
+			append(
+				&a.notices,
+				Notice {
+					strings.clone(conn.mention_title(m, on)),
+					strings.clone(richtext.markdown_plain(m.text)),
+				},
+			)
 		}
 		#partial switch s.view.call.status {
 		case .Ringing_In:
@@ -123,7 +141,13 @@ notices_background :: proc(a: ^App) {
 				if acc, ok := s.view.accounts[s.view.call.peer]; ok {
 					name = acc.display
 				}
-				append(&a.notices, Notice{fmt.aprintf("%s is calling you%s", name, on), strings.clone("switch to that server and /answer")})
+				append(
+					&a.notices,
+					Notice {
+						fmt.aprintf("%s is calling you%s", name, on),
+						strings.clone("switch to that server and /answer"),
+					},
+				)
 			}
 		case .None:
 			s.ui.call_announced = 0

@@ -93,7 +93,12 @@ test_parse_request_content_length :: proc(t: ^testing.T) {
 		size:  int,
 	}{{"0", 0}, {"7", 7}, {"007", 7}, {"1048576", 1048576}, {"999999999999999", 999999999999999}}
 	for g in good {
-		req, ok := parse_request(strings.concatenate({"POST / HTTP/1.1\r\nContent-Length: ", g.value}, context.temp_allocator))
+		req, ok := parse_request(
+			strings.concatenate(
+				{"POST / HTTP/1.1\r\nContent-Length: ", g.value},
+				context.temp_allocator,
+			),
+		)
 		testing.expectf(t, ok, "%q was refused", g.value)
 		testing.expect_value(t, req.content_length, g.size)
 	}
@@ -112,7 +117,12 @@ test_parse_request_content_length :: proc(t: ^testing.T) {
 			"9999999999999999", // too long to be sure it can't wrap
 			"99999999999999999999999999",
 		}) {
-		_, ok := parse_request(strings.concatenate({"POST / HTTP/1.1\r\nContent-Length: ", bad}, context.temp_allocator))
+		_, ok := parse_request(
+			strings.concatenate(
+				{"POST / HTTP/1.1\r\nContent-Length: ", bad},
+				context.temp_allocator,
+			),
+		)
 		testing.expectf(t, !ok, "%q was accepted", bad)
 	}
 
@@ -261,7 +271,24 @@ test_status_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, status_line(429), "429 Too Many Requests")
 	// What it doesn't know reads as a server error, with the code it was given.
 	testing.expect_value(t, status_line(418), "418 Internal Server Error")
-	for code in ([]int{200, 201, 204, 400, 401, 403, 404, 405, 409, 410, 411, 413, 429, 501, 502, 503}) {
+	for code in ([]int {
+			200,
+			201,
+			204,
+			400,
+			401,
+			403,
+			404,
+			405,
+			409,
+			410,
+			411,
+			413,
+			429,
+			501,
+			502,
+			503,
+		}) {
 		line := status_line(code)
 		testing.expectf(t, !strings.contains(line, "Internal"), "%d has no reason", code)
 	}
@@ -274,7 +301,10 @@ test_accept_key :: proc(t: ^testing.T) {
 	// The example of RFC 6455, section 1.3.
 	testing.expect_value(t, accept_key("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
 	// It depends on the whole key.
-	testing.expect(t, accept_key("dGhlIHNhbXBsZSBub25jZQ=") != accept_key("dGhlIHNhbXBsZSBub25jZQ=="))
+	testing.expect(
+		t,
+		accept_key("dGhlIHNhbXBsZSBub25jZQ=") != accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
+	)
 	testing.expect_value(t, len(accept_key("")), 28)
 }
 
@@ -444,7 +474,11 @@ test_read_head_refuses :: proc(t: ^testing.T) {
 	// A head that never ends doesn't use up more than the buffer.
 	p := pair_open(t)
 	defer pair_close(p)
-	long := strings.repeat("X-Padding: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n", 300, context.temp_allocator)
+	long := strings.repeat(
+		"X-Padding: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n",
+		300,
+		context.temp_allocator,
+	)
 	send(t, p, "GET / HTTP/1.1\r\n")
 	send(t, p, long)
 	_, ok := read_head(&p.server)
@@ -453,8 +487,16 @@ test_read_head_refuses :: proc(t: ^testing.T) {
 	// A head that is just under the limit still fits.
 	q := pair_open(t)
 	defer pair_close(q)
-	pad := strings.repeat("a", MAX_HEAD - len("GET / HTTP/1.1\r\nX: \r\n\r\n"), context.temp_allocator)
-	send(t, q, strings.concatenate({"GET / HTTP/1.1\r\nX: ", pad, "\r\n\r\n"}, context.temp_allocator))
+	pad := strings.repeat(
+		"a",
+		MAX_HEAD - len("GET / HTTP/1.1\r\nX: \r\n\r\n"),
+		context.temp_allocator,
+	)
+	send(
+		t,
+		q,
+		strings.concatenate({"GET / HTTP/1.1\r\nX: ", pad, "\r\n\r\n"}, context.temp_allocator),
+	)
 	_, ok = read_head(&q.server)
 	testing.expect(t, ok)
 
@@ -517,7 +559,14 @@ test_respond :: proc(t: ^testing.T) {
 	testing.expect(t, respond(p.server.sock, 404, "application/json", `{"error":"x"}`))
 	testing.expect(
 		t,
-		respond(p.server.sock, 200, "text/plain", "hi", keep_alive = true, extra = "X-Extra: 1\r\n"),
+		respond(
+			p.server.sock,
+			200,
+			"text/plain",
+			"hi",
+			keep_alive = true,
+			extra = "X-Extra: 1\r\n",
+		),
 	)
 	net.close(p.server.sock)
 	p.server.sock = NO_SOCKET

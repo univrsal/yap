@@ -1,10 +1,10 @@
 package server
 
-import "core:log"
-import "core:strings"
 import "core:crypto/ecdh"
+import "core:log"
 import "core:net"
 import "core:os"
+import "core:strings"
 import "core:testing"
 import "core:time"
 

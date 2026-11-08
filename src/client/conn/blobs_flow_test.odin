@@ -231,7 +231,14 @@ test_a_picture_that_is_not_what_it_was_said_to_be :: proc(t: ^testing.T) {
 			tc_answer(&tc, req.id, k.status, []u8{1, 2})
 		}
 		// Given up on, and not asked for again; the next picture is.
-		testing.expectf(t, c.blobs.cache[11].state == .Gone, "%v %d: %v", k.status, k.size, c.blobs.cache[11].state)
+		testing.expectf(
+			t,
+			c.blobs.cache[11].state == .Gone,
+			"%v %d: %v",
+			k.status,
+			k.size,
+			c.blobs.cache[11].state,
+		)
 		testing.expect_value(t, v.blobs[11].state, Image_State.Gone)
 		testing.expect_value(t, c.blobs.active, proto.Blob_Id(0))
 		blobs_step(c)

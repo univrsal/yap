@@ -218,7 +218,13 @@ test_names_alike :: proc(t: ^testing.T) {
 		testing.expectf(t, names_alike(c.a, c.b), "%q and %q look alike", c.a, c.b)
 	}
 	// And names that don't.
-	different := [?]Pair{{"Alice", "Alicia"}, {"Alice", "Bob"}, {"Zoë", "Zoe"}, {"", "Alice"}, {"a b", "ab"}}
+	different := [?]Pair {
+		{"Alice", "Alicia"},
+		{"Alice", "Bob"},
+		{"Zoë", "Zoe"},
+		{"", "Alice"},
+		{"a b", "ab"},
+	}
 	for c in different {
 		testing.expectf(t, !names_alike(c.a, c.b), "%q and %q don't", c.a, c.b)
 	}

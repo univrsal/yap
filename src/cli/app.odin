@@ -116,58 +116,56 @@ Server_UI :: struct {
 
 App :: struct {
 	// The server shown (servers[cur]).
-	view:          ^conn.View,
-	client:        ^conn.Server_Conn, // what commands are queued for
-	using ui:      Server_UI, // ... and what is kept for it
-	servers:       [dynamic]^Server,
-	cur:           int,
-	requests:      [dynamic]Server_Request, // asked of the loop, which owns the connections
-	scripts:       ^script.Runtime, // nil if there are none
-
-	known_servers: string, // the file of trusted server keys, to trust a new key into
-	device:        string, // what to call this device when logging in
-	tz:            ^datetime.TZ_Region,
-	quit:          bool,
-	images:        bool, // pictures in messages are drawn
-	again:         bool, // the loop should come round again at once
+	view:                ^conn.View,
+	client:              ^conn.Server_Conn, // what commands are queued for
+	using ui:            Server_UI, // ... and what is kept for it
+	servers:             [dynamic]^Server,
+	cur:                 int,
+	requests:            [dynamic]Server_Request, // asked of the loop, which owns the connections
+	scripts:             ^script.Runtime, // nil if there are none
+	known_servers:       string, // the file of trusted server keys, to trust a new key into
+	device:              string, // what to call this device when logging in
+	tz:                  ^datetime.TZ_Region,
+	quit:                bool,
+	images:              bool, // pictures in messages are drawn
+	again:               bool, // the loop should come round again at once
 	// What the user chose for their voice, on every server.
-	muted:         bool,
-	deafened:      bool,
+	muted:               bool,
+	deafened:            bool,
 	muted_before_deafen: bool,
-	voice_settings: Voice_Settings,
-	cli_path:      string, // cli.json, "" to not save
-	saved_servers: [dynamic]Saved_Server, // added here: connected to at the next start
-	hidden:        [dynamic]string, // of the window client's, taken away here
-	gui_joined:    [dynamic]string, // the window client's joined servers
-	input_devices: [dynamic]string, // listed by the loop when the settings are opened
-	output_devices: [dynamic]string,
-	want_devices:  bool,
-	devices_changed: bool,
-	audio_error:   string, // why there is no sound, if there is none (owned)
-
-	size:          [2]int,
-	channel_w:     int,
-	hide_members:  bool, // the member list is on unless asked off
-	list_overlay:  bool, // on a narrow screen, the channel list is shown over the messages
-	drag:          Drag,
-	sel:           Selection,
-	press:         Maybe(Press), // a click on a message that may turn into a drag
-	frame:         ^tui.Buffer, // the screen as last drawn, for copying from
-	notice:        string, // owned
-	notice_error:  bool,
-	notice_at:     time.Tick,
+	voice_settings:      Voice_Settings,
+	cli_path:            string, // cli.json, "" to not save
+	saved_servers:       [dynamic]Saved_Server, // added here: connected to at the next start
+	hidden:              [dynamic]string, // of the window client's, taken away here
+	gui_joined:          [dynamic]string, // the window client's joined servers
+	input_devices:       [dynamic]string, // listed by the loop when the settings are opened
+	output_devices:      [dynamic]string,
+	want_devices:        bool,
+	devices_changed:     bool,
+	audio_error:         string, // why there is no sound, if there is none (owned)
+	size:                [2]int,
+	channel_w:           int,
+	hide_members:        bool, // the member list is on unless asked off
+	list_overlay:        bool, // on a narrow screen, the channel list is shown over the messages
+	drag:                Drag,
+	sel:                 Selection,
+	press:               Maybe(Press), // a click on a message that may turn into a drag
+	frame:               ^tui.Buffer, // the screen as last drawn, for copying from
+	notice:              string, // owned
+	notice_error:        bool,
+	notice_at:           time.Tick,
 
 	// Windows over the screen.
-	dialog:        Dialog,
-	menu:          Menu,
+	dialog:              Dialog,
+	menu:                Menu,
 
 	// Where things are, as of the last frame.
-	hits:          [dynamic]Hit,
-	cursor:        [2]int, // where the text cursor goes
-	cursor_shown:  bool,
-	notices:       [dynamic]Notice, // for the loop to announce
-	title:         string, // the window's title (owned)
-	clipboard:     string, // asked to be copied (owned); the loop writes it out
+	hits:                [dynamic]Hit,
+	cursor:              [2]int, // where the text cursor goes
+	cursor_shown:        bool,
+	notices:             [dynamic]Notice, // for the loop to announce
+	title:               string, // the window's title (owned)
+	clipboard:           string, // asked to be copied (owned); the loop writes it out
 }
 
 // The member list needs this much room, and is this wide.
@@ -244,19 +242,19 @@ tick_since :: proc(t: time.Tick) -> time.Duration {
 }
 
 Geometry :: struct {
-	channels: tui.Rect, // empty when hidden
-	overlay:  bool, // the list is over the messages, not beside them
-	border:   tui.Rect,
-	thread:   tui.Rect, // the open thread, empty when none
-	thread_border: tui.Rect,
-	thread_over: bool, // it covers the messages (on a screen too narrow to share)
-	members:  tui.Rect, // the list of who is here, empty when hidden
+	channels:       tui.Rect, // empty when hidden
+	overlay:        bool, // the list is over the messages, not beside them
+	border:         tui.Rect,
+	thread:         tui.Rect, // the open thread, empty when none
+	thread_border:  tui.Rect,
+	thread_over:    bool, // it covers the messages (on a screen too narrow to share)
+	members:        tui.Rect, // the list of who is here, empty when hidden
 	members_border: tui.Rect,
-	title:    tui.Rect,
-	timeline: tui.Rect,
-	info:     tui.Rect,
-	composer: tui.Rect,
-	status:   tui.Rect,
+	title:          tui.Rect,
+	timeline:       tui.Rect,
+	info:           tui.Rect,
+	composer:       tui.Rect,
+	status:         tui.Rect,
 }
 
 // COMPOSER_MAX is the most lines the message box grows to.
@@ -336,7 +334,14 @@ find_message :: proc(a: ^App, id: proto.Msg_Id) -> (^conn.View_Message, bool) {
 }
 
 @(private = "file")
-find_in :: proc(v: ^conn.View, key: conn.Timeline_Key, id: proto.Msg_Id) -> (^conn.View_Message, bool) {
+find_in :: proc(
+	v: ^conn.View,
+	key: conn.Timeline_Key,
+	id: proto.Msg_Id,
+) -> (
+	^conn.View_Message,
+	bool,
+) {
 	tl, have := &v.timelines[key]
 	if !have {
 		return nil, false
@@ -444,7 +449,8 @@ app_sync :: proc(a: ^App, mentions: []conn.View_Mention) {
 		ask_for_pictures(a, &a.thread_layout)
 		trows := len(a.thread_layout.rows)
 		a.thread_scroll = clamp(a.thread_scroll, 0, max(trows - (g.thread.h - 1), 0))
-		if ttl, ok := &v.timelines[tkey]; ok && !ttl.loading && len(ttl.messages) > 0 && !ttl.have_oldest {
+		if ttl, ok := &v.timelines[tkey];
+		   ok && !ttl.loading && len(ttl.messages) > 0 && !ttl.have_oldest {
 			if a.thread_scroll + g.thread.h - 1 >= trows && a.thread_asked != ttl.messages[0].id {
 				a.thread_asked = ttl.messages[0].id
 				push(a, conn.History_Command{conv = a.viewing, root = a.thread})
@@ -461,10 +467,14 @@ app_sync :: proc(a: ^App, mentions: []conn.View_Mention) {
 	if have && a.viewing != 0 && !tl.loading && len(tl.messages) > 0 {
 		// Near the top of what we have, ask for older messages; at the bottom of
 		// a window that stops short, newer ones.
-		if !tl.have_oldest && a.scroll + g.timeline.h >= rows && a.asked_older != tl.messages[0].id {
+		if !tl.have_oldest &&
+		   a.scroll + g.timeline.h >= rows &&
+		   a.asked_older != tl.messages[0].id {
 			a.asked_older = tl.messages[0].id
 			push(a, conn.History_Command{conv = a.viewing})
-		} else if !tl.have_newest && a.scroll == 0 && a.asked_newer != tl.messages[len(tl.messages) - 1].id {
+		} else if !tl.have_newest &&
+		   a.scroll == 0 &&
+		   a.asked_newer != tl.messages[len(tl.messages) - 1].id {
 			a.asked_newer = tl.messages[len(tl.messages) - 1].id
 			push(a, conn.History_Command{conv = a.viewing, newer = true})
 		}

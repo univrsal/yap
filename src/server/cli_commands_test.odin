@@ -102,10 +102,19 @@ test_purge_arguments :: proc(t: ^testing.T) {
 	testing.expect_value(t, run_purge_command({"-y", "files"}), 2)
 	// A date that isn't one.
 	for bad in ([]string{"yesterday", "2026-13-01", "-3d", "d", "2026-02-30"}) {
-		testing.expectf(t, run_purge_command({"all", bad, "-y", r.config}) == 2, "%q was taken for a date", bad)
+		testing.expectf(
+			t,
+			run_purge_command({"all", bad, "-y", r.config}) == 2,
+			"%q was taken for a date",
+			bad,
+		)
 	}
 	// No config.
-	testing.expect_value(t, run_purge_command({"all", "30d", "-y", file_in(r.dir, "missing.json")}), 2)
+	testing.expect_value(
+		t,
+		run_purge_command({"all", "30d", "-y", file_in(r.dir, "missing.json")}),
+		2,
+	)
 }
 
 @(test)
@@ -119,8 +128,20 @@ test_purge_unknown_targets :: proc(t: ^testing.T) {
 	seed_messages(t, r)
 	before := messages_left(t, r)
 
-	for target in ([]string{"nowhere", "#nowhere", "nobody+bob", "admin+bob+nobody", "admin+admin2", "bob+carol"}) {
-		testing.expectf(t, run_purge_command({target, "0d", "-y", r.config}) == 1, "%q was purged", target)
+	for target in ([]string {
+			"nowhere",
+			"#nowhere",
+			"nobody+bob",
+			"admin+bob+nobody",
+			"admin+admin2",
+			"bob+carol",
+		}) {
+		testing.expectf(
+			t,
+			run_purge_command({target, "0d", "-y", r.config}) == 1,
+			"%q was purged",
+			target,
+		)
 	}
 	testing.expect_value(t, messages_left(t, r), before)
 }
@@ -245,7 +266,11 @@ test_import_arguments_that_are_wrong :: proc(t: ^testing.T) {
 	}
 	// What is wrong is the user's: a bad export folder is 2, as are bad arguments.
 	testing.expect_value(t, run_import_command({"slack"}), 2)
-	testing.expect_value(t, run_import_command({"mattermost", "/nonexistent-folder", "--team", "t"}), 2)
+	testing.expect_value(
+		t,
+		run_import_command({"mattermost", "/nonexistent-folder", "--team", "t"}),
+		2,
+	)
 }
 
 // ---- email and push, before anything leaves the machine ----

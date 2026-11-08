@@ -29,10 +29,14 @@ INFO_TITLES := [Info_Kind]string {
 // open_info asks for a list and opens its dialog.
 open_info :: proc(a: ^App, kind: Info_Kind) {
 	switch kind {
-	case .Roles: push(a, conn.Roles_Command{})
-	case .Bans: push(a, conn.Bans_Command{})
-	case .Invites: push(a, conn.Invites_Command{})
-	case .Devices: push(a, conn.Devices_Command{})
+	case .Roles:
+		push(a, conn.Roles_Command{})
+	case .Bans:
+		push(a, conn.Bans_Command{})
+	case .Invites:
+		push(a, conn.Invites_Command{})
+	case .Devices:
+		push(a, conn.Devices_Command{})
 	}
 	dialog_close(a)
 	a.dialog.kind, a.dialog.info = .Info, kind
@@ -61,15 +65,29 @@ info_text :: proc(v: ^conn.View, kind: Info_Kind) -> string {
 		}
 	case .Bans:
 		for ban in v.bans.list {
-			fmt.sbprintfln(&b, "%s, by %s: %s", name_of(v, ban.account), name_of(v, ban.by), ban.reason if ban.reason != "" else "(no reason)")
+			fmt.sbprintfln(
+				&b,
+				"%s, by %s: %s",
+				name_of(v, ban.account),
+				name_of(v, ban.by),
+				ban.reason if ban.reason != "" else "(no reason)",
+			)
 		}
 	case .Invites:
 		if v.invites.made != "" {
 			fmt.sbprintfln(&b, "Just made: %s", v.invites.made)
 		}
 		for inv in v.invites.list {
-			uses := fmt.tprintf("%d", inv.uses) if inv.max_uses == 0 else fmt.tprintf("%d of %d", inv.uses, inv.max_uses)
-			fmt.sbprintfln(&b, "%s  used %s  by %s%s", inv.code, uses, name_of(v, inv.creator), "  (revoked)" if inv.revoked else "")
+			uses :=
+				fmt.tprintf("%d", inv.uses) if inv.max_uses == 0 else fmt.tprintf("%d of %d", inv.uses, inv.max_uses)
+			fmt.sbprintfln(
+				&b,
+				"%s  used %s  by %s%s",
+				inv.code,
+				uses,
+				name_of(v, inv.creator),
+				"  (revoked)" if inv.revoked else "",
+			)
 		}
 	case .Devices:
 		for d in v.devices {

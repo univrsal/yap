@@ -28,18 +28,18 @@ Dialog_Kind :: enum {
 }
 
 Dialog :: struct {
-	kind:   Dialog_Kind,
-	fields: [2]tui.Editor, // the login's user name and password
-	field:  int,
-	msg:    proto.Msg_Id, // what a Confirm_Delete is about
-	text:   string, // what an Output shows (owned)
-	sel:    int, // the emoji picked in a Picker, the entry in a List
-	top:    int, // the first row of a Picker's grid that is shown
-	category: int, // the kind of emoji a Picker shows (CATEGORY_...)
-	list:   List_Kind,
-	info:   Info_Kind,
-	form:   Form,
-	all:    bool, // a search of all conversations
+	kind:       Dialog_Kind,
+	fields:     [2]tui.Editor, // the login's user name and password
+	field:      int,
+	msg:        proto.Msg_Id, // what a Confirm_Delete is about
+	text:       string, // what an Output shows (owned)
+	sel:        int, // the emoji picked in a Picker, the entry in a List
+	top:        int, // the first row of a Picker's grid that is shown
+	category:   int, // the kind of emoji a Picker shows (CATEGORY_...)
+	list:       List_Kind,
+	info:       Info_Kind,
+	form:       Form,
+	all:        bool, // a search of all conversations
 	asked_more: int, // how many entries there were when the next page was asked for
 }
 
@@ -59,7 +59,15 @@ dialog_update :: proc(a: ^App) {
 	v := a.view
 	want := a.dialog.kind
 	switch {
-	case a.dialog.kind == .Help || a.dialog.kind == .Confirm_Delete || a.dialog.kind == .Output || a.dialog.kind == .Picker || a.dialog.kind == .List || a.dialog.kind == .Info || a.dialog.kind == .Settings || a.dialog.kind == .Palette || a.dialog.kind == .Form:
+	case a.dialog.kind == .Help ||
+	     a.dialog.kind == .Confirm_Delete ||
+	     a.dialog.kind == .Output ||
+	     a.dialog.kind == .Picker ||
+	     a.dialog.kind == .List ||
+	     a.dialog.kind == .Info ||
+	     a.dialog.kind == .Settings ||
+	     a.dialog.kind == .Palette ||
+	     a.dialog.kind == .Form:
 		return
 	case v.key_change.changed:
 		want = .Key_Change
@@ -100,14 +108,14 @@ Menu_Item :: struct {
 }
 
 Menu :: struct {
-	open:  bool,
-	msg:   proto.Msg_Id,
+	open:    bool,
+	msg:     proto.Msg_Id,
 	account: proto.Account_Id, // for a member's menu, whose it is (and msg is 0)
-	server: int, // for a server's menu, which one, counted from 1
-	items: [dynamic]Menu_Item,
-	at:    [2]int, // where it was asked for
-	rect:  tui.Rect, // where it is drawn, which is moved in to fit
-	sel:   int,
+	server:  int, // for a server's menu, which one, counted from 1
+	items:   [dynamic]Menu_Item,
+	at:      [2]int, // where it was asked for
+	rect:    tui.Rect, // where it is drawn, which is moved in to fit
+	sel:     int,
 }
 
 // member_menu_open lists what can be done with a person: write to them, call them.
@@ -167,7 +175,10 @@ menu_open :: proc(a: ^App, m: conn.View_Message, x, y: int) {
 	if len(m.files) == 0 && m.kind == .File {
 		append(items, Menu_Item{"Save file", .Save, 0})
 	}
-	append(items, Menu_Item{"Remove bookmark" if v.bookmarks.ids[m.id] else "Bookmark", .Bookmark, 0})
+	append(
+		items,
+		Menu_Item{"Remove bookmark" if v.bookmarks.ids[m.id] else "Bookmark", .Bookmark, 0},
+	)
 	if .Pin_Messages in v.permissions && .Deleted not_in m.flags {
 		append(items, Menu_Item{"Unpin" if .Pinned in m.flags else "Pin", .Pin, 0})
 	}
@@ -243,7 +254,14 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Log in")
 		name := v.server_name if v.server_name != "" else v.server
-		tui.put_string(b, r.x + 2, r.y + 1, fmt.tprintf("%s doesn't know this device.", name), theme.dim, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			r.y + 1,
+			fmt.tprintf("%s doesn't know this device.", name),
+			theme.dim,
+			r.x + r.w - 1,
+		)
 		labels := [2]string{"User name", "Password"}
 		for i in 0 ..< 2 {
 			y := r.y + 3 + i
@@ -251,7 +269,8 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 			fx, fw := r.x + 14, r.w - 16
 			tui.fill(b, {fx, y, fw, 1}, theme.reaction)
 			text := tui.editor_text(&d.fields[i])
-			shown := strings.repeat("•", tui.string_width(text), context.temp_allocator) if i == 1 else text
+			shown :=
+				strings.repeat("•", tui.string_width(text), context.temp_allocator) if i == 1 else text
 			tui.put_string(b, fx, y, tui.cut_to_width(shown, fw - 1), theme.reaction, fx + fw)
 			if i == d.field {
 				cx := min(tui.string_width(shown), fw - 1)
@@ -261,7 +280,14 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		if v.login.error != "" {
 			tui.put_string(b, r.x + 2, r.y + 6, v.login.error, theme.error, r.x + r.w - 1)
 		}
-		tui.put_string(b, r.x + 2, r.y + 7, "Tab: next field   Enter: log in   Ctrl+C: quit", theme.dim, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			r.y + 7,
+			"Tab: next field   Enter: log in   Ctrl+C: quit",
+			theme.dim,
+			r.x + r.w - 1,
+		)
 	case .Key_Change:
 		r := dialog_rect(b, 72, 14)
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
@@ -271,14 +297,28 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.put_string(b, r.x + 2, r.y + 3, "saved", theme.dim)
 		tui.put_string(b, r.x + 2, r.y + 4, "new", theme.dim)
 		tui.put_string(b, r.x + 9, r.y + 3, common.key_hex(kc.saved)[:32], {}, r.x + r.w - 1)
-		tui.put_string(b, r.x + 9, r.y + 4, common.key_hex(kc.received)[:32], theme.error, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 9,
+			r.y + 4,
+			common.key_hex(kc.received)[:32],
+			theme.error,
+			r.x + r.w - 1,
+		)
 		text := "A key normally stays the same. It changes when the server is set up again, but it is also what you would see if someone were pretending to be the server. Only trust the new one if the person running it says it changed: the server logs its key when it starts."
 		lines := make([dynamic]tui.Line, context.temp_allocator)
 		tui.wrap(text, r.w - 4, &lines)
 		for l, i in lines {
 			tui.put_string(b, r.x + 2, r.y + 6 + i, text[l.start:l.end], {}, r.x + r.w - 1)
 		}
-		tui.put_string(b, r.x + 2, r.y + r.h - 2, "T: trust the new key and connect   Q: quit", {attrs = {.Bold}}, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			r.y + r.h - 2,
+			"T: trust the new key and connect   Q: quit",
+			{attrs = {.Bold}},
+			r.x + r.w - 1,
+		)
 	case .Confirm_Delete:
 		r := dialog_rect(b, 40, 5)
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
@@ -299,8 +339,22 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		r := dialog_rect(b, 46, 7)
 		append(&a.hits, Hit{r, .Dialog, 0, ""})
 		draw_box(b, r, "Incoming call")
-		tui.put_string(b, r.x + 2, r.y + 2, fmt.tprintf("📞 %s is calling you.", call_peer_name(v)), {attrs = {.Bold}}, r.x + r.w - 1)
-		tui.put_string(b, r.x + 2, r.y + 4, "A / Enter: answer   D / Esc: decline", {}, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			r.y + 2,
+			fmt.tprintf("📞 %s is calling you.", call_peer_name(v)),
+			{attrs = {.Bold}},
+			r.x + r.w - 1,
+		)
+		tui.put_string(
+			b,
+			r.x + 2,
+			r.y + 4,
+			"A / Enter: answer   D / Esc: decline",
+			{},
+			r.x + r.w - 1,
+		)
 	case .Picker:
 		draw_picker(a, b)
 	case .Output:
@@ -310,7 +364,11 @@ draw_dialog :: proc(a: ^App, b: ^tui.Buffer) {
 		tui.wrap(d.text, r.w - 4, &lines)
 		room := r.h - 3
 		d.top = clamp(d.top, 0, max(len(lines) - room, 0))
-		draw_box(b, r, "Output (any key closes)" if len(lines) <= room else "Output (Up/Down/PgUp/PgDn scroll, Esc closes)")
+		draw_box(
+			b,
+			r,
+			"Output (any key closes)" if len(lines) <= room else "Output (Up/Down/PgUp/PgDn scroll, Esc closes)",
+		)
 		for l, i in lines[d.top:] {
 			if i >= room {
 				break
@@ -435,7 +493,27 @@ dialog_key :: proc(a: ^App, k: tui.Key_Event) {
 			d.top = 0
 		case .End:
 			d.top = 1 << 20
-		case .Rune, .Backspace, .Delete, .Left, .Right, .Insert, .Tab, .Enter, .Escape, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
+		case .Rune,
+		     .Backspace,
+		     .Delete,
+		     .Left,
+		     .Right,
+		     .Insert,
+		     .Tab,
+		     .Enter,
+		     .Escape,
+		     .F1,
+		     .F2,
+		     .F3,
+		     .F4,
+		     .F5,
+		     .F6,
+		     .F7,
+		     .F8,
+		     .F9,
+		     .F10,
+		     .F11,
+		     .F12:
 			dialog_close(a)
 		}
 	case .Help, .Info:
@@ -478,4 +556,3 @@ dialog_paste :: proc(a: ^App, text: string) {
 		tui.editor_insert(&a.dialog.fields[a.dialog.field], strings.trim_right_space(line))
 	}
 }
-

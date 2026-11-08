@@ -62,7 +62,11 @@ test_bot_commands_events :: proc(t: ^testing.T) {
 
 	// A new set replaces the bot's old one and leaves the others alone.
 	changed(&c, 7, {{"roll", "Roll again", ""}})
-	testing.expect_value(t, names(c.bot_commands.entries[:]), "coinbot:flip coinbot:roll dicebot:roll ")
+	testing.expect_value(
+		t,
+		names(c.bot_commands.entries[:]),
+		"coinbot:flip coinbot:roll dicebot:roll ",
+	)
 	testing.expect_value(t, c.bot_commands.entries[2].description, "Roll again")
 
 	// An empty set removes them, a body that isn't one changes nothing.
@@ -124,8 +128,16 @@ test_bot_commands_lookup :: proc(t: ^testing.T) {
 	testing.expect_value(t, bot_command_typed(list[3]), "dicebot:roll")
 
 	// A DM has the one bot, a group its bots, a channel any.
-	testing.expect_value(t, names(bot_commands_scope(list, {7}, true)), "dicebot:ping dicebot:roll ")
-	testing.expect_value(t, names(bot_commands_scope(list, {9, 4}, true)), "coinbot:flip coinbot:roll ")
+	testing.expect_value(
+		t,
+		names(bot_commands_scope(list, {7}, true)),
+		"dicebot:ping dicebot:roll ",
+	)
+	testing.expect_value(
+		t,
+		names(bot_commands_scope(list, {9, 4}, true)),
+		"coinbot:flip coinbot:roll ",
+	)
 	testing.expect_value(t, names(bot_commands_scope(list, {4}, true)), "")
 	testing.expect_value(t, len(bot_commands_scope(list, nil, false)), 4)
 }

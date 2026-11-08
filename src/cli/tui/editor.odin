@@ -98,10 +98,14 @@ editor_key :: proc(e: ^Editor, k: Key_Event) -> bool {
 			return editor_ctrl(e, k.rune)
 		case alt && !ctrl:
 			switch k.rune {
-			case 'b': e.cursor = word_start_before(e, e.cursor)
-			case 'f': e.cursor = word_end_after(e, e.cursor)
-			case 'd': delete_range(e, e.cursor, word_end_after(e, e.cursor))
-			case: return false
+			case 'b':
+				e.cursor = word_start_before(e, e.cursor)
+			case 'f':
+				e.cursor = word_end_after(e, e.cursor)
+			case 'd':
+				delete_range(e, e.cursor, word_end_after(e, e.cursor))
+			case:
+				return false
 			}
 			return true
 		case ctrl || alt:
@@ -117,9 +121,12 @@ editor_key :: proc(e: ^Editor, k: Key_Event) -> bool {
 		return false
 	case .Backspace:
 		switch {
-		case alt: delete_range(e, word_start_before(e, e.cursor), e.cursor)
-		case ctrl: delete_range(e, word_start_before(e, e.cursor), e.cursor)
-		case: delete_range(e, rune_before(e, e.cursor), e.cursor)
+		case alt:
+			delete_range(e, word_start_before(e, e.cursor), e.cursor)
+		case ctrl:
+			delete_range(e, word_start_before(e, e.cursor), e.cursor)
+		case:
+			delete_range(e, rune_before(e, e.cursor), e.cursor)
 		}
 	case .Delete:
 		delete_range(e, e.cursor, rune_after(e, e.cursor))
@@ -135,7 +142,23 @@ editor_key :: proc(e: ^Editor, k: Key_Event) -> bool {
 		return move_line(e, -1)
 	case .Down:
 		return move_line(e, 1)
-	case .Tab, .Escape, .Insert, .Page_Up, .Page_Down, .F1, .F2, .F3, .F4, .F5, .F6, .F7, .F8, .F9, .F10, .F11, .F12:
+	case .Tab,
+	     .Escape,
+	     .Insert,
+	     .Page_Up,
+	     .Page_Down,
+	     .F1,
+	     .F2,
+	     .F3,
+	     .F4,
+	     .F5,
+	     .F6,
+	     .F7,
+	     .F8,
+	     .F9,
+	     .F10,
+	     .F11,
+	     .F12:
 		return false
 	}
 	return true
@@ -144,16 +167,26 @@ editor_key :: proc(e: ^Editor, k: Key_Event) -> bool {
 @(private = "file")
 editor_ctrl :: proc(e: ^Editor, r: rune) -> bool {
 	switch r {
-	case 'a': e.cursor = line_start(e, e.cursor)
-	case 'e': e.cursor = line_end(e, e.cursor)
-	case 'b': e.cursor = rune_before(e, e.cursor)
-	case 'f': e.cursor = rune_after(e, e.cursor)
-	case 'd': delete_range(e, e.cursor, rune_after(e, e.cursor))
-	case 'h': delete_range(e, rune_before(e, e.cursor), e.cursor)
-	case 'w': delete_range(e, word_start_before(e, e.cursor), e.cursor)
-	case 'u': delete_range(e, line_start(e, e.cursor), e.cursor)
-	case 'k': delete_range(e, e.cursor, line_end(e, e.cursor))
-	case: return false
+	case 'a':
+		e.cursor = line_start(e, e.cursor)
+	case 'e':
+		e.cursor = line_end(e, e.cursor)
+	case 'b':
+		e.cursor = rune_before(e, e.cursor)
+	case 'f':
+		e.cursor = rune_after(e, e.cursor)
+	case 'd':
+		delete_range(e, e.cursor, rune_after(e, e.cursor))
+	case 'h':
+		delete_range(e, rune_before(e, e.cursor), e.cursor)
+	case 'w':
+		delete_range(e, word_start_before(e, e.cursor), e.cursor)
+	case 'u':
+		delete_range(e, line_start(e, e.cursor), e.cursor)
+	case 'k':
+		delete_range(e, e.cursor, line_end(e, e.cursor))
+	case:
+		return false
 	}
 	return true
 }

@@ -161,7 +161,20 @@ local_time :: proc(ms: proto.Unix_Ms, tz: ^datetime.TZ_Region) -> Local_Time {
 	}
 	ordinal, _ := datetime.date_to_ordinal(dt.date)
 	days := [?]string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
-	months := [?]string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+	months := [?]string {
+		"Jan",
+		"Feb",
+		"Mar",
+		"Apr",
+		"May",
+		"Jun",
+		"Jul",
+		"Aug",
+		"Sep",
+		"Oct",
+		"Nov",
+		"Dec",
+	}
 	return {
 		hour = int(dt.hour),
 		minute = int(dt.minute),
@@ -215,7 +228,13 @@ build_rows :: proc(
 			add_message(l, v, r.msg, lt, false, name_w, text_x, text_w, true)
 			delete(lt.label)
 			word := "reply" if r.msg.reply_count == 1 else "replies"
-			add_row(l, .Day, 0, 0, {{rule_text(fmt.tprintf("%d %s", r.msg.reply_count, word), width), theme.dim}})
+			add_row(
+				l,
+				.Day,
+				0,
+				0,
+				{{rule_text(fmt.tprintf("%d %s", r.msg.reply_count, word), width), theme.dim}},
+			)
 		} else {
 			add_row(l, .Notice, 0, 0, {{"loading the message...", theme.dim}})
 		}
@@ -233,9 +252,16 @@ build_rows :: proc(
 			add_row(l, .Day, 0, 0, {{rule_text(lt.label, width), theme.dim}})
 		}
 		if new_line {
-			add_row(l, .New_Messages, 0, 0, {{rule_text("new messages", width), theme.unread_rule}})
+			add_row(
+				l,
+				.New_Messages,
+				0,
+				0,
+				{{rule_text("new messages", width), theme.unread_rule}},
+			)
 		}
-		reply_line := !in_thread && m.thread_root != 0 && (i == 0 || m.thread_root != prev.thread_root)
+		reply_line :=
+			!in_thread && m.thread_root != 0 && (i == 0 || m.thread_root != prev.thread_root)
 		if reply_line {
 			add_row(l, .Reply_To, m.id, text_x, reply_segs(v, m.thread_root, text_x, width))
 		}
@@ -265,7 +291,12 @@ build_rows :: proc(
 					text = fmt.aprintf("the file %s", p.text)
 				}
 				for f in p.files {
-					text = fmt.aprintf("%s\n📎 %s  %d%%", text, f.name, int(f.done * 100 / max(f.size, 1)))
+					text = fmt.aprintf(
+						"%s\n📎 %s  %d%%",
+						text,
+						f.name,
+						int(f.done * 100 / max(f.size, 1)),
+					)
 				}
 				lines := styled_lines(text, nil, text_w, theme.dim)
 				for line, j in lines {
@@ -317,7 +348,12 @@ concat_segs :: proc(a, b: []Seg) -> []Seg {
 rule_text :: proc(label: string, width: int) -> string {
 	left := 2
 	right := max(width - left - tui.string_width(label) - 2, 2)
-	return fmt.aprintf("%s %s %s", strings.repeat("─", left), label, strings.repeat("─", right))
+	return fmt.aprintf(
+		"%s %s %s",
+		strings.repeat("─", left),
+		label,
+		strings.repeat("─", right),
+	)
 }
 
 // sender_name is who a message is from, as shown.
@@ -373,7 +409,8 @@ add_message :: proc(
 	} else {
 		name := tui.cut_to_width(sender_name(v, m), name_w)
 		pad := strings.repeat(" ", name_w - tui.string_width(name))
-		nstyle := theme.own_name if m.sender == v.me && m.kind != .System else name_style(u64(m.sender))
+		nstyle :=
+			theme.own_name if m.sender == v.me && m.kind != .System else name_style(u64(m.sender))
 		head = {
 			{fmt.aprintf("%02d:%02d ", lt.hour, lt.minute), theme.dim},
 			{name, nstyle},
@@ -450,11 +487,23 @@ add_message :: proc(
 			switch {
 			case here && !pic.failed:
 				for row in 0 ..< pic.rows {
-					add_row(l, .Image, m.id, text_x, concat_segs({{pad, {}}}, picture_row(pic, row)))
+					add_row(
+						l,
+						.Image,
+						m.id,
+						text_x,
+						concat_segs({{pad, {}}}, picture_row(pic, row)),
+					)
 				}
 			case !here:
 				append(&l.wants, Want{m.id, i, f.blob})
-				add_row(l, .Files, m.id, text_x, {{pad, {}}, {"  loading the picture…", theme.dim}})
+				add_row(
+					l,
+					.Files,
+					m.id,
+					text_x,
+					{{pad, {}}, {"  loading the picture…", theme.dim}},
+				)
 			}
 		}
 	}
@@ -529,7 +578,12 @@ saves_signature :: proc(v: ^conn.View) -> (sig: u64) {
 roots_signature :: proc(v: ^conn.View) -> (sig: u64) {
 	for id, r in v.roots {
 		m := r.msg
-		h := u64(id) * 1000003 + u64(m.edited) + u64(transmute(u8)m.flags) * 31 + u64(len(m.text)) * 7 + u64(m.reply_count) * 13
+		h :=
+			u64(id) * 1000003 +
+			u64(m.edited) +
+			u64(transmute(u8)m.flags) * 31 +
+			u64(len(m.text)) * 7 +
+			u64(m.reply_count) * 13
 		for rx in m.reactions {
 			h = h * 31 + u64(rx.count) * 5 + u64(len(rx.emoji)) + (101 if rx.me else 0)
 		}

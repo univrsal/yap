@@ -54,7 +54,9 @@ styled_lines :: proc(
 		prefix_w := 2 * line.quote
 		indent := 0
 		if line.kind == .Bullet || line.kind == .Number {
-			indent = tui.string_width(rt.text[line.start:line.start + min(line.marker, line.end - line.start)])
+			indent = tui.string_width(
+				rt.text[line.start:line.start + min(line.marker, line.end - line.start)],
+			)
 		}
 		text := rt.text[line.start:line.end]
 		clear(&wrapped)
@@ -66,7 +68,10 @@ styled_lines :: proc(
 				append(&segs, Seg{"▎ ", theme.quote})
 			}
 			if i > 0 && indent > 0 {
-				append(&segs, Seg{strings.repeat(" ", min(indent, max(width - prefix_w - 1, 0))), base})
+				append(
+					&segs,
+					Seg{strings.repeat(" ", min(indent, max(width - prefix_w - 1, 0))), base},
+				)
 			}
 			add_styled(&segs, &rt, spans, line, line.start + w.start, line.start + w.end, base)
 			append(&out, segs[:])

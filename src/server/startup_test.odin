@@ -278,10 +278,20 @@ test_environment_for_a_new_server :: proc(t: ^testing.T) {
 		}{{"true", true}, {"1", true}, {"false", false}, {"0", false}}) {
 		set("YAP_RELAY_ENABLED", v.text)
 		b, ok = bootstrap_from_env()
-		testing.expectf(t, ok && b.relay_enabled_set && b.relay_enabled == v.want, "relay %q", v.text)
+		testing.expectf(
+			t,
+			ok && b.relay_enabled_set && b.relay_enabled == v.want,
+			"relay %q",
+			v.text,
+		)
 		set("YAP_VIDEO_ENABLED", v.text)
 		p, ports_ok = ports_from_env()
-		testing.expectf(t, ports_ok && p.video_enabled_set && p.video_enabled == v.want, "video %q", v.text)
+		testing.expectf(
+			t,
+			ports_ok && p.video_enabled_set && p.video_enabled == v.want,
+			"video %q",
+			v.text,
+		)
 	}
 	for bad in ([]string{"yes", "TRUE", "2", "on"}) {
 		set("YAP_RELAY_ENABLED", bad)
@@ -302,7 +312,10 @@ test_environment_for_a_new_server :: proc(t: ^testing.T) {
 	set("YAP_INITIAL_ADMIN_PASSWORD", "short")
 	_, ok = bootstrap_from_env()
 	testing.expect(t, !ok)
-	set("YAP_INITIAL_ADMIN_PASSWORD", strings.repeat("p", proto.MAX_ACCOUNT_PASSWORD + 1, context.temp_allocator))
+	set(
+		"YAP_INITIAL_ADMIN_PASSWORD",
+		strings.repeat("p", proto.MAX_ACCOUNT_PASSWORD + 1, context.temp_allocator),
+	)
 	_, ok = bootstrap_from_env()
 	testing.expect(t, !ok)
 	os.unset_env("YAP_INITIAL_ADMIN_PASSWORD")
@@ -330,7 +343,10 @@ test_environment_for_a_new_server :: proc(t: ^testing.T) {
 	testing.expect(t, ports_ok && p.port == 1 && p.video_port == 65535)
 
 	// Sites separated by commas or blanks, in any mix.
-	set("YAP_RELAY_ALLOW_SITES", "https://a.example.org,https://b.example.org  https://c.example.org\n*,")
+	set(
+		"YAP_RELAY_ALLOW_SITES",
+		"https://a.example.org,https://b.example.org  https://c.example.org\n*,",
+	)
 	p, ports_ok = ports_from_env()
 	testing.expect(t, ports_ok)
 	testing.expect_value(t, len(p.allow_sites), 4)

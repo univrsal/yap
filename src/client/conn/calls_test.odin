@@ -290,14 +290,26 @@ test_call_system_text :: proc(t: ^testing.T) {
 	missed := u8(proto.Call_System.Missed)
 	declined := u8(proto.Call_System.Declined)
 	ended := u8(proto.Call_System.Ended)
-	testing.expect_value(t, system_text(missed, 0, "", "Alice", "", false), "Missed call from Alice")
-	testing.expect_value(t, system_text(missed, 0, "", "Alice", "", true), "Your call was not answered")
+	testing.expect_value(
+		t,
+		system_text(missed, 0, "", "Alice", "", false),
+		"Missed call from Alice",
+	)
+	testing.expect_value(
+		t,
+		system_text(missed, 0, "", "Alice", "", true),
+		"Your call was not answered",
+	)
 	testing.expect_value(
 		t,
 		system_text(declined, 0, "", "Alice", "", false),
 		"You declined a call from Alice",
 	)
-	testing.expect_value(t, system_text(declined, 0, "", "Alice", "", true), "Your call was declined")
+	testing.expect_value(
+		t,
+		system_text(declined, 0, "", "Alice", "", true),
+		"Your call was declined",
+	)
 	testing.expect_value(t, system_text(ended, 125, "", "Alice", "", true), "Call lasted 2:05")
 	testing.expect_value(
 		t,

@@ -35,8 +35,20 @@ close_msgs :: proc(tc: ^Test_Conn) {
 }
 
 @(private = "file")
-pm :: proc(id: proto.Msg_Id, text := "message", conv := proto.Conv_Id(3), sender := proto.Account_Id(2)) -> proto.Message {
-	return {id = id, conv = conv, sender = sender, time = proto.Unix_Ms(1000 + id), kind = .Text, text = text}
+pm :: proc(
+	id: proto.Msg_Id,
+	text := "message",
+	conv := proto.Conv_Id(3),
+	sender := proto.Account_Id(2),
+) -> proto.Message {
+	return {
+		id = id,
+		conv = conv,
+		sender = sender,
+		time = proto.Unix_Ms(1000 + id),
+		kind = .Text,
+		text = text,
+	}
 }
 
 @(private = "file")
@@ -221,7 +233,12 @@ test_jumping_to_a_message :: proc(t: ^testing.T) {
 	testing.expect_value(t, h.dir, proto.History_Dir.Around)
 	messages_jump(c, 3, 600) // not while one is on its way
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
-	tc_answer(&tc, jump.id, .Ok, page(proto.MORE_BEFORE | proto.MORE_AFTER, pm(499), pm(500), pm(501)))
+	tc_answer(
+		&tc,
+		jump.id,
+		.Ok,
+		page(proto.MORE_BEFORE | proto.MORE_AFTER, pm(499), pm(500), pm(501)),
+	)
 	expect_ids(t, cache, 499, 500, 501)
 	testing.expect(t, !cache.have_newest && !cache.have_oldest)
 }
@@ -496,7 +513,11 @@ test_an_edited_message_is_replaced_everywhere :: proc(t: ^testing.T) {
 	thread.have_newest = true
 	append(&thread.messages, msg_of(first))
 	c.msgs.caches[{3, 10}] = thread
-	c.msgs.roots[10] = {conv = 3, have = true, msg = msg_of(first)}
+	c.msgs.roots[10] = {
+		conv = 3,
+		have = true,
+		msg  = msg_of(first),
+	}
 
 	edited := pm(10, "after")
 	edited.edited = 5000
@@ -632,7 +653,11 @@ test_purging_the_files_of_messages :: proc(t: ^testing.T) {
 	cache := window(t, &tc, pm(10), pm(11), pm(12))
 	for &m, i in cache.messages {
 		m.files = make([]Msg_File, 1)
-		m.files[0] = {blob = proto.Blob_Id(100 + i), size = 10, name = strings.clone("a.png")}
+		m.files[0] = {
+			blob = proto.Blob_Id(100 + i),
+			size = 10,
+			name = strings.clone("a.png"),
+		}
 	}
 	cache.messages[0].flags = {.Pinned}
 
@@ -652,8 +677,16 @@ test_purging_drops_the_roots_it_removes :: proc(t: ^testing.T) {
 	v := open_msgs(&tc)
 	defer close_msgs(&tc)
 	c := &tc.c
-	c.msgs.roots[10] = {conv = 3, have = true, msg = msg_of(pm(10))}
-	c.msgs.roots[60] = {conv = 3, have = true, msg = msg_of(pm(60))}
+	c.msgs.roots[10] = {
+		conv = 3,
+		have = true,
+		msg  = msg_of(pm(10)),
+	}
+	c.msgs.roots[60] = {
+		conv = 3,
+		have = true,
+		msg  = msg_of(pm(60)),
+	}
 	publish_root(c, c.msgs.roots[10])
 
 	purged(&tc, {conv = 3, before = 50})
@@ -732,7 +765,11 @@ test_reactions_reach_threads_and_roots :: proc(t: ^testing.T) {
 	thread := new(Conv_Cache)
 	append(&thread.messages, msg_of(pm(10)))
 	c.msgs.caches[{3, 10}] = thread
-	c.msgs.roots[10] = {conv = 3, have = true, msg = msg_of(pm(10))}
+	c.msgs.roots[10] = {
+		conv = 3,
+		have = true,
+		msg  = msg_of(pm(10)),
+	}
 
 	reacted(&tc, {id = 10, conv = 3, emoji = "👍", count = 1, account = 2, on = true})
 	testing.expect_value(t, len(c.msgs.caches[{3, 0}].messages[0].reactions), 1)
@@ -933,8 +970,15 @@ test_finding_a_message :: proc(t: ^testing.T) {
 	defer close_msgs(&tc)
 	c := &tc.c
 	_ = window(t, &tc, pm(10), pm(11))
-	c.msgs.roots[50] = {conv = 3, have = true, msg = msg_of(pm(50, "a root"))}
-	c.msgs.roots[51] = {conv = 3, have = false}
+	c.msgs.roots[50] = {
+		conv = 3,
+		have = true,
+		msg  = msg_of(pm(50, "a root")),
+	}
+	c.msgs.roots[51] = {
+		conv = 3,
+		have = false,
+	}
 
 	m, found := msg_find(c, 3, 11)
 	testing.expect(t, found)
@@ -989,9 +1033,23 @@ test_a_message_as_we_keep_it :: proc(t: ^testing.T) {
 		name   = "Bot Name",
 		avatar = 77,
 	}
-	m.attachments[0] = {blob = 1, size = 10, name = "../../x.png", width = 4, height = 5}
-	m.attachments[1] = {blob = 2, size = 20, name = ""}
-	m.attachments[2] = {blob = 0, size = 30, name = "removed.zip"}
+	m.attachments[0] = {
+		blob   = 1,
+		size   = 10,
+		name   = "../../x.png",
+		width  = 4,
+		height = 5,
+	}
+	m.attachments[1] = {
+		blob = 2,
+		size = 20,
+		name = "",
+	}
+	m.attachments[2] = {
+		blob = 0,
+		size = 30,
+		name = "removed.zip",
+	}
 	kept := msg_of(m)
 	defer msg_destroy(&kept)
 	testing.expect_value(t, kept.text, "hi")

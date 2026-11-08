@@ -20,11 +20,11 @@ import "tui"
 // never written back: that file is the window client's.
 
 Server :: struct {
-	view:    ^conn.View,
-	client:  ^conn.Server_Conn,
-	session: ^conn.Session, // nil when something else owns the connection (tests)
-	target:  conn.Net_Target, // where it goes; its server, password, channel and look_at are owned
-	ui:      Server_UI, // what the app kept for it while it isn't shown
+	view:     ^conn.View,
+	client:   ^conn.Server_Conn,
+	session:  ^conn.Session, // nil when something else owns the connection (tests)
+	target:   conn.Net_Target, // where it goes; its server, password, channel and look_at are owned
+	ui:       Server_UI, // what the app kept for it while it isn't shown
 	streams:  audio.Audio_Streams, // its sound devices, open while it is in voice (audio_loop.odin)
 	audio_on: bool,
 	fake:     audio.Fake_Audio, // the test microphone, when -tone is given
@@ -58,7 +58,12 @@ server_ui_destroy :: proc(u: ^Server_UI) {
 }
 
 // app_add_server adds a server to the list; the first one is shown.
-app_add_server :: proc(a: ^App, v: ^conn.View, client: ^conn.Server_Conn, session: ^conn.Session = nil) -> int {
+app_add_server :: proc(
+	a: ^App,
+	v: ^conn.View,
+	client: ^conn.Server_Conn,
+	session: ^conn.Session = nil,
+) -> int {
 	s := new(Server)
 	s.view, s.client, s.session = v, client, session
 	s.target.server = strings.clone(v.server)
@@ -167,7 +172,8 @@ draw_rail :: proc(a: ^App, b: ^tui.Buffer, r: tui.Rect) {
 			name, status = server_name(a.view), a.view.status
 		} else {
 			sync.mutex_lock(&s.view.mutex)
-			name, status = strings.clone(server_name(s.view), context.temp_allocator), s.view.status
+			name, status =
+				strings.clone(server_name(s.view), context.temp_allocator), s.view.status
 			sync.mutex_unlock(&s.view.mutex)
 			unread, mentions = server_unread(s)
 		}
@@ -234,7 +240,13 @@ app_set_target :: proc(a: ^App, index: int, t: conn.Net_Target) {
 
 // app_replace_connection puts a new connection in place of a server's (after it
 // was connected to again), and hands back the old session to be freed.
-app_replace_connection :: proc(a: ^App, index: int, v: ^conn.View, client: ^conn.Server_Conn, session: ^conn.Session) -> ^conn.Session {
+app_replace_connection :: proc(
+	a: ^App,
+	index: int,
+	v: ^conn.View,
+	client: ^conn.Server_Conn,
+	session: ^conn.Session,
+) -> ^conn.Session {
 	s := a.servers[index]
 	old := s.session
 	s.view, s.client, s.session = v, client, session

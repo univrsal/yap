@@ -25,12 +25,7 @@ Answer :: struct {
 }
 
 @(private = "file")
-ask :: proc(
-	tc: ^Test_Conn,
-	op: proto.Request_Op,
-	a: ^Answer,
-	body: []u8 = nil,
-) {
+ask :: proc(tc: ^Test_Conn, op: proto.Request_Op, a: ^Answer, body: []u8 = nil) {
 	request(&tc.c, op, body, answered, u64(uintptr(a)))
 }
 

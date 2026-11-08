@@ -286,9 +286,17 @@ test_handshake_refused :: proc(t: ^testing.T) {
 test_refusal_text :: proc(t: ^testing.T) {
 	c: Server_Conn
 	c.server_addr = "yap.example:7777"
-	testing.expect_value(t, refusal_text(&c, .Wrong_Password), "yap.example:7777 requires a password.")
+	testing.expect_value(
+		t,
+		refusal_text(&c, .Wrong_Password),
+		"yap.example:7777 requires a password.",
+	)
 	c.password = "wrong"
-	testing.expect_value(t, refusal_text(&c, .Wrong_Password), "The password for yap.example:7777 is wrong.")
+	testing.expect_value(
+		t,
+		refusal_text(&c, .Wrong_Password),
+		"The password for yap.example:7777 is wrong.",
+	)
 	testing.expect_value(
 		t,
 		refusal_text(&c, .Version),
@@ -299,7 +307,11 @@ test_refusal_text :: proc(t: ^testing.T) {
 		refusal_text(&c, .Already_Connected),
 		"Another client is already connected to yap.example:7777 with this key. Close it and try again.",
 	)
-	testing.expect_value(t, refusal_text(&c, proto.Refusal(200)), "yap.example:7777 refused the connection.")
+	testing.expect_value(
+		t,
+		refusal_text(&c, proto.Refusal(200)),
+		"yap.example:7777 refused the connection.",
+	)
 }
 
 // A server that has said nothing for CONNECTION_LOST is given up on, and tried
@@ -516,7 +528,11 @@ test_bulk_link :: proc(t: ^testing.T) {
 	testing.expect_value(t, link, proto.Link.Bulk)
 	welcome_buf: [proto.WELCOME_SIZE]u8
 	welcome := side_seal(&sd, proto.encode_welcome(&welcome_buf, 77, false))
-	if !testing.expect(t, side_send(&th, &sd, welcome, bulk_receive, bulk_up), "the bulk link isn't up") {
+	if !testing.expect(
+		t,
+		side_send(&th, &sd, welcome, bulk_receive, bulk_up),
+		"the bulk link isn't up",
+	) {
 		return
 	}
 	testing.expect_value(t, c.bulk.retry_at, time.Tick{})
@@ -634,7 +650,10 @@ media_held :: proc(c: ^Server_Conn) -> bool {
 media_start :: proc(t: ^testing.T, c: ^Server_Conn) {
 	m := &c.media
 	if !m.transport.open {
-		testing.expect(t, transport_open(&m.transport, c.server_addr, 0, bulk = true, media = true))
+		testing.expect(
+			t,
+			transport_open(&m.transport, c.server_addr, 0, bulk = true, media = true),
+		)
 	}
 	s := proto.link_step(&m.link, &c.key, time.tick_now())
 	testing.expect(t, s.started)
@@ -700,7 +719,11 @@ test_media_link :: proc(t: ^testing.T) {
 		return
 	}
 	welcome := side_seal(&sd, proto.encode_welcome(&welcome_buf, 77, false))
-	if !testing.expect(t, side_send(&th, &sd, welcome, media_receive, media_up), "the media link isn't up") {
+	if !testing.expect(
+		t,
+		side_send(&th, &sd, welcome, media_receive, media_up),
+		"the media link isn't up",
+	) {
 		return
 	}
 	testing.expect_value(t, c.media.refusals, 0)

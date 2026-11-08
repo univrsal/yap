@@ -5,8 +5,8 @@ import "core:encoding/base64"
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "core:time"
 import "core:sys/posix"
+import "core:time"
 import "core:time/timezone"
 
 import "client:conn"
@@ -35,14 +35,18 @@ run_ui :: proc(opt: Options) -> bool {
 		delete(targets)
 	}
 	if len(targets) == 0 {
-		fmt.eprintln("yap-cli needs a server: yap-cli host[:port], or join servers in the window client first.")
+		fmt.eprintln(
+			"yap-cli needs a server: yap-cli host[:port], or join servers in the window client first.",
+		)
 		return false
 	}
 	term: tui.Terminal
 	emoji_mode := emoji_width_mode()
 	configure_emoji_width(emoji_mode)
 	if !tui.terminal_open(&term) {
-		fmt.eprintln("yap-cli needs a terminal on its input and output. Use -print to only list the channels.")
+		fmt.eprintln(
+			"yap-cli needs a terminal on its input and output. Use -print to only list the channels.",
+		)
 		return false
 	}
 	// From here the screen is the terminal's alternate one, so whatever is written
@@ -212,7 +216,12 @@ connect_server :: proc(a: ^App, t: conn.Net_Target, opt: Options, with_credentia
 }
 
 @(private = "file")
-open_session :: proc(a: ^App, t: conn.Net_Target, opt: Options, with_credentials: bool) -> ^conn.Session {
+open_session :: proc(
+	a: ^App,
+	t: conn.Net_Target,
+	opt: Options,
+	with_credentials: bool,
+) -> ^conn.Session {
 	s := conn.session_new(t, tui.terminal_wake)
 	dir := opt.download_dir
 	if dir == "" {
@@ -355,7 +364,14 @@ Notify_Style :: enum {
 notify_style :: proc() -> Notify_Style {
 	program := os_getenv("TERM_PROGRAM")
 	switch {
-	case program == "iTerm.app", program == "WezTerm", program == "ghostty", os_getenv("WT_SESSION") != "":
+	case program ==
+	     "iTerm.app",
+	     program ==
+	     "WezTerm",
+	     program ==
+	     "ghostty",
+	     os_getenv("WT_SESSION") !=
+	     "":
 		return .OSC_9
 	case os_getenv("TERM") == "linux" || os_getenv("TERM") == "dumb":
 		return .Bell
@@ -413,7 +429,14 @@ load_server_lists :: proc(a: ^App) {
 	file := cli_file_load(a.cli_path)
 	defer cli_file_destroy(&file)
 	for s in file.servers {
-		append(&a.saved_servers, Saved_Server{strings.clone(s.address), strings.clone(s.password), strings.clone(s.channel)})
+		append(
+			&a.saved_servers,
+			Saved_Server {
+				strings.clone(s.address),
+				strings.clone(s.password),
+				strings.clone(s.channel),
+			},
+		)
 	}
 	for h in file.hidden {
 		append(&a.hidden, strings.clone(h))
@@ -441,7 +464,9 @@ load_server_lists :: proc(a: ^App) {
 @(private = "file")
 emoji_width_mode :: proc() -> string {
 	mode := os.get_env("YAP_CLI_EMOJI", context.temp_allocator)
-	multiplexer := os.get_env("TMUX", context.temp_allocator) != "" || strings.has_prefix(os.get_env("TERM", context.temp_allocator), "screen")
+	multiplexer :=
+		os.get_env("TMUX", context.temp_allocator) != "" ||
+		strings.has_prefix(os.get_env("TERM", context.temp_allocator), "screen")
 	if mode == "" && multiplexer {
 		return "probe"
 	}

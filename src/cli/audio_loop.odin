@@ -14,9 +14,9 @@ import "client:conn"
 // (others hear nothing from us, and we nothing from them) and the settings say why.
 
 Audio_Host :: struct {
-	audio: audio.Audio,
-	tried: bool, // an attempt to start the audio system was made
-	ok:    bool,
+	audio:   audio.Audio,
+	tried:   bool, // an attempt to start the audio system was made
+	ok:      bool,
 	// For testing without a sound system: a sine tone of this many Hz is the
 	// microphone, and what is played is only counted (see audio.Fake_Audio).
 	tone_hz: f32,
@@ -36,7 +36,9 @@ audio_host_ensure :: proc(a: ^App, h: ^Audio_Host) -> bool {
 		h.ok = audio.audio_init(&h.audio)
 		if !h.ok {
 			delete(a.audio_error)
-			a.audio_error = strings.clone(h.audio.error if h.audio.error != "" else "No audio system could be started.")
+			a.audio_error = strings.clone(
+				h.audio.error if h.audio.error != "" else "No audio system could be started.",
+			)
 		}
 	}
 	return h.ok
@@ -75,15 +77,35 @@ service_audio :: proc(a: ^App, h: ^Audio_Host) {
 				continue
 			}
 			audio.audio_refresh(&h.audio)
-			audio.open_playback(&h.audio, &s.streams, &s.client.voice, a.voice_settings.output_device)
-			audio.open_capture(&h.audio, &s.streams, &s.client.voice, a.voice_settings.input_device)
+			audio.open_playback(
+				&h.audio,
+				&s.streams,
+				&s.client.voice,
+				a.voice_settings.output_device,
+			)
+			audio.open_capture(
+				&h.audio,
+				&s.streams,
+				&s.client.voice,
+				a.voice_settings.input_device,
+			)
 			s.audio_on = true
 		case !want && s.audio_on:
 			audio.close_streams(&s.streams, &s.client.voice)
 			s.audio_on = false
 		case want && a.devices_changed && h.ok:
-			audio.open_playback(&h.audio, &s.streams, &s.client.voice, a.voice_settings.output_device)
-			audio.open_capture(&h.audio, &s.streams, &s.client.voice, a.voice_settings.input_device)
+			audio.open_playback(
+				&h.audio,
+				&s.streams,
+				&s.client.voice,
+				a.voice_settings.output_device,
+			)
+			audio.open_capture(
+				&h.audio,
+				&s.streams,
+				&s.client.voice,
+				a.voice_settings.input_device,
+			)
 		}
 	}
 	a.devices_changed = false

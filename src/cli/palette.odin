@@ -41,16 +41,33 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	for row in list_rows(v) {
 		switch row.kind {
 		case .Channel:
-			append(&items, Palette_Item{label = fmt.tprintf("# %s", row.name), kind = .Conversation, conv = row.conv})
+			append(
+				&items,
+				Palette_Item {
+					label = fmt.tprintf("# %s", row.name),
+					kind = .Conversation,
+					conv = row.conv,
+				},
+			)
 		case .Direct, .Group:
-			append(&items, Palette_Item{label = fmt.tprintf("@ %s", row.name), kind = .Conversation, conv = row.conv})
+			append(
+				&items,
+				Palette_Item {
+					label = fmt.tprintf("@ %s", row.name),
+					kind = .Conversation,
+					conv = row.conv,
+				},
+			)
 		case .Header, .Voice_User:
 		}
 	}
 	if len(a.servers) > 1 {
 		for s, i in a.servers {
 			name := server_name(a.view) if i == a.cur else s.target.server
-			append(&items, Palette_Item{label = fmt.tprintf("Server: %s", name), kind = .Server, index = i})
+			append(
+				&items,
+				Palette_Item{label = fmt.tprintf("Server: %s", name), kind = .Server, index = i},
+			)
 		}
 	}
 	// People who can be called: those we have a DM with, and those who are here.
@@ -73,19 +90,38 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	}
 	slice.sort(people[:])
 	for id in people {
-		append(&items, Palette_Item{label = fmt.tprintf("Call %s", v.accounts[id].display), kind = .Call, index = int(id)})
+		append(
+			&items,
+			Palette_Item {
+				label = fmt.tprintf("Call %s", v.accounts[id].display),
+				kind = .Call,
+				index = int(id),
+			},
+		)
 	}
 	command :: proc(items: ^[dynamic]Palette_Item, label, line: string) {
 		append(items, Palette_Item{label = label, kind = .Command, line = line})
 	}
 	command(&items, "Join or leave the voice room", "/voice")
 	command(&items, "Mute" if !a.muted else "Unmute", "/mute" if !a.muted else "/unmute")
-	command(&items, "Deafen" if !a.deafened else "Stop being deaf", "/deafen" if !a.deafened else "/undeafen")
+	command(
+		&items,
+		"Deafen" if !a.deafened else "Stop being deaf",
+		"/deafen" if !a.deafened else "/undeafen",
+	)
 	if a.view.viewing != 0 {
 		here := viewed_name(a)
-		for line, level in ([proto.Notify_Level]string{.All = "all", .Mentions = "mentions", .None = "none"}) {
+		for line, level in ([proto.Notify_Level]string {
+				.All = "all",
+				.Mentions = "mentions",
+				.None = "none",
+			}) {
 			mark := "  (now)" if viewed_notify(a.view) == level else ""
-			command(&items, fmt.tprintf("Notifications for %s: %s%s", here, notify_text(level), mark), fmt.tprintf("/notify %s", line))
+			command(
+				&items,
+				fmt.tprintf("Notifications for %s: %s%s", here, notify_text(level), mark),
+				fmt.tprintf("/notify %s", line),
+			)
 		}
 	}
 	command(&items, "Insert an emoji", "/emoji")
@@ -101,7 +137,14 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	if len(a.servers) > 1 {
 		for s, i in a.servers {
 			name := server_name(a.view) if i == a.cur else s.target.server
-			append(&items, Palette_Item{label = fmt.tprintf("Disconnect and forget: %s", name), kind = .Command, line = fmt.tprintf("/disconnect %d", i + 1)})
+			append(
+				&items,
+				Palette_Item {
+					label = fmt.tprintf("Disconnect and forget: %s", name),
+					kind = .Command,
+					line = fmt.tprintf("/disconnect %d", i + 1),
+				},
+			)
 		}
 	}
 	for kind in Form_Kind {
@@ -195,7 +238,14 @@ draw_palette :: proc(a: ^App, b: ^tui.Buffer) {
 		y := r.y + 2 + i - top
 		style := theme.selected if i == d.sel else tui.Style{}
 		tui.fill(b, {r.x + 1, y, r.w - 2, 1}, style)
-		tui.put_string(b, r.x + 2, y, tui.cut_to_width(items[i].label, r.w - 4), style, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			y,
+			tui.cut_to_width(items[i].label, r.w - 4),
+			style,
+			r.x + r.w - 1,
+		)
 		append(&a.hits, Hit{{r.x + 1, y, r.w - 2, 1}, .Palette_Item, u64(i), ""})
 	}
 	if len(items) == 0 {

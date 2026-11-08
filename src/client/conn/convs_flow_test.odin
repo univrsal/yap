@@ -196,7 +196,9 @@ test_what_another_device_read :: proc(t: ^testing.T) {
 	// A position behind ours is old news. So is one behind what we are about to tell the server.
 	read_changed(&tc, {conv = 3, read = 15, unread = 15})
 	testing.expect_value(t, c.convs.convs[3].read, proto.Msg_Id(20))
-	c.convs.marks[3] = {due = 25}
+	c.convs.marks[3] = {
+		due = 25,
+	}
 	read_changed(&tc, {conv = 3, read = 22, unread = 8})
 	testing.expect_value(t, c.convs.convs[3].read, proto.Msg_Id(20))
 	delete_key(&c.convs.marks, 3)
@@ -630,7 +632,11 @@ test_subscribing :: proc(t: ^testing.T) {
 	conv, on, dec := proto.decode_conv_subscribe(req.body)
 	testing.expect(t, dec && !on)
 	testing.expect_value(t, conv, proto.Conv_Id(4))
-	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("GAMING"), on = false})
+	tc_run(
+		conv_subscribe_command,
+		c,
+		Subscribe_Command{name = strings.clone("GAMING"), on = false},
+	)
 	req, _ = tc_one(t, &tc, .Conv_Subscribe)
 	conv, _, _ = proto.decode_conv_subscribe(req.body)
 	testing.expect_value(t, conv, proto.Conv_Id(4))
@@ -644,7 +650,11 @@ test_subscribing :: proc(t: ^testing.T) {
 	testing.expect(t, on)
 
 	// Leaving one we are not in is nothing.
-	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("nowhere"), on = false})
+	tc_run(
+		conv_subscribe_command,
+		c,
+		Subscribe_Command{name = strings.clone("nowhere"), on = false},
+	)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 }
 
@@ -661,14 +671,23 @@ test_subscribing_to_a_channel_not_yet_shown :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	b, _ := proto.decode_conv_browse(search.body)
 	testing.expect_value(t, b.query, "Books")
-	tc_answer(&tc, search.id, .Ok, browse_page(false, channel(31, "Bookshelf"), channel(32, "books")))
+	tc_answer(
+		&tc,
+		search.id,
+		.Ok,
+		browse_page(false, channel(31, "Bookshelf"), channel(32, "books")),
+	)
 	req, sub := tc_one(t, &tc, .Conv_Subscribe)
 	testing.expect(t, sub)
 	conv, _, _ := proto.decode_conv_subscribe(req.body)
 	testing.expect_value(t, conv, proto.Conv_Id(32)) // the one with that name, not one that contains it
 
 	// If no channel has that name, nothing is subscribed to.
-	tc_run(conv_subscribe_command, c, Subscribe_Command{name = strings.clone("Missing"), on = true})
+	tc_run(
+		conv_subscribe_command,
+		c,
+		Subscribe_Command{name = strings.clone("Missing"), on = true},
+	)
 	search, _ = tc_one(t, &tc, .Conv_Browse)
 	tc_answer(&tc, search.id, .Ok, browse_page(false, channel(31, "Bookshelf")))
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
@@ -755,7 +774,12 @@ test_creating_a_channel :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.notice.count, count)
 
 	// A name too long to send is not sent.
-	conv_create(c, strings.repeat("n", 2 * proto.MAX_TOPIC_SIZE, context.temp_allocator), "", false)
+	conv_create(
+		c,
+		strings.repeat("n", 2 * proto.MAX_TOPIC_SIZE, context.temp_allocator),
+		"",
+		false,
+	)
 	testing.expect_value(t, len(tc_sent(t, &tc)), 0)
 }
 

@@ -25,7 +25,16 @@ v4 :: proc(a, b, c, d: u8) -> net.Address {
 // mapped makes the IPv6 form of an IPv4 address that a dual-stack socket reports.
 @(private = "file")
 mapped :: proc(a, b, c, d: u8) -> net.Address {
-	return net.IP6_Address{0, 0, 0, 0, 0, 0xffff, u16be(a) << 8 | u16be(b), u16be(c) << 8 | u16be(d)}
+	return net.IP6_Address {
+		0,
+		0,
+		0,
+		0,
+		0,
+		0xffff,
+		u16be(a) << 8 | u16be(b),
+		u16be(c) << 8 | u16be(d),
+	}
 }
 
 @(private = "file")
@@ -165,7 +174,10 @@ test_login_allowed :: proc(t: ^testing.T) {
 	testing.expect(t, !login_allowed(true, nil, local, "http"))
 	// A request that did not come from the proxy can claim anything.
 	testing.expect(t, !login_allowed(true, nil, far, "https"))
-	testing.expect(t, login_allowed(true, v4(10, 1, 1, 1), func_endpoint(v4(10, 1, 1, 1)), "https"))
+	testing.expect(
+		t,
+		login_allowed(true, v4(10, 1, 1, 1), func_endpoint(v4(10, 1, 1, 1)), "https"),
+	)
 	testing.expect(t, !login_allowed(true, v4(10, 1, 1, 1), lan, "https"))
 	testing.expect(t, !login_allowed(true, v4(10, 1, 1, 1), local, "https"))
 }
@@ -560,7 +572,8 @@ test_status_replies :: proc(t: ^testing.T) {
 		body: Error_JSON
 		testing.expectf(
 			t,
-			json.unmarshal(transmute([]u8)r.json, &body, allocator = context.temp_allocator) == nil,
+			json.unmarshal(transmute([]u8)r.json, &body, allocator = context.temp_allocator) ==
+			nil,
 			"%v: %q is not JSON",
 			status,
 			r.json,

@@ -27,9 +27,30 @@ CATEGORY_CUSTOM :: -1
 // The emoji most reactions are made of.
 @(private = "file")
 COMMON := [?]rune {
-	0x1F44D, 0x1F44E, 0x2764, 0x1F602, 0x1F62E, 0x1F622, 0x1F389, 0x1F64F,
-	0x1F440, 0x1F525, 0x2705, 0x274C, 0x1F4AF, 0x1F914, 0x1F44F, 0x1F600,
-	0x1F60D, 0x1F60E, 0x1F64C, 0x1F4AA, 0x1F680, 0x2B50, 0x1F605, 0x1F91D,
+	0x1F44D,
+	0x1F44E,
+	0x2764,
+	0x1F602,
+	0x1F62E,
+	0x1F622,
+	0x1F389,
+	0x1F64F,
+	0x1F440,
+	0x1F525,
+	0x2705,
+	0x274C,
+	0x1F4AF,
+	0x1F914,
+	0x1F44F,
+	0x1F600,
+	0x1F60D,
+	0x1F60E,
+	0x1F64C,
+	0x1F4AA,
+	0x1F680,
+	0x2B50,
+	0x1F605,
+	0x1F91D,
 }
 
 // open_picker opens the picker to react to a message.
@@ -74,8 +95,10 @@ picker_categories :: proc(v: ^conn.View) -> []int {
 
 picker_category_name :: proc(cat: int) -> string {
 	switch cat {
-	case CATEGORY_COMMON: return "Common"
-	case CATEGORY_CUSTOM: return "This server's"
+	case CATEGORY_COMMON:
+		return "Common"
+	case CATEGORY_CUSTOM:
+		return "This server's"
 	}
 	return fmt.tprint(proto.Emoji_Category(cat))
 }
@@ -85,7 +108,10 @@ picker_category_name :: proc(cat: int) -> string {
 picker_items :: proc(a: ^App) -> []Picker_Item {
 	v := a.view
 	items := make([dynamic]Picker_Item, context.temp_allocator)
-	query := strings.to_lower(strings.trim_space(tui.editor_text(&a.dialog.fields[0])), context.temp_allocator)
+	query := strings.to_lower(
+		strings.trim_space(tui.editor_text(&a.dialog.fields[0])),
+		context.temp_allocator,
+	)
 	query = strings.trim(query, ":")
 	if query != "" {
 		// Exact shortcodes first, then those that start with it, then the rest.
@@ -93,7 +119,14 @@ picker_items :: proc(a: ^App) -> []Picker_Item {
 			for name in v.emoji.names {
 				lower := strings.to_lower(name, context.temp_allocator)
 				if match_rank(lower, query) == rank {
-					append(&items, Picker_Item{label = fmt.tprintf(":%s:", name), send = fmt.tprintf(":%s:", name), names = name})
+					append(
+						&items,
+						Picker_Item {
+							label = fmt.tprintf(":%s:", name),
+							send = fmt.tprintf(":%s:", name),
+							names = name,
+						},
+					)
 				}
 			}
 			for e in proto.EMOJI {
@@ -118,7 +151,14 @@ picker_items :: proc(a: ^App) -> []Picker_Item {
 		}
 	case CATEGORY_CUSTOM:
 		for name in v.emoji.names {
-			append(&items, Picker_Item{label = fmt.tprintf(":%s:", name), send = fmt.tprintf(":%s:", name), names = name})
+			append(
+				&items,
+				Picker_Item {
+					label = fmt.tprintf(":%s:", name),
+					send = fmt.tprintf(":%s:", name),
+					names = name,
+				},
+			)
 		}
 	case:
 		for e in proto.EMOJI {
@@ -135,9 +175,12 @@ picker_items :: proc(a: ^App) -> []Picker_Item {
 @(private = "file")
 match_rank :: proc(code, query: string) -> int {
 	switch {
-	case code == query: return 0
-	case strings.has_prefix(code, query): return 1
-	case strings.contains(code, query): return 2
+	case code == query:
+		return 0
+	case strings.has_prefix(code, query):
+		return 1
+	case strings.contains(code, query):
+		return 2
 	}
 	return 3
 }
@@ -186,9 +229,24 @@ draw_picker :: proc(a: ^App, b: ^tui.Buffer) {
 		cat := fmt.tprintf("◂ %s ▸   Tab: next kind", picker_category_name(d.category))
 		tui.put_string(b, r.x + 2, y, cat, {attrs = {.Bold}}, r.x + r.w - 1)
 		append(&a.hits, Hit{{r.x + 2, y, 3, 1}, .Picker_Tab, 0, ""})
-		append(&a.hits, Hit{{r.x + 3 + tui.string_width(picker_category_name(d.category)), y, 3, 1}, .Picker_Tab, 1, ""})
+		append(
+			&a.hits,
+			Hit {
+				{r.x + 3 + tui.string_width(picker_category_name(d.category)), y, 3, 1},
+				.Picker_Tab,
+				1,
+				"",
+			},
+		)
 	} else {
-		tui.put_string(b, r.x + 2, y, fmt.tprintf("%d found", len(items)), theme.dim, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			y,
+			fmt.tprintf("%d found", len(items)),
+			theme.dim,
+			r.x + r.w - 1,
+		)
 	}
 
 	// The grid, scrolled to keep the one picked in view.
@@ -217,9 +275,17 @@ draw_picker :: proc(a: ^App, b: ^tui.Buffer) {
 	if d.sel < len(items) {
 		it := items[d.sel]
 		names, _ := strings.replace_all(it.names, " ", "  ", context.temp_allocator)
-		tui.put_string(b, r.x + 2, r.y + r.h - 3, fmt.tprintf("%s  :%s:", it.label, names) if !strings.has_prefix(it.send, ":") else it.send, {}, r.x + r.w - 1)
+		tui.put_string(
+			b,
+			r.x + 2,
+			r.y + r.h - 3,
+			fmt.tprintf("%s  :%s:", it.label, names) if !strings.has_prefix(it.send, ":") else it.send,
+			{},
+			r.x + r.w - 1,
+		)
 	}
-	hint := "Type to find   Arrows: pick   Enter: react   Esc: close" if d.msg != 0 else "Type to find   Arrows: pick   Enter: insert   Esc: close"
+	hint :=
+		"Type to find   Arrows: pick   Enter: react   Esc: close" if d.msg != 0 else "Type to find   Arrows: pick   Enter: insert   Esc: close"
 	tui.put_string(b, r.x + 2, r.y + r.h - 2, hint, theme.dim, r.x + r.w - 1)
 }
 
@@ -267,14 +333,22 @@ picker_key :: proc(a: ^App, k: tui.Key_Event) {
 		}
 	case k.key == .Enter:
 		picker_choose(a, d.sel)
-	case k.key == .Left: picker_move(a, -1)
-	case k.key == .Right: picker_move(a, 1)
-	case k.key == .Up: picker_move(a, -1, rows = true)
-	case k.key == .Down: picker_move(a, 1, rows = true)
-	case k.key == .Page_Up: picker_move(a, -3, rows = true)
-	case k.key == .Page_Down: picker_move(a, 3, rows = true)
-	case k.key == .Tab && .Shift in k.mods: picker_category_step(a, -1)
-	case k.key == .Tab: picker_category_step(a, 1)
+	case k.key == .Left:
+		picker_move(a, -1)
+	case k.key == .Right:
+		picker_move(a, 1)
+	case k.key == .Up:
+		picker_move(a, -1, rows = true)
+	case k.key == .Down:
+		picker_move(a, 1, rows = true)
+	case k.key == .Page_Up:
+		picker_move(a, -3, rows = true)
+	case k.key == .Page_Down:
+		picker_move(a, 3, rows = true)
+	case k.key == .Tab && .Shift in k.mods:
+		picker_category_step(a, -1)
+	case k.key == .Tab:
+		picker_category_step(a, 1)
 	case:
 		if tui.editor_key(&d.fields[0], k) {
 			d.sel, d.top = 0, 0
@@ -299,7 +373,10 @@ picker_choose :: proc(a: ^App, i: int) {
 		return
 	}
 	// A custom emoji is followed by a space so that the next word is not part of it.
-	tui.editor_insert(&a.editor, send if !strings.has_prefix(send, ":") else strings.concatenate({send, " "}, context.temp_allocator))
+	tui.editor_insert(
+		&a.editor,
+		send if !strings.has_prefix(send, ":") else strings.concatenate({send, " "}, context.temp_allocator),
+	)
 	a.focus = .Composer
 }
 
@@ -313,5 +390,13 @@ react :: proc(a: ^App, id: proto.Msg_Id, emoji: string) {
 			}
 		}
 	}
-	push(a, conn.React_Command{id = id, emoji = strings.clone(emoji), on = on, typed = strings.has_prefix(emoji, ":")})
+	push(
+		a,
+		conn.React_Command {
+			id = id,
+			emoji = strings.clone(emoji),
+			on = on,
+			typed = strings.has_prefix(emoji, ":"),
+		},
+	)
 }

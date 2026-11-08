@@ -86,5 +86,8 @@ apply_voice_settings :: proc(c: ^conn.Server_Conn, v: Voice_Settings) {
 	open := clamp(v.gate_open_db, audio.MIN_LEVEL_DB, 0)
 	conn.push_command(&c.commands, conn.Quality_Command{q})
 	conn.push_command(&c.commands, conn.Noise_Command{v.noise_suppression})
-	conn.push_command(&c.commands, conn.Gate_Command{v.voice_gate, open, clamp(v.gate_close_db, audio.MIN_LEVEL_DB, open)})
+	conn.push_command(
+		&c.commands,
+		conn.Gate_Command{v.voice_gate, open, clamp(v.gate_close_db, audio.MIN_LEVEL_DB, open)},
+	)
 }
