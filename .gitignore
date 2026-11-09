@@ -13,3 +13,4 @@ web/deps/
 .cache/
 dist/
 /config.json
+/demo-server/

@@ -73,6 +73,21 @@ docker compose --profile proxy up -d
 `YAP_RELAY_HOST_IP=127.0.0.1` then keeps the plain-HTTP relay port off the
 network. For the bot API behind it, set `api.behind_proxy` in `config.json`.
 
+## A demo server
+
+`scripts/demo.py` makes and runs a throwaway server with made-up people,
+channels, messages, reactions, pictures and bots, for screenshots and testing. It
+also logs in headless clients, so some people are online and a few sit in the
+voice rooms. Log in with `admin` or `demo` (password `demodemo`).
+
+```sh
+scripts/demo.py           # the first time it makes demo-server/, then runs it
+scripts/demo.py --reset   # start over
+```
+
+It uses ports 17777 and 18080, not the defaults, and leaves your own settings
+alone. See the top of the script for the options.
+
 ## Moving from Mattermost
 
 `yap-server import mattermost` makes a new yap server from a Mattermost one: its
