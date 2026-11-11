@@ -4,6 +4,7 @@ import "base:intrinsics"
 import "client:clipboard"
 import "client:platform"
 import "client:render"
+import "client:settings"
 import glfw "client:wglfw"
 import log "common:wlog"
 import "core:math"
@@ -29,7 +30,25 @@ window_open :: proc(ui: ^UI) -> bool {
 		glfw.WindowHintString(glfw.X11_INSTANCE_NAME, "yap")
 	}
 	titlebar_window_hints(ui.settings.merge_title_bar)
-	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
+	// Where it was last (see window_place_note), if that is known and still
+	// on a screen. Otherwise the desktop decides, as it does on Wayland.
+	place := ui.settings.window
+	if place.w <= 0 || place.h <= 0 {
+		place.w, place.h = DEFAULT_WINDOW_SIZE.x, DEFAULT_WINDOW_SIZE.y
+	}
+	when !platform.WEB {
+		x, y := glfw.ANY_POSITION, glfw.ANY_POSITION
+		if place.placed && !on_wayland() && window_on_screen(place) {
+			x, y = place.x, place.y
+		}
+		// Created where it goes, so that it scales for that screen
+		// (SCALE_TO_MONITOR) and isn't seen anywhere else first, and
+		// maximized there if it was.
+		glfw.WindowHint(glfw.POSITION_X, x)
+		glfw.WindowHint(glfw.POSITION_Y, y)
+		glfw.WindowHint(glfw.MAXIMIZED, b32(place.maximized))
+	}
+	ui.window = glfw.CreateWindow(place.w, place.h, "Yap", nil, nil)
 	delete(ui.window_title)
 	ui.window_title = strings.clone("Yap") // what the window title says
 	if ui.window == nil {
@@ -60,6 +79,11 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	when ODIN_OS == .Darwin {
 		glfw.SetFramebufferSizeCallback(ui.window, resize_callback)
+	}
+	when !platform.WEB {
+		glfw.SetWindowPosCallback(ui.window, place_pos_callback)
+		glfw.SetWindowSizeCallback(ui.window, place_size_callback)
+		glfw.SetWindowMaximizeCallback(ui.window, place_maximize_callback)
 	}
 	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
 	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
@@ -101,23 +125,8 @@ window_close :: proc(ui: ^UI) {
 	if ui.window == nil {
 		return
 	}
-	// Come back at the same size as before. Where window coordinates
-	// are physical pixels (see window_metrics), CreateWindow scales the
-	// size it is given for the monitor (SCALE_TO_MONITOR), so it has to
-	// be given the unscaled size, or the window grows every time.
-	if w, h := glfw.GetWindowSize(ui.window); w > 0 && h > 0 {
-		fb_w, _ := glfw.GetFramebufferSize(ui.window)
-		physical := f32(fb_w) / f32(w) <= 1.01
-		// Without the frame that a merged title bar takes into the
-		// client area (in physical pixels, before the scale comes off).
-		w, h = titlebar_client_size(ui.window, w, h)
-		if physical {
-			sx, sy := glfw.GetWindowContentScale(ui.window)
-			w = i32(math.round(f32(w) / max(sx, 1)))
-			h = i32(math.round(f32(h) / max(sy, 1)))
-		}
-		ui.window_size = {w, h}
-	}
+	// Come back where it was, at the same size.
+	window_place_note(ui)
 	// The video library releases what it created on the device while the device
 	// still exists (an OpenGL context can only be cleaned up while current).
 	ui_video_forget_texture(ui)
@@ -130,6 +139,106 @@ window_close :: proc(ui: ^UI) {
 	thumbbar_detach()
 	glfw.DestroyWindow(ui.window)
 	ui.window = nil
+}
+
+// The window's size the first time, before there is one to remember.
+DEFAULT_WINDOW_SIZE :: [2]i32{760, 480}
+
+// window_place_note remembers where the window is and how big
+// (settings.Window_Place), to open it there again: when it comes back from the
+// tray, and at the next start. It is called whenever the window moves, changes
+// size or is maximized, and as it closes. Minimized, the window keeps the place
+// it had. Maximized, it keeps the place it had before as the one to go back
+// to, and only notes that it is maximized.
+window_place_note :: proc(ui: ^UI) {
+	when !platform.WEB {
+		window := ui.window
+		if window == nil || glfw.WindowIconified(window) {
+			return
+		}
+		place := ui.settings.window
+		place.maximized = glfw.WindowMaximized(window)
+		if !place.maximized {
+			w, h := glfw.GetWindowSize(window)
+			if w <= 0 || h <= 0 {
+				return
+			}
+			// A Wayland window isn't told where it is (and GLFW
+			// complains when asked).
+			x, y: i32
+			place.placed = !on_wayland()
+			if place.placed {
+				x, y = glfw.GetWindowPos(window)
+			}
+			// Where window coordinates are physical pixels (see
+			// window_metrics), CreateWindow scales the size it is
+			// given for the monitor (SCALE_TO_MONITOR), so it has to be
+			// given the unscaled size, or the window grows every time.
+			// The position stays physical: it is where on the desktop
+			// the window goes.
+			fb_w, _ := glfw.GetFramebufferSize(window)
+			physical := f32(fb_w) / f32(w) <= 1.01
+			// Without the frame that a merged title bar takes into the
+			// client area (in physical pixels, before the scale comes off).
+			x, y, w, h = titlebar_client_rect(window, x, y, w, h)
+			if physical {
+				sx, sy := glfw.GetWindowContentScale(window)
+				w = i32(math.round(f32(w) / max(sx, 1)))
+				h = i32(math.round(f32(h) / max(sy, 1)))
+			}
+			place.x, place.y, place.w, place.h = x, y, w, h
+		}
+		if place != ui.settings.window {
+			ui.settings.window = place
+			ui.settings_dirty = true
+		}
+	}
+}
+
+// window_on_screen reports whether a window at `place` would be where it can be
+// seen and moved: the top of it, which it is dragged by, on one of the screens
+// there are now. A screen it was on may have been unplugged since, or set up
+// differently. The size is roughly the window's (it is unscaled), which is
+// near enough for this.
+window_on_screen :: proc(place: settings.Window_Place) -> bool {
+	when !platform.WEB {
+		for monitor in glfw.GetMonitors() {
+			mx, my, mw, mh := glfw.GetMonitorWorkarea(monitor)
+			across := min(place.x + place.w, mx + mw) - max(place.x, mx)
+			if across >= 64 && place.y >= my && place.y < my + mh - 32 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// The window moved, changed size or was maximized (or back): remember where it
+// is (see window_place_note). These come while it is being dragged, and while
+// it is being created and taken down, when it may not be ours yet or any more.
+@(private = "file")
+place_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: i32) {
+	place_changed(window)
+}
+
+@(private = "file")
+place_size_callback :: proc "c" (window: glfw.WindowHandle, w, h: i32) {
+	place_changed(window)
+}
+
+@(private = "file")
+place_maximize_callback :: proc "c" (window: glfw.WindowHandle, maximized: i32) {
+	place_changed(window)
+}
+
+@(private = "file")
+place_changed :: proc "contextless" (window: glfw.WindowHandle) {
+	if g_ui == nil || g_ui.window != window {
+		return
+	}
+	context = platform.callback_context()
+	context.logger = g_logger
+	window_place_note(g_ui)
 }
 
 // clipboard_init sets up reading images from the clipboard. On Wayland it

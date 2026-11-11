@@ -50,6 +50,9 @@ SetWindowTitle :: glfw.SetWindowTitle
 GetPlatform :: glfw.GetPlatform
 GetPrimaryMonitor :: glfw.GetPrimaryMonitor
 GetVideoMode :: glfw.GetVideoMode
+GetMonitors :: glfw.GetMonitors
+GetMonitorWorkarea :: glfw.GetMonitorWorkarea
+GetWindowPos :: glfw.GetWindowPos
 gl_set_proc_address :: glfw.gl_set_proc_address
 SetErrorCallback :: glfw.SetErrorCallback
 SetKeyCallback :: glfw.SetKeyCallback
@@ -58,6 +61,9 @@ SetCursorPosCallback :: glfw.SetCursorPosCallback
 SetCursorEnterCallback :: glfw.SetCursorEnterCallback
 SetMouseButtonCallback :: glfw.SetMouseButtonCallback
 SetScrollCallback :: glfw.SetScrollCallback
+SetWindowPosCallback :: glfw.SetWindowPosCallback
+SetWindowSizeCallback :: glfw.SetWindowSizeCallback
+SetWindowMaximizeCallback :: glfw.SetWindowMaximizeCallback
 SetDropCallback :: glfw.SetDropCallback
 SetWindowIconifyCallback :: glfw.SetWindowIconifyCallback
 SetWindowFocusCallback :: glfw.SetWindowFocusCallback
@@ -75,6 +81,10 @@ X11_CLASS_NAME :: glfw.X11_CLASS_NAME
 X11_INSTANCE_NAME :: glfw.X11_INSTANCE_NAME
 SCALE_TO_MONITOR :: glfw.SCALE_TO_MONITOR
 VISIBLE :: glfw.VISIBLE
+MAXIMIZED :: glfw.MAXIMIZED
+POSITION_X :: glfw.POSITION_X
+POSITION_Y :: glfw.POSITION_Y
+ANY_POSITION :: min(i32) // glfw.ANY_POSITION (0x80000000), as the c.int that WindowHint takes
 ALPHA_BITS :: glfw.ALPHA_BITS
 DONT_CARE :: glfw.DONT_CARE
 PRESS :: glfw.PRESS
@@ -149,6 +159,11 @@ LayoutKey :: proc "contextless" (key, scancode: i32) -> i32 {
 // WindowFocused reports whether the window has the keyboard focus.
 WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
 	return glfw.GetWindowAttrib(window, glfw.FOCUSED) != 0
+}
+
+// WindowMaximized reports whether the window is maximized.
+WindowMaximized :: proc "contextless" (window: WindowHandle) -> bool {
+	return glfw.GetWindowAttrib(window, glfw.MAXIMIZED) != 0
 }
 
 // WindowIconified reports whether the window is minimized.
