@@ -216,6 +216,46 @@ test_spinner_redraws_while_shown :: proc(t: ^testing.T) {
 	mu.end(ctx)
 }
 
+// A delayed spinner leaves its row empty for SPINNER_DELAY, asking for a frame
+// when that is over, and then turns. Missing a frame starts the wait again.
+@(test)
+test_delayed_spinner :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	d: Spinner_Delay
+	// Lays out a frame, with the spinner if `draw`, and reports whether it
+	// drew anything.
+	frame :: proc(ui: ^UI, d: ^Spinner_Delay, draw := true) -> (drawn: bool) {
+		ctx := &ui.ctx
+		ui.redraw_at = {}
+		mu.begin(ctx)
+		if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+			if draw {
+				before := ctx.command_list.idx
+				delayed_spinner_row(ui, d)
+				drawn = ctx.command_list.idx != before
+			}
+			mu.end_window(ctx)
+		}
+		mu.end(ctx)
+		return
+	}
+
+	testing.expect(t, !frame(ui, &d), "the spinner showed at once")
+	left := time.tick_diff(time.tick_now(), ui.redraw_at)
+	testing.expect(t, left > 0 && left <= SPINNER_DELAY)
+	testing.expect(t, !frame(ui, &d), "the spinner showed too soon")
+
+	d.since = time.tick_add(d.since, -SPINNER_DELAY)
+	testing.expect(t, frame(ui, &d), "the spinner didn't show after the delay")
+	testing.expect(t, frame(ui, &d), "the spinner went away")
+
+	// Not drawn for a frame: what is waited for next is a new wait.
+	frame(ui, &d, draw = false)
+	testing.expect(t, !frame(ui, &d), "an earlier wait carried on")
+}
+
 // A notch of the mouse wheel reaches microui over a few frames, less in each
 // than the one before, and all of it in the end.
 @(test)

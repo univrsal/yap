@@ -24,6 +24,7 @@ UI_Pins :: struct {
 	placed: bool, // whether its position has been set since it was opened
 	// The conversation whose pins were requested.
 	asked:  proto.Conv_Id,
+	wait:   Spinner_Delay, // while they are on their way
 }
 
 @(private = "file")
@@ -83,7 +84,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	pins := &v.pins
 	if pins.conv != v.viewing || (pins.loading && len(pins.messages) == 0) {
-		spinner_row(ui)
+		delayed_spinner_row(ui, &p.wait)
 		return
 	}
 	if len(pins.messages) == 0 {

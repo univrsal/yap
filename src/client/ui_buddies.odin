@@ -742,7 +742,7 @@ group_conversation :: proc(ui: ^UI, entry: Buddy_Entry, back: bool) {
 		timeline(ui, &ui.timeline, {entry.conv, 0})
 	} else {
 		mu.begin_panel(ctx, "no conversation", {.NO_FRAME})
-		spinner_row(ui) // its messages, on their way
+		delayed_spinner_row(ui, &ui.timeline.waiting) // its messages, on their way
 		mu.end_panel(ctx)
 	}
 	composer := composer_of_page(ui)
@@ -796,7 +796,7 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	if entry.conv != 0 {
-		spinner_row(ui) // its messages, on their way
+		delayed_spinner_row(ui, &ui.timeline.waiting) // its messages, on their way
 		return
 	}
 	mu.layout_row(ctx, {-1})

@@ -53,6 +53,14 @@ UI_Profiles :: struct {
 	members_open:   bool,
 	members_placed: bool,
 	members_asked:  proto.Conv_Id,
+	members_wait:   Spinner_Delay, // while they are on their way
+	// The members last listed, and their admins, as of View_Members.count
+	// `members_seen`. While another conversation's are on their way, these
+	// stay in the list for up to SPINNER_DELAY, so that a quick switch goes
+	// from one list straight to the next instead of blanking in between.
+	members_shown:  [dynamic]proto.Account_Id,
+	admins_shown:   [dynamic]proto.Account_Id,
+	members_seen:   int,
 	// The members are pinned down the right of the screen (set by the
 	// session screen when it is wide enough) instead of in the window.
 	members_pinned: bool,
@@ -110,6 +118,9 @@ ui_profiles_destroy :: proc(ui: ^UI) {
 	known_clear(&ui.profiles)
 	delete(ui.profiles.shared_known)
 	ui.profiles.shared_known = nil
+	delete(ui.profiles.members_shown)
+	delete(ui.profiles.admins_shown)
+	ui.profiles.members_shown, ui.profiles.admins_shown = nil, nil
 }
 
 @(private = "file")
@@ -426,17 +437,34 @@ members_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	m := &v.members
+	p := &ui.profiles
+	accounts, admins := m.accounts[:], m.admins[:]
 	if m.conv != v.viewing || (m.loading && len(m.accounts) == 0) {
-		spinner_row(ui)
-		return
+		// On their way: the last list stays for a moment, then a spinner.
+		if spinner_due(ui, &p.members_wait) {
+			spinner_row(ui)
+			return
+		}
+		if len(p.members_shown) == 0 {
+			mu.layout_row(ctx, {-1})
+			mu.layout_next(ctx)
+			return
+		}
+		accounts, admins = p.members_shown[:], p.admins_shown[:]
+	} else if p.members_seen != m.count {
+		p.members_seen = m.count
+		clear(&p.members_shown)
+		clear(&p.admins_shown)
+		append(&p.members_shown, ..m.accounts[:])
+		append(&p.admins_shown, ..m.admins[:])
 	}
 	Member :: struct {
 		account: proto.Account_Id,
 		name:    string,
 		online:  bool,
 	}
-	list := make([dynamic]Member, 0, len(m.accounts), context.temp_allocator)
-	for a in m.accounts {
+	list := make([dynamic]Member, 0, len(accounts), context.temp_allocator)
+	for a in accounts {
 		e := buddy_entry(v, a, false)
 		append(&list, Member{a, e.name, e.online || a == v.me})
 	}
@@ -456,13 +484,13 @@ members_list :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {-1})
 	dim_label(ctx, fmt.tprintf("%d members, %d here", len(list), here))
-	add_people(ui, m.accounts[:])
+	add_people(ui, accounts)
 	// When those who aren't here were last seen is only shown in the DM
 	// with them (ui_buddies.odin), because the server only says it to people
 	// who have written to each other, and a list where only some have it
 	// would look broken.
 	for e in list {
-		admin := slice.contains(m.admins[:], e.account)
+		admin := slice.contains(admins, e.account)
 		if person_row(ui, e.account, e.name, e.online, "admin" if admin else "") {
 			if e.account == v.me {
 				open_status_editor(ui)
