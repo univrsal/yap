@@ -117,11 +117,12 @@ window_close :: proc(ui: ^UI) {
 	// The video library releases what it created on the device while the device
 	// still exists (an OpenGL context can only be cleaned up while current).
 	ui_video_forget_texture(ui)
-	render.renderer_destroy(&ui.renderer)
-	// The pictures' textures belong to the device that is about to go away.
+	// The pictures' textures belong to the device that is about to go away,
+	// and are deleted while it is still there (see ui_images_forget_textures).
 	// They are decoded again when they are next on screen.
 	ui_images_forget_textures(ui)
 	ui_avatars_forget_textures(ui)
+	render.renderer_destroy(&ui.renderer)
 	thumbbar_detach()
 	glfw.DestroyWindow(ui.window)
 	ui.window = nil
