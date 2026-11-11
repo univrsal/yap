@@ -59,11 +59,13 @@ timeline_test_end :: proc(tt: ^Timeline_Test) {
 	free(tt)
 }
 
+// timeline_test_frame draws a frame of the timeline in a window that is
+// `rect`, which only counts in the first frame (as for any microui window).
 @(private = "file")
-timeline_test_frame :: proc(tt: ^Timeline_Test) {
+timeline_test_frame :: proc(tt: ^Timeline_Test, rect := mu.Rect{0, 0, 400, 300}) {
 	ctx := &tt.ui.ctx
 	mu.begin(ctx)
-	if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+	if mu.begin_window(ctx, "w", rect, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
 		mu.layout_row(ctx, {-1}, -1)
 		timeline(tt.ui, &tt.st, tt.key)
 		tt.cnt = mu.get_container(ctx, "timeline") // TIMELINE_PANEL
@@ -111,4 +113,21 @@ test_timeline_slow_drag_leaves_end :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, tt.cnt.scroll.y, at_end)
 	testing.expect(t, tt.st.follow)
+}
+
+// A minimized window is laid out a few pixels wide (Windows reports its
+// size as 237x39), which leaves the timeline less than no width. A message
+// with reactions must still be drawn, rather than its chips being put in a
+// row that was never started.
+@(test)
+test_timeline_reactions_without_width :: proc(t: ^testing.T) {
+	tt := timeline_test_start(3)
+	defer timeline_test_end(tt)
+	m := &(&tt.ui.view.timelines[tt.key]).messages[1]
+	append(&m.reactions, conn.Reaction{emoji = "👍", count = 2}, conn.Reaction{emoji = "🎉", count = 1})
+	defer delete(m.reactions)
+	for _ in 0 ..< 3 {
+		timeline_test_frame(tt, {0, 0, 20, 10})
+	}
+	testing.expect(t, tt.cnt != nil)
 }
