@@ -509,14 +509,17 @@ notice_until :: proc(v: ^conn.View) -> time.Tick {
 
 // typing_text says who is typing in the conversation we're looking at
 // (or, with `root`, in that thread of it), or returns "". For the conversation,
-// with nobody typing in it, it says who is typing in its threads.
-typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0) -> string {
+// with nobody typing in it, it says who is typing in its threads. `conv` is
+// another conversation than the one looked at (a thread's, which may be open
+// while another conversation is on screen).
+typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0, conv: proto.Conv_Id = 0) -> string {
+	conv := conv if conv != 0 else v.viewing
 	names := make([dynamic]string, context.temp_allocator)
 	in_threads := false
 	for pass in 0 ..< 2 {
 		for account in v.typing {
 			typing :=
-				conn.is_typing(v, account, v.viewing, root) if pass == 0 else conn.is_typing_in_thread(v, account, v.viewing)
+				conn.is_typing(v, account, conv, root) if pass == 0 else conn.is_typing_in_thread(v, account, conv)
 			if account != v.me && typing {
 				acc, ok := v.accounts[account]
 				append(&names, acc.display if ok else "someone")

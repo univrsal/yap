@@ -49,7 +49,7 @@ open_message_menu :: proc(ui: ^UI, m: conn.View_Message, slot: int, confirm_dele
 	mm^ = {
 		requested = true,
 		id        = m.id,
-		conv      = ui.view.viewing,
+		conv      = timeline_conv(ui, slot),
 		sender    = m.sender,
 		kind      = m.kind,
 		flags     = m.flags,
@@ -75,11 +75,11 @@ ui_message_menu_destroy :: proc(ui: ^UI) {
 	ui.msg_bar = {}
 }
 
-// may_pin_here is whether we may pin and unpin messages in the conversation
-// that is currently shown. Call with the View locked.
-may_pin_here :: proc(v: ^conn.View) -> bool {
+// may_pin_in is whether we may pin and unpin messages in a conversation. Call
+// with the View locked.
+may_pin_in :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
 	for dm in v.dms {
-		if dm.id == v.viewing {
+		if dm.id == conv {
 			return true
 		}
 	}
@@ -107,8 +107,9 @@ message_menu :: proc(ui: ^UI) {
 	}
 	defer mu.end_popup(ctx)
 
-	// The message is gone (another conversation is shown now).
-	if mm.conv != v.viewing || ui.session == nil {
+	// The message is gone (another conversation is shown now, or its thread
+	// was closed).
+	if mm.conv != timeline_conv(ui, mm.slot) || ui.session == nil {
 		mu.get_current_container(ctx).open = false
 		return
 	}
@@ -169,7 +170,7 @@ message_menu :: proc(ui: ^UI) {
 start_editing :: proc(ui: ^UI, id: proto.Msg_Id, text: string, c: Composer) {
 	c.len^ = copy(c.buf, richtext.mentions_for_edit(text, ui.view.accounts, ui.view.roles[:]))
 	c.editing^ = id
-	c.conv^ = ui.view.viewing
+	c.conv^ = timeline_conv(ui, c.thread)
 	focus_composer(ui, c, -1)
 }
 
@@ -286,7 +287,8 @@ composer_input :: proc(ui: ^UI, c: Composer) {
 composer_keys :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
 	v := ui.view
-	if c.editing^ != 0 && c.conv^ != v.viewing {
+	conv := timeline_conv(ui, c.thread)
+	if c.editing^ != 0 && c.conv^ != conv {
 		c.editing^ = 0
 		c.len^ = 0
 	}
@@ -311,8 +313,8 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		ui.chat.paste = true
 		ui.paste_to = {ui.page, c.thread}
 	}
-	if .Up in ui.keys && c.len^ == 0 && c.editing^ == 0 && .Edit in rights_here(v) {
-		key := conn.Timeline_Key{v.viewing, 0}
+	if .Up in ui.keys && c.len^ == 0 && c.editing^ == 0 && .Edit in rights_in(v, conv) {
+		key := conn.Timeline_Key{conv, 0}
 		if c.thread != 0 {
 			key = ui.threads[c.thread - 1].key
 		}
