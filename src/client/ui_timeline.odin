@@ -222,6 +222,11 @@ UI_Timeline :: struct {
 	midnight:     i64,
 	time_w_today: i32,
 	time_w_dated: i32,
+	// The spinner for messages on their way (top_line), and for a
+	// conversation that is being switched to (ui_buddies.odin). It is kept
+	// when another conversation is shown, so that the wait for one that
+	// started before the switch carries on.
+	waiting:      Spinner_Delay,
 }
 
 Msg_Layout :: struct {
@@ -281,6 +286,7 @@ timeline_reset :: proc(
 		reading_to  = st.reading_to,
 		jump_to     = st.jump_to,
 		jump_conv   = st.jump_conv,
+		waiting     = st.waiting,
 	}
 }
 
@@ -598,7 +604,7 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 	switch {
 	case tl == nil || tl.loading:
 		// Messages, or older ones above these, on their way.
-		spinner_row(ui)
+		delayed_spinner_row(ui, &st.waiting)
 		return
 	case thread && tl.have_oldest && n > 0:
 		rule(ui, "Replies", theme.day_line)

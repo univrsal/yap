@@ -117,6 +117,49 @@ spinner_row :: proc(ui: ^UI) {
 	spinner(ui, mu.layout_next(&ui.ctx))
 }
 
+// How long something may take to load before a spinner says that it is
+// loading. Most things (a channel's messages, its members) are here sooner,
+// and a spinner that is gone again a moment later only makes the screen
+// flicker.
+SPINNER_DELAY :: 300 * time.Millisecond
+
+// Spinner_Delay is when the wait that a delayed spinner is for began.
+Spinner_Delay :: struct {
+	since: time.Tick,
+	frame: mu.Frame_Index, // the last frame it was drawn in
+}
+
+// delayed_spinner_row is spinner_row once there has been a spinner_row of `d`
+// in every frame for SPINNER_DELAY; until then the row is left empty (it
+// takes up the same room, so nothing moves when the spinner comes). A wait
+// starts afresh when it wasn't drawn in the frame before.
+delayed_spinner_row :: proc(ui: ^UI, d: ^Spinner_Delay) {
+	if !spinner_due(ui, d) {
+		mu.layout_row(&ui.ctx, {-1})
+		mu.layout_next(&ui.ctx)
+		return
+	}
+	spinner_row(ui)
+}
+
+// spinner_due is whether a spinner waiting on `d` is to be shown in this frame:
+// whether it has been waited for in every frame for SPINNER_DELAY. Until then,
+// it asks for a frame when the time is up, and the caller shows something else
+// (nothing, or what it showed before). Call it in every frame of the wait.
+spinner_due :: proc(ui: ^UI, d: ^Spinner_Delay) -> bool {
+	ctx := &ui.ctx
+	if d.since == {} || (d.frame != ctx.frame && d.frame != ctx.frame - 1) {
+		d.since = time.tick_now()
+	}
+	d.frame = ctx.frame
+	waited := time.tick_since(d.since)
+	if waited < SPINNER_DELAY {
+		ui_redraw_in(ui, SPINNER_DELAY - waited)
+		return false
+	}
+	return true
+}
+
 // menu_list_begin starts a list of `rows` rows in a menu, `width` wide. The rows
 // are buttons or labels, each on a row of its own, laid out with {-1}. The list
 // is as tall as its rows, up to half the window, beyond which it scrolls instead
