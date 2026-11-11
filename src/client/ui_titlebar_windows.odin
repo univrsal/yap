@@ -156,6 +156,26 @@ is_merged :: proc(hwnd: win.HWND) -> bool {
 	return win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == our_proc()
 }
 
+// titlebar_client_size turns the size of `window`'s client area into the one
+// to create it again at. Merged, the client area covers the whole frame (see
+// title_proc), but CreateWindow puts the system's frame around the size it is
+// given, so a window closed and opened again (hiding to the tray) would come
+// back a frame and a title bar bigger every time. Maximized, the client area
+// already stops at the frame.
+titlebar_client_size :: proc(window: glfw.WindowHandle, w, h: i32) -> (i32, i32) {
+	hwnd := win.HWND(glfw.GetWin32Window(window))
+	if hwnd == nil || !is_merged(hwnd) || win.IsZoomed(hwnd) {
+		return w, h
+	}
+	frame: win.RECT
+	style := u32(win.GetWindowLongW(hwnd, win.GWL_STYLE))
+	ex_style := u32(win.GetWindowLongW(hwnd, win.GWL_EXSTYLE))
+	if !win.AdjustWindowRectExForDpi(&frame, style, false, ex_style, win.GetDpiForWindow(hwnd)) {
+		return w, h
+	}
+	return max(w - (frame.right - frame.left), 1), max(h - (frame.bottom - frame.top), 1)
+}
+
 // titlebar_area is the strip along the top that the title bar would have
 // taken, in window coordinates: how far in from the left and from the right
 // the window's own buttons reach (only the right here), and how tall the strip

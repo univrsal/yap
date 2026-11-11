@@ -107,7 +107,11 @@ window_close :: proc(ui: ^UI) {
 	// be given the unscaled size, or the window grows every time.
 	if w, h := glfw.GetWindowSize(ui.window); w > 0 && h > 0 {
 		fb_w, _ := glfw.GetFramebufferSize(ui.window)
-		if f32(fb_w) / f32(w) <= 1.01 {
+		physical := f32(fb_w) / f32(w) <= 1.01
+		// Without the frame that a merged title bar takes into the
+		// client area (in physical pixels, before the scale comes off).
+		w, h = titlebar_client_size(ui.window, w, h)
+		if physical {
 			sx, sy := glfw.GetWindowContentScale(ui.window)
 			w = i32(math.round(f32(w) / max(sx, 1)))
 			h = i32(math.round(f32(h) / max(sy, 1)))
