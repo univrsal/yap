@@ -85,7 +85,7 @@ BOTS = [  # username, display, hue
     ("dice", "Dice", 0.0),
 ]
 ROLES = {  # name: (permissions, members)
-    "Moderators": ("Manage_Messages,Pin_Messages,Move_Members,Mute_Members,Ban_Members", ["alice", "carol"]),
+    "Moderators": ("Manage_Messages,Pin_Messages,Move_Members,Mute_Members,Ban_Members,Mention_Everyone", ["alice", "carol"]),
     "Developers": ("Pin_Messages,Create_Channels", ["bob", "dave", "alice"]),
 }
 # name, topic, kind (None, "text-only", "private", "archived"), members of a
@@ -141,6 +141,8 @@ CHAT = {
         M("heidi", "Greetings from the beach 🏖️ See you all on Monday!", img="beach",
           react={"😍": ["alice", "carol", "erin", "bob"], "🌊": ["grace"]}),
         M("alice", "@demo welcome aboard! Let us know if something looks off."),
+        M("carol", img="seal", react={"😮": ["bob", "erin"]}),
+        M("carol", "^ @everyone look at this"),
     ],
     "announcements": [
         M("admin", "# Server update\nWe moved to the new server today. **What's new:**\n\n- Voice rooms in every channel\n- Message reactions and threads\n- Markdown in messages\n- Pictures and files\n\nHave fun!",
@@ -287,8 +289,13 @@ def shortcodes(text):
 
 
 def mentions(text, ids):
-    """@username as the mention token that the server records (<@17>)."""
-    return re.sub(r"@(\w+)", lambda m: f"<@{ids[m.group(1)]}>" if m.group(1) in ids else m.group(0), text)
+    """@username as the mention token that the server records (<@17>), and
+    @everyone as <@everyone> (which needs Mention_Everyone, or it stays text)."""
+    def token(m):
+        if m.group(1) == "everyone":
+            return "<@everyone>"
+        return f"<@{ids[m.group(1)]}>" if m.group(1) in ids else m.group(0)
+    return re.sub(r"@(\w+)", token, text)
 
 
 # ----------------------------------------------------------------------------
@@ -441,9 +448,15 @@ def pic_palette():
     return "palette.png", encode(img)
 
 
+def pic_seal():
+    with open(os.path.join(ROOT, "scripts", "seal.jpeg"), "rb") as f:
+        return "seal.jpeg", f.read()
+
+
 IMAGES = {
     "sunset": pic_sunset, "mountain": pic_mountain, "beach": pic_beach,
     "dashboard": pic_dashboard, "mockup": pic_mockup, "palette": pic_palette,
+    "seal": pic_seal,
 }
 
 
@@ -506,10 +519,11 @@ class Headless:
             yap, "-headless", server, f"-user:{user}", f"-user-password:{password}",
             f"-key:{keys}/{name}.key", f"-known-servers:{keys}/{name}.known", f"-device:demo", *extra,
         ]
-        self.log = open(f"{logs}/{name}.log", "w")
+        self.log = open(f"{logs}/{name}.log", "w", encoding="utf-8")
         self.lines = []
         self.cv = threading.Condition()
-        self.p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        self.p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                  encoding="utf-8", errors="replace")
         threading.Thread(target=self.read, daemon=True).start()
 
     def read(self):
@@ -536,12 +550,18 @@ class Headless:
 
     def send(self, line, expect=None, timeout=10):
         """Sends a command, waits for `expect` in the log if given, and
-        complains about the warnings and errors it caused."""
-        with self.cv:
-            since = len(self.lines)
-        self.p.stdin.write(line + "\n")
-        self.p.stdin.flush()
-        m = self.wait(expect, since, timeout) if expect else None
+        complains about the warnings and errors it caused. A command the server
+        turned away for coming too fast is sent again."""
+        for _ in range(10):
+            with self.cv:
+                since = len(self.lines)
+            self.p.stdin.write(line + "\n")
+            self.p.stdin.flush()
+            m = self.wait(expect + "|Too many requests" if expect else "Too many requests", since, timeout if expect else 0.25)
+            if m and "Too many requests" in m.group(0):
+                time.sleep(1)
+                continue
+            break
         if expect and not m:
             print(f"  ! {self.name}: no '{expect}' after {line.split()[0]}", file=sys.stderr)
         time.sleep(0.25)
