@@ -465,6 +465,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	ui.narrow = w - rail < NARROW_LAYOUT
 	server_rail(ui, h)
 	rail_menu(ui)
+	// Before the conversation, which a narrow window shows one of in place of.
+	threads_sync(ui)
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
 		cnt.rect = {rail, 0, w - rail, h}
 		// Always under the windows that float over it (pins, threads,

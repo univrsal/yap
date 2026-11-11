@@ -22,6 +22,7 @@ UI_Picker :: struct {
 	// The message to react to, or (0) the composer to write in: the page's
 	// or a thread window's (Composer.thread).
 	react_to:      proto.Msg_Id,
+	react_conv:    proto.Conv_Id, // the conversation of the message reacted to
 	thread:        int,
 	// What the picker was opened from, so it can be placed beside it.
 	// Otherwise it goes at the window's bottom right.
@@ -55,10 +56,17 @@ emoji_button :: proc(ui: ^UI, c: Composer) {
 }
 
 // open_picker opens the picker for the composer (0) or to react to a message,
-// beside `anchor` if there is one.
-open_picker :: proc(ui: ^UI, react_to: proto.Msg_Id, anchor: Maybe(mu.Rect) = nil) {
+// beside `anchor` if there is one. `conv` is the conversation of the message
+// reacted to.
+open_picker :: proc(
+	ui: ^UI,
+	react_to: proto.Msg_Id,
+	anchor: Maybe(mu.Rect) = nil,
+	conv: proto.Conv_Id = 0,
+) {
 	p := &ui.picker
 	p.open, p.placed, p.react_to, p.anchor = true, false, react_to, anchor
+	p.react_conv = conv
 	if p.category < 0 && len(ui.view.emoji.names) == 0 {
 		p.category = 0
 	}
@@ -278,7 +286,7 @@ category_first :: proc(cat: proto.Emoji_Category) -> rune {
 picked :: proc(ui: ^UI, emoji: string) {
 	p := &ui.picker
 	if p.react_to != 0 {
-		send_reaction(ui, p.react_to, emoji, true)
+		send_reaction(ui, p.react_to, emoji, true, p.react_conv)
 		p.open = false
 		return
 	}

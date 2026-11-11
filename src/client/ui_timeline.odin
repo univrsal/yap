@@ -633,6 +633,33 @@ thread_root_message :: proc(ui: ^UI, key: conn.Timeline_Key) -> (conn.View_Messa
 	return {}, false
 }
 
+// thread_root_said is who wrote a thread's root and what it says, on one line
+// ("Ann: the text"), if the root is here. Call with the View locked.
+thread_root_said :: proc(ui: ^UI, key: conn.Timeline_Key) -> (string, bool) {
+	v := ui.view
+	root, ok := thread_root_message(ui, key)
+	if !ok {
+		return "", false
+	}
+	name := "someone"
+	if acc, known := v.accounts[root.sender]; known {
+		name = acc.display
+	}
+	said: string
+	switch {
+	case .Deleted in root.flags:
+		said = DELETED_TEXT
+	case root.text == "" && len(root.files) > 0:
+		said = files_said(root.files)
+	case root.kind == .File:
+		said = fmt.tprintf("the file %s", root.text)
+	case:
+		shown, _ := richtext.mentions_display(root.text, v.accounts, v.roles[:], v.me)
+		said = richtext.markdown_plain(shown)
+	}
+	return fmt.tprintf("%s: %s", name, richtext.one_line(said)), true
+}
+
 // message_index is where a message is in a window, found by its id.
 message_index :: proc(msgs: []conn.View_Message, id: proto.Msg_Id) -> (int, bool) {
 	lo, hi := 0, len(msgs)
@@ -1016,7 +1043,7 @@ timeline_message :: proc(
 		text := rich_plain(UNKNOWN_KIND_TEXT)
 		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
 	}
-	reaction_chips(ui, m, width, readonly)
+	reaction_chips(ui, st.key.conv, m, width, readonly)
 	return from
 }
 
@@ -1033,7 +1060,6 @@ reply_line :: proc(
 	readonly := false,
 ) {
 	ctx := &ui.ctx
-	v := ui.view
 	font := ctx.style.font
 	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_next(ctx) // the gap above it
@@ -1042,25 +1068,8 @@ reply_line :: proc(
 
 	key := conn.Timeline_Key{st.key.conv, m.thread_root}
 	text := "reply in a thread"
-	if root, ok := thread_root_message(ui, key); ok {
-		name := "someone"
-		if acc, known := v.accounts[root.sender]; known {
-			name = acc.display
-		}
-		said: string
-		switch {
-		case .Deleted in root.flags:
-			said = DELETED_TEXT
-		case root.text == "" && len(root.files) > 0:
-			said = files_said(root.files)
-		case root.kind == .File:
-			said = fmt.tprintf("the file %s", root.text)
-		case:
-			shown, _ := richtext.mentions_display(root.text, v.accounts, v.roles[:], v.me)
-			said = richtext.markdown_plain(shown)
-		}
-		said = richtext.one_line(said)
-		text = fmt.tprintf("%s: %s", name, said)
+	if said, ok := thread_root_said(ui, key); ok {
+		text = said
 	} else if !st.roots_asked[m.thread_root] && ui.session != nil {
 		st.roots_asked[m.thread_root] = true
 		conn.push_command(
@@ -1191,7 +1200,13 @@ reactions_height :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> i32 {
 }
 
 @(private = "file")
-reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := false) {
+reaction_chips :: proc(
+	ui: ^UI,
+	conv: proto.Conv_Id,
+	m: conn.View_Message,
+	width: i32,
+	readonly := false,
+) {
 	if len(m.reactions) == 0 || .Deleted in m.flags {
 		return
 	}
@@ -1232,7 +1247,7 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 				reactors_hint(ui, m.id, c.r, rect)
 			}
 			if !readonly && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
-				send_reaction(ui, m.id, c.r.emoji, !c.r.me)
+				send_reaction(ui, m.id, c.r.emoji, !c.r.me, conv)
 			}
 			mu.pop_id(ctx)
 		}

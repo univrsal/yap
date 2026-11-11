@@ -201,7 +201,7 @@ drop_target :: proc(ui: ^UI) -> Attach_Target {
 	// knows (on Wayland and in a browser).
 	pos := ui.drag.pos if ui.drag.known else ui.ctx.mouse_pos
 	for t, i in ui.threads {
-		if t.key != {} && mu.rect_overlaps_vec2(t.rect, pos) && t.zindex > top {
+		if t.key != {} && !t.rolled && mu.rect_overlaps_vec2(t.rect, pos) && t.zindex > top {
 			at.thread, top = i + 1, t.zindex
 		}
 	}

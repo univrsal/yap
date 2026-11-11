@@ -147,16 +147,17 @@ message_bar :: proc(ui: ^UI) {
 	   b.tapped != {} {
 		b.tapped, b.found = {}, false
 	}
-	if !b.found || ui.session == nil || b.target.conv != v.viewing {
+	if !b.found || ui.session == nil || b.target.conv != timeline_conv(ui, b.target.slot) {
 		b.shown = false
 		return
 	}
 	m := b.msg
+	conv := b.target.conv
 	mine := m.sender == v.me
-	rights := rights_here(v)
+	rights := rights_in(v, conv)
 	reply := b.target.slot == 0
 	edit := mine && .Edit in rights && m.kind == .Text && .Forwarded not_in m.flags
-	pin := may_pin_here(v) && m.thread_root == 0
+	pin := may_pin_in(v, conv) && m.thread_root == 0
 	del := (mine && .Delete in rights) || .Manage_Messages in v.permissions
 	react := .React in rights
 	recent := bar_recent_reactions(ui, m) if react else nil
@@ -205,13 +206,13 @@ message_bar :: proc(ui: ^UI) {
 	for r, i in recent {
 		mu.push_id(ctx, uintptr(i))
 		if recent_reaction_button(ui, r) {
-			send_reaction(ui, m.id, r.emoji, !r.me)
+			send_reaction(ui, m.id, r.emoji, !r.me, conv)
 			done = true
 		}
 		mu.pop_id(ctx)
 	}
 	if react && .SUBMIT in icon_button(ui, "react", .Smiley, "React") {
-		open_picker(ui, m.id, r)
+		open_picker(ui, m.id, r, conv)
 		done = true
 	}
 	if reply && .SUBMIT in icon_button(ui, "reply", .Reply, "Reply in thread") {
@@ -324,10 +325,17 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 
 // send_reaction adds (`on`) or removes our reaction to message `id`. A
 // reaction that is added is also counted on this server, for the bar to offer
-// the most used.
-send_reaction :: proc(ui: ^UI, id: proto.Msg_Id, emoji: string, on: bool) {
+// the most used. `conv` is the message's conversation (0: the one on screen).
+send_reaction :: proc(
+	ui: ^UI,
+	id: proto.Msg_Id,
+	emoji: string,
+	on: bool,
+	conv: proto.Conv_Id = 0,
+) {
 	// Not where we may not react (the server would refuse it).
-	if ui.session == nil || .React not_in rights_here(ui.view) {
+	conv := conv if conv != 0 else ui.view.viewing
+	if ui.session == nil || .React not_in rights_in(ui.view, conv) {
 		return
 	}
 	conn.push_command(
