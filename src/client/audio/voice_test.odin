@@ -5,8 +5,36 @@ import "core:math"
 import "core:strings"
 import "core:sync"
 import "core:testing"
+import "core:time"
 
 import "client:audio/opus"
+
+// The fake microphone can be started again after it was stopped, as yap-cli
+// does when it leaves voice and comes back (or its view says so for a moment
+// while joining): the tone has to flow again.
+@(test)
+test_fake_audio_restarts :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	f: Fake_Audio
+	captures :: proc(v: ^Voice) -> bool {
+		ring_skip(&v.capture, ring_available(&v.capture))
+		end := time.tick_add(time.tick_now(), time.Second)
+		for time.tick_diff(time.tick_now(), end) > 0 {
+			if ring_available(&v.capture) > 0 {
+				return true
+			}
+			time.sleep(5 * time.Millisecond)
+		}
+		return false
+	}
+	for round in 1 ..= 2 {
+		fake_audio_start(&f, &v, 440)
+		testing.expectf(t, captures(&v), "no tone after start number %d", round)
+		fake_audio_stop(&f)
+	}
+}
 
 // Plays one speaker's tone through the receive path (decode -> jitter
 // queue -> mix) at the given gain and returns the output level.

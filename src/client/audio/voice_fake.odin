@@ -26,6 +26,9 @@ fake_audio_start :: proc(f: ^Fake_Audio, v: ^Voice, tone_hz: f32, input: []f32 =
 	f.voice = v
 	f.tone_hz = tone_hz
 	f.input = input
+	f.heard = {}
+	// From an earlier fake_audio_stop, which would end the new threads at once.
+	sync.atomic_store(&f.stop, false)
 	sync.atomic_store(&v.input, true)
 	sync.atomic_store(&v.output, true)
 	f.source = thread.create_and_start_with_poly_data(f, fake_source, init_context = context)
