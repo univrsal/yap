@@ -33,3 +33,8 @@ titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {}
 titlebar_restart_note :: proc(merged: bool) -> string {
 	return ""
 }
+
+// The window's frame is outside its client area here, as CreateWindow expects.
+titlebar_client_rect :: proc(window: glfw.WindowHandle, x, y, w, h: i32) -> (i32, i32, i32, i32) {
+	return x, y, w, h
+}

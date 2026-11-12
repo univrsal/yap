@@ -34,6 +34,7 @@ import "common:proto"
 //		"ui_scale": 1,
 //		"chat_pictures": true,
 //		"merge_title_bar": true,
+//		"window": { "x": 120, "y": 80, "w": 760, "h": 480, "maximized": false, "placed": true },
 //		"chat_scale": 1,
 //		"animate_pictures": "hover",
 //		"image_cache_mb": 256,
@@ -125,6 +126,9 @@ Settings :: struct {
 	// desktop's title bar (ui_titlebar_*.odin). On platforms where this is
 	// not the native look (Linux, the BSDs), it is off by default.
 	merge_title_bar:         bool,
+	// Where the window was and how big, to open it there again after a
+	// restart or coming back from the tray (ui_window.odin).
+	window:                  Window_Place,
 	// The chat's text size, which is multiplied with ui_scale. 1 means the
 	// same size as the rest of the UI, in the range
 	// MIN_CHAT_SCALE..MAX_CHAT_SCALE.
@@ -188,6 +192,19 @@ Settings :: struct {
 	// the user's own ("custom:<file>", kept in the config folder's "sounds"
 	// folder). Events that play their default sound aren't stored.
 	sounds:                  map[string]string,
+}
+
+// Window_Place is the window's place when it isn't maximized or minimized,
+// and whether it was maximized. The position is in the desktop's screen
+// coordinates, so it also says which screen the window was on. It is not
+// known on Wayland, where a window can't see or choose where it is
+// (`placed` is false then). The size is the client area's, as CreateWindow
+// takes it: 0 means not known yet.
+Window_Place :: struct {
+	x, y:      i32,
+	w, h:      i32,
+	maximized: bool,
+	placed:    bool,
 }
 
 Reaction_Use :: struct {

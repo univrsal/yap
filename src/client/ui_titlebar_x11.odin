@@ -343,3 +343,8 @@ move_resize :: proc(window: glfw.WindowHandle, direction: c.long) {
 	)
 	s.XFlush(display)
 }
+
+// The window's frame is outside its client area here, as CreateWindow expects.
+titlebar_client_rect :: proc(window: glfw.WindowHandle, x, y, w, h: i32) -> (i32, i32, i32, i32) {
+	return x, y, w, h
+}

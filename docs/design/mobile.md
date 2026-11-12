@@ -21,7 +21,7 @@ gateway.
 
 ### The toolchain
 
-Odin targets both. The compiler in use (`dev-2026-09`) has
+Odin targets both. The compiler in use (`dev-2026-10`) has
 `-subtarget:iphone`, `-subtarget:iphonesimulator` and
 `-subtarget:android`. On iOS the client would be a static library,
 linked into a small Xcode project with a Swift/ObjC host. Building needs

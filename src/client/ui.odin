@@ -387,8 +387,6 @@ UI :: struct {
 	quitting:            bool,
 	// The desktop has just minimized the window (see iconify_callback).
 	minimized:           bool,
-	// The size to restore the window to, remembered when it is hidden.
-	window_size:         [2]i32,
 	// Used where the buffer swap doesn't wait for the display (see window_open):
 	// the shortest time between frames, and when the last one was presented.
 	frame_pace:          time.Duration,

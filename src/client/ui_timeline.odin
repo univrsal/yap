@@ -1174,7 +1174,7 @@ chip_height :: proc(ctx: ^mu.Context) -> i32 {
 reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]Chip {
 	ctx := &ui.ctx
 	rows := make([dynamic][dynamic]Chip, context.temp_allocator)
-	x := width + 1
+	x: i32
 	for r in m.reactions {
 		code := fmt.tprintf("%s %d", r.emoji, r.count)
 		shown, _, icons := richtext.text_display(
@@ -1185,7 +1185,9 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 			ui.view.emoji.names[:],
 		)
 		w := ctx.text_width(ctx.style.font, shown) + 12
-		if x + w > width && x > 0 {
+		// The first chip always starts a row, even when there is no width
+		// at all (a minimized window is laid out a few pixels wide).
+		if len(rows) == 0 || (x + w > width && x > 0) {
 			append(&rows, make([dynamic]Chip, context.temp_allocator))
 			x = 0
 		}

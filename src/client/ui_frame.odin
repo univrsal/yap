@@ -79,7 +79,6 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 		return false
 	}
 
-	ui.window_size = {760, 480}
 	if !window_open(ui) {
 		return false
 	}
@@ -452,6 +451,10 @@ ui_shutdown :: proc(ui: ^UI) {
 	clipboard.destroy()
 	activity_close(ui)
 	window_close(ui)
+	// Where the window was, which closing it has only just noted.
+	if ui.settings_dirty {
+		save_settings(ui)
+	}
 	glfw.Terminate()
 	audio.audio_destroy(&ui.audio)
 	settings.settings_destroy(&ui.settings)

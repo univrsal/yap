@@ -235,14 +235,16 @@ ui_images_init :: proc(ui: ^UI) {
 	decode_worker_start(ui)
 }
 
-// ui_images_forget_textures drops what the GPU device holds, without
-// deleting anything. It is called as that device goes away (see window_close),
-// because the textures in here mean nothing outside it. The pictures themselves
-// are decoded again when they are next drawn.
+// ui_images_forget_textures deletes the textures on the GPU device, which is
+// about to go away (see window_close and reset_gpu). They have to go while it
+// is still there: a Direct3D texture holds a reference on its device, so one
+// that is only forgotten keeps the whole device alive, with its memory and its
+// driver's threads, every time the window is closed and opened again. The
+// pictures themselves are decoded again when they are next drawn.
 ui_images_forget_textures :: proc(ui: ^UI) {
 	im := &ui.images
 	for id, &t in im.textures {
-		texture_drop(im, nil, id, &t)
+		texture_drop(im, &ui.renderer.gpu, id, &t)
 	}
 	clear(&im.textures)
 	clear(&im.draws)

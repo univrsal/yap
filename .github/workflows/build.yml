@@ -29,8 +29,9 @@ on:
 
 env:
   # The Odin release to build with (https://github.com/odin-lang/Odin/releases).
-  # Keep in line with ODIN_RELEASE in docker/Dockerfile.
-  ODIN_RELEASE: dev-2026-09
+  # Keep in line with ODIN_RELEASE in docker/Dockerfile. The macOS job
+  # has its own (see the desktop matrix).
+  ODIN_RELEASE: dev-2026-10
   # The Emscripten release for the web client. Keep in line with the
   # emsdk image in docker/Dockerfile.
   EMSDK_VERSION: 6.0.13
@@ -110,11 +111,16 @@ jobs:
           - name: macOS
             os: macos-latest
             platform: macos-arm64
+            # dev-2026-10's compiler stops on any Objective-C code
+            # ("missing procedure 'objc_lookUpClass'"); dev-2026-11a
+            # changes vendor:stb and core:image under us. Until those
+            # are dealt with, macOS stays on the release before.
+            odin: dev-2026-09
     steps:
       - uses: actions/checkout@v7
       - uses: laytan/setup-odin@v2
         with:
-          release: ${{ env.ODIN_RELEASE }}
+          release: ${{ matrix.odin || env.ODIN_RELEASE }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Linux dependencies

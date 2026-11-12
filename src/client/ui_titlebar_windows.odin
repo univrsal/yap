@@ -14,6 +14,8 @@ foreign kernel32 {
 @(default_calling_convention = "system")
 foreign user32 {
 	GetDoubleClickTime :: proc() -> win.UINT ---
+	// Not in core:sys/windows before Odin's 2026-10 releases.
+	GetDpiForSystem :: proc() -> win.UINT ---
 }
 
 // On Windows the window has no title bar of its own either: the UI runs up to
@@ -154,6 +156,45 @@ our_proc :: proc() -> win.LONG_PTR {
 @(private = "file")
 is_merged :: proc(hwnd: win.HWND) -> bool {
 	return win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == our_proc()
+}
+
+// titlebar_client_rect turns where `window`'s client area is, and its size,
+// into the place to create it again at (see window_place_note).
+//
+// Merged, the client area covers the whole frame (see title_proc), but
+// CreateWindow puts the system's frame around the area it is given, so a
+// window closed and opened again (hiding to the tray, or a restart) would
+// come back a frame and a title bar bigger, and that much further up and
+// left, every time. Maximized, the client area already stops at the frame.
+//
+// GLFW places the frame of a window it is given a position for as if the frame
+// had the system's DPI (that of the main screen), and only then sizes it for
+// the screen it is on. On a screen with another scale its frame is thicker or
+// thinner than that, and the window would creep a few pixels every time unless
+// the position takes the system's frame off rather than its own.
+titlebar_client_rect :: proc(window: glfw.WindowHandle, x, y, w, h: i32) -> (i32, i32, i32, i32) {
+	hwnd := win.HWND(glfw.GetWin32Window(window))
+	if hwnd == nil || win.IsZoomed(hwnd) {
+		return x, y, w, h
+	}
+	style := u32(win.GetWindowLongW(hwnd, win.GWL_STYLE))
+	ex_style := u32(win.GetWindowLongW(hwnd, win.GWL_EXSTYLE))
+	// How far each frame reaches past the client area: left and top are
+	// negative.
+	own, system: win.RECT
+	if !win.AdjustWindowRectExForDpi(&own, style, false, ex_style, win.GetDpiForWindow(hwnd)) ||
+	   !win.AdjustWindowRectExForDpi(&system, style, false, ex_style, GetDpiForSystem()) {
+		return x, y, w, h
+	}
+	if !is_merged(hwnd) {
+		// The frame's corner, where GLFW would put it.
+		return x + own.left - system.left, y + own.top - system.top, w, h
+	}
+	// The client area's corner is the frame's.
+	return x - system.left,
+		y - system.top,
+		max(w - (own.right - own.left), 1),
+		max(h - (own.bottom - own.top), 1)
 }
 
 // titlebar_area is the strip along the top that the title bar would have

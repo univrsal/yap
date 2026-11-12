@@ -40,12 +40,18 @@ ui_avatars_destroy :: proc(ui: ^UI) {
 	ui.avatars = {}
 }
 
-// ui_avatars_forget_textures is called when the GPU device is going away (as for images).
+// ui_avatars_forget_textures deletes the disc and the ring while the GPU device
+// they are on is still there (as for images, see ui_images_forget_textures).
 ui_avatars_forget_textures :: proc(ui: ^UI) {
-	ui.avatars.have = false
-	ui.avatars.disc = {}
-	ui.avatars.have_ring = false
-	ui.avatars.ring = {}
+	a := &ui.avatars
+	if a.have {
+		render.gpu_texture_delete(&ui.renderer.gpu, &a.disc)
+	}
+	if a.have_ring {
+		render.gpu_texture_delete(&ui.renderer.gpu, &a.ring)
+	}
+	a.have, a.disc = false, {}
+	a.have_ring, a.ring = false, {}
 }
 
 // avatar draws an account's picture in `r` (a square). Call with the View
