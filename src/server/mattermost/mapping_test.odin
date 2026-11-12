@@ -527,12 +527,7 @@ test_reactions :: proc(t: ^testing.T) {
 	// Custom names that yap doesn't allow, and the same one twice.
 	for c in ([]struct {
 			raw, want: string,
-		} {
-			{"Party-Parrot", "party_parrot"},
-			{"a", "a_"},
-			{"cool+1", "cool_1"},
-			{"partyparrot", "partyparrot_2"},
-		}) {
+		}{{"Party-Parrot", "party_parrot"}, {"a", "a_"}, {"cool+1", "cool_1"}, {"partyparrot", "partyparrot_2"}}) {
 		got, _ := custom_emoji_name(&names, c.raw)
 		testing.expectf(t, got == c.want, "%s: %q, not %q", c.raw, got, c.want)
 		testing.expect(t, proto.custom_emoji_name_ok(got))

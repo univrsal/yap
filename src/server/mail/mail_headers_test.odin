@@ -31,17 +31,7 @@ test_address_of :: proc(t: ^testing.T) {
 	// A display name can't smuggle in a different address.
 	check(t, `"alice@example.org" <bob@example.org>`, "bob@example.org")
 
-	for bad in ([]string {
-			"",
-			"Alice",
-			"Alice <>",
-			"Alice <not an address>",
-			"Alice <alice@example>",
-			"alice@example.org>",
-			"<alice@example.org",
-			"alice@example.org, bob@example.org",
-			"alice@example.org\r\nBcc: bob@example.org",
-		}) {
+	for bad in ([]string{"", "Alice", "Alice <>", "Alice <not an address>", "Alice <alice@example>", "alice@example.org>", "<alice@example.org", "alice@example.org, bob@example.org", "alice@example.org\r\nBcc: bob@example.org"}) {
 		check(t, bad, "")
 	}
 }
@@ -78,17 +68,7 @@ test_tls_is_required_from_remote_servers :: proc(t: ^testing.T) {
 		testing.expectf(t, tls_wanted(url) == curl.USESSL_ALL, "%q may go without TLS", url)
 	}
 	// One on this machine may go without.
-	for url in ([]string {
-			"imap://localhost",
-			"imap://localhost:143",
-			"smtp://localhost:25/",
-			"imap://127.0.0.1",
-			"imap://127.0.0.1:143",
-			"smtp://127.1.2.3:25",
-			"imap://[::1]",
-			"imap://[::1]:143",
-			"localhost",
-		}) {
+	for url in ([]string{"imap://localhost", "imap://localhost:143", "smtp://localhost:25/", "imap://127.0.0.1", "imap://127.0.0.1:143", "smtp://127.1.2.3:25", "imap://[::1]", "imap://[::1]:143", "localhost"}) {
 		testing.expectf(t, tls_wanted(url) == curl.USESSL_TRY, "%q must use TLS", url)
 	}
 }
@@ -142,12 +122,7 @@ test_compose_cannot_be_given_headers :: proc(t: ^testing.T) {
 	when_ := time.unix(1791273600, 0)
 
 	// A line break in a subject would end the header and start a new one.
-	for subject in ([]string {
-			"Hi\r\nBcc: evil@example.net",
-			"Hi\nBcc: evil@example.net",
-			"Hi\rBcc: evil@example.net",
-			"Hi\x00there",
-		}) {
+	for subject in ([]string{"Hi\r\nBcc: evil@example.net", "Hi\nBcc: evil@example.net", "Hi\rBcc: evil@example.net", "Hi\x00there"}) {
 		mail := compose("yap@example.org", "bob@example.net", subject, "body", when_)
 		head := mail[:strings.index(mail, "\r\n\r\n")]
 		testing.expectf(t, !strings.contains(head, "Bcc"), "%q added a header", subject)

@@ -191,10 +191,7 @@ titlebar_client_rect :: proc(window: glfw.WindowHandle, x, y, w, h: i32) -> (i32
 		return x + own.left - system.left, y + own.top - system.top, w, h
 	}
 	// The client area's corner is the frame's.
-	return x - system.left,
-		y - system.top,
-		max(w - (own.right - own.left), 1),
-		max(h - (own.bottom - own.top), 1)
+	return x - system.left, y - system.top, max(w - (own.right - own.left), 1), max(h - (own.bottom - own.top), 1)
 }
 
 // titlebar_area is the strip along the top that the title bar would have

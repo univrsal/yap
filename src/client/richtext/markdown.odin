@@ -139,9 +139,9 @@ Md_Atom :: struct {
 }
 
 Rich_Text :: struct {
-	text:  string, // the text that is drawn, without the markers
-	runs:  []Md_Run,
-	lines: []Md_Line,
+	text:   string, // the text that is drawn, without the markers
+	runs:   []Md_Run,
+	lines:  []Md_Line,
 	links:  []Md_Link,
 	atoms:  []Md_Atom, // the atoms that were passed in, at their positions in `text`; -1 if the atom was removed
 	tables: []Md_Table,

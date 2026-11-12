@@ -1039,7 +1039,10 @@ SETTING_CHANNEL_ORDER :: "ui/channels/order"
 // channel_order_parse reads SETTING_CHANNEL_ORDER: each channel's place in
 // it. Whatever isn't a channel id is skipped, and a channel that is in it
 // twice keeps its first place.
-channel_order_parse :: proc(value: string, allocator := context.allocator) -> map[proto.Conv_Id]int {
+channel_order_parse :: proc(
+	value: string,
+	allocator := context.allocator,
+) -> map[proto.Conv_Id]int {
 	places := make(map[proto.Conv_Id]int, allocator)
 	rest := value
 	place := 0

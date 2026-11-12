@@ -755,13 +755,7 @@ test_creating_a_channel :: proc(t: ^testing.T) {
 		status: proto.Status,
 		text:   string,
 	}
-	for k in ([]Case {
-			{.Denied, "You don't have permission to create channels."},
-			{.Conflict, "A channel with that name already exists."},
-			{.Invalid, "A channel must have a name, and a private one can't be default."},
-			{.Too_Large, "You've reached the maximum number of channels."},
-			{.Internal, "The server failed to create the channel (Internal)."},
-		}) {
+	for k in ([]Case{{.Denied, "You don't have permission to create channels."}, {.Conflict, "A channel with that name already exists."}, {.Invalid, "A channel must have a name, and a private one can't be default."}, {.Too_Large, "You've reached the maximum number of channels."}, {.Internal, "The server failed to create the channel (Internal)."}}) {
 		conv_create(c, "Music", "", false)
 		req, _ = tc_one(t, &tc, .Conv_Create)
 		tc_answer(&tc, req.id, k.status)

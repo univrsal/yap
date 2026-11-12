@@ -86,17 +86,7 @@ test_import_read_state :: proc(t: ^testing.T) {
 	for check in ([]struct {
 			conv, user: string,
 			viewed:     i64,
-		} {
-			{"General Talk Renamed", "admin", 1793200877840},
-			{"General Talk Renamed", "alice", 1793200878799},
-			{"General Talk Renamed", "bob", 1793200878897},
-			{"General Talk Renamed", "carol", 1793200880092},
-			{"General Talk Renamed", "gus", 0},
-			{"Off-Topic", "bob", 1793200877623},
-			{"Off-Topic", "carol", 0},
-			{"Secret", "alice", 1793200879025},
-			{"Secret", "bob", 0},
-		}) {
+		}{{"General Talk Renamed", "admin", 1793200877840}, {"General Talk Renamed", "alice", 1793200878799}, {"General Talk Renamed", "bob", 1793200878897}, {"General Talk Renamed", "carol", 1793200880092}, {"General Talk Renamed", "gus", 0}, {"Off-Topic", "bob", 1793200877623}, {"Off-Topic", "carol", 0}, {"Secret", "alice", 1793200879025}, {"Secret", "bob", 0}}) {
 		want := expected_read(&it, check.conv, check.user, check.viewed)
 		got := read_of(&it, check.conv, check.user)
 		testing.expectf(

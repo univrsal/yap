@@ -370,12 +370,7 @@ test_voice_commands :: proc(t: ^testing.T) {
 		status: proto.Status,
 		text:   string,
 	}
-	for k in ([]Case {
-			{.Not_Found, "They aren't in a voice room you can see."},
-			{.Invalid, "That can't be done to them."},
-			{.Denied, "You aren't allowed to do that to them, or there."},
-			{.Rate_Limited, status_text(.Rate_Limited)},
-		}) {
+	for k in ([]Case{{.Not_Found, "They aren't in a voice room you can see."}, {.Invalid, "That can't be done to them."}, {.Denied, "You aren't allowed to do that to them, or there."}, {.Rate_Limited, status_text(.Rate_Limited)}}) {
 		voice_mute(c, {account = 3, on = true})
 		r, _ = tc_one(t, &tc, .Voice_Mute)
 		tc_answer(&tc, r.id, k.status)
@@ -525,15 +520,7 @@ test_ban_command :: proc(t: ^testing.T) {
 		status: proto.Status,
 		text:   string,
 	}
-	for k in ([]Case {
-			{.Not_Found, "They aren't banned, or no longer exist."},
-			{.Invalid, "They can't be banned."},
-			{.Denied, "You aren't allowed to ban them."},
-			{
-				.Conflict,
-				"A purge is running, so their messages can't be removed now. Nothing was done.",
-			},
-		}) {
+	for k in ([]Case{{.Not_Found, "They aren't banned, or no longer exist."}, {.Invalid, "They can't be banned."}, {.Denied, "You aren't allowed to ban them."}, {.Conflict, "A purge is running, so their messages can't be removed now. Nothing was done."}}) {
 		ban_set(c, {account = 2, on = true})
 		r, _ = tc_one(t, &tc, .Ban_Set)
 		tc_answer(&tc, r.id, k.status)

@@ -119,12 +119,7 @@ test_search_refuses_and_fails :: proc(t: ^testing.T) {
 		status: proto.Status,
 		error:  string,
 	}
-	for k in ([]Case {
-			{.Invalid, "Enter a search term."},
-			{.Internal, "The server failed to run the search."},
-			{.Denied, "The server failed to run the search."},
-			{.Reset, ""},
-		}) {
+	for k in ([]Case{{.Invalid, "Enter a search term."}, {.Internal, "The server failed to run the search."}, {.Denied, "The server failed to run the search."}, {.Reset, ""}}) {
 		search_start(c, {query = "x"})
 		r, _ := tc_one(t, &tc, .Msg_Search)
 		tc_answer(&tc, r.id, k.status)

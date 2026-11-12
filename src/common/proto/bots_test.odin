@@ -17,10 +17,7 @@ test_bot_token :: proc(t: ^testing.T) {
 	// derived from, with or without surrounding whitespace.
 	key: ecdh.Private_Key
 	defer ecdh.private_key_clear(&key)
-	for text in ([]string {
-			token,
-			strings.concatenate({"  ", token, "\n"}, context.temp_allocator),
-		}) {
+	for text in ([]string{token, strings.concatenate({"  ", token, "\n"}, context.temp_allocator)}) {
 		testing.expect(t, bot_token_parse(text, &key))
 		got: [KEY_SIZE]u8
 		ecdh.private_key_public_bytes(&key, got[:])
@@ -31,13 +28,7 @@ test_bot_token :: proc(t: ^testing.T) {
 	other, other_public, _ := bot_token_make(context.temp_allocator)
 	testing.expect(t, other != token && other_public != public)
 
-	for bad in ([]string {
-			"",
-			token[:len(token) - 1],
-			strings.concatenate({token, "A"}, context.temp_allocator),
-			strings.concatenate({"yip_", token[4:]}, context.temp_allocator),
-			strings.concatenate({token[:10], "!", token[11:]}, context.temp_allocator),
-		}) {
+	for bad in ([]string{"", token[:len(token) - 1], strings.concatenate({token, "A"}, context.temp_allocator), strings.concatenate({"yip_", token[4:]}, context.temp_allocator), strings.concatenate({token[:10], "!", token[11:]}, context.temp_allocator)}) {
 		testing.expect(t, !bot_token_parse(bad, &key))
 	}
 }

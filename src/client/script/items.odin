@@ -245,7 +245,10 @@ item_load :: proc(rt: ^Runtime, file: string, cfg: Script_Config, inline := "") 
 			// It is not the script that was approved.
 			it.changed, it.enabled, it.granted = true, false, {}
 			if err == "" {
-				item_set_problem(it, "This script has changed since you approved it. Look at what it asks for, and switch it on again.")
+				item_set_problem(
+					it,
+					"This script has changed since you approved it. Look at what it asks for, and switch it on again.",
+				)
 			}
 		}
 	}
@@ -261,7 +264,11 @@ values_load :: proc(rt: ^Runtime, it: ^Item) {
 	path := settings_path(rt, it.file)
 	if common.store_exists(path) {
 		if text, ok := common.store_read(path, context.temp_allocator); ok {
-			parsed, err := json.parse(transmute([]u8)text, parse_integers = true, allocator = context.temp_allocator)
+			parsed, err := json.parse(
+				transmute([]u8)text,
+				parse_integers = true,
+				allocator = context.temp_allocator,
+			)
 			if obj, is_object := parsed.(json.Object); err == nil && is_object {
 				for k, v in obj {
 					switch x in v {
@@ -322,7 +329,11 @@ values_save :: proc(rt: ^Runtime, it: ^Item) {
 		case List, Map, Function:
 		}
 	}
-	data, err := json.marshal(obj, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
+	data, err := json.marshal(
+		obj,
+		{pretty = true, use_spaces = true, spaces = 2},
+		context.temp_allocator,
+	)
 	if err == nil {
 		common.store_write(settings_path(rt, it.file), string(data), private = true)
 	}
@@ -378,7 +389,11 @@ config_save :: proc(rt: ^Runtime) {
 		}
 		cfg.scripts[it.file] = c
 	}
-	data, err := json.marshal(cfg, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
+	data, err := json.marshal(
+		cfg,
+		{pretty = true, use_spaces = true, spaces = 2},
+		context.temp_allocator,
+	)
 	if err != nil {
 		log.warnf("script: could not encode the config: %v", err)
 		return
@@ -443,7 +458,12 @@ item_start :: proc(rt: ^Runtime, it: ^Item) -> bool {
 	}
 	for r in results {
 		if r.status != .Finished {
-			return fail(rt, it, &e, r.message if r.message != "" else "It failed when it was loaded")
+			return fail(
+				rt,
+				it,
+				&e,
+				r.message if r.message != "" else "It failed when it was loaded",
+			)
 		}
 	}
 	append(&rt.entries, e)
@@ -483,7 +503,14 @@ item_stop :: proc(rt: ^Runtime, it: ^Item) {
 // runtime_set_enabled switches a script on, with the permissions the user
 // approved for it (and for the text it has now), or off. It returns what is wrong
 // if the script can't be started.
-runtime_set_enabled :: proc(rt: ^Runtime, file: string, on: bool, granted: Permissions = {}) -> (err: string) {
+runtime_set_enabled :: proc(
+	rt: ^Runtime,
+	file: string,
+	on: bool,
+	granted: Permissions = {},
+) -> (
+	err: string,
+) {
 	sync.guard(&rt.mutex)
 	it := item_of(rt, file)
 	if it == nil {
@@ -608,7 +635,10 @@ runtime_snapshot :: proc(rt: ^Runtime, allocator := context.temp_allocator) -> [
 		v.settings = make([]Setting_View, len(it.info.settings), allocator)
 		for def, k in it.info.settings {
 			d := def
-			d.key, d.label, d.description = copy_of(def.key, allocator), copy_of(def.label, allocator), copy_of(def.description, allocator)
+			d.key, d.label, d.description =
+				copy_of(def.key, allocator),
+				copy_of(def.label, allocator),
+				copy_of(def.description, allocator)
 			d.choices = make([]string, len(def.choices), allocator)
 			for c, j in def.choices {
 				d.choices[j] = copy_of(c, allocator)
@@ -635,7 +665,12 @@ script_name_ok :: proc(name: string) -> bool {
 		return false
 	}
 	for r in name {
-		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' && r != '.' {
+		if !(r >= 'a' && r <= 'z') &&
+		   !(r >= 'A' && r <= 'Z') &&
+		   !(r >= '0' && r <= '9') &&
+		   r != '_' &&
+		   r != '-' &&
+		   r != '.' {
 			return false
 		}
 	}

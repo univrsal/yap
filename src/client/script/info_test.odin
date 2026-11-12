@@ -130,13 +130,7 @@ test_read_info_without_get_info_or_with_trouble :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, "")
 	info_destroy(&info)
 
-	for source in ([]string {
-			"function (",
-			"error('boom')",
-			"while true do end",
-			"function get_info() error('oops') end",
-			"function get_info() while true do end end",
-		}) {
+	for source in ([]string{"function (", "error('boom')", "while true do end", "function get_info() error('oops') end", "function get_info() while true do end end"}) {
 		info, has, err = read_info("bad.lua", source)
 		testing.expect(t, !has, source)
 		testing.expectf(t, err != "", "no error for %q", source)

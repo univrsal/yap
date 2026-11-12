@@ -44,24 +44,11 @@ test_import_text :: proc(t: ^testing.T) {
 			{"<@everyone> please update your profiles"},
 			{"<@everyone> the office is closed on Friday"},
 			{"Sushi \U0001F363"},
-			{
-				"Unicode: Grüße, こんにちは, 🎉👍🏽, and an emoji shortcode with a skin tone \U0001F44D",
-			},
+			{"Unicode: Grüße, こんにちは, 🎉👍🏽, and an emoji shortcode with a skin tone \U0001F44D"},
 			// A person who is gone soon is still there, one from the other team and
 			// that team's channel are not.
-			{
-				fmt.tprintf(
-					"Mentioning %s, who will be gone soon, and @erin from the other team, in ~elsewhere",
-					token(&it, "dave"),
-				),
-			},
-			{
-				fmt.tprintf(
-					"Hello %s and %s, have a look at #Secret and #General Talk Renamed \U0001F604 :partyparrot:",
-					token(&it, "bob"),
-					token(&it, "carol"),
-				),
-			},
+			{fmt.tprintf("Mentioning %s, who will be gone soon, and @erin from the other team, in ~elsewhere", token(&it, "dave"))},
+			{fmt.tprintf("Hello %s and %s, have a look at #Secret and #General Talk Renamed \U0001F604 :partyparrot:", token(&it, "bob"), token(&it, "carol"))},
 		}) {
 		quoted, _ := strings.replace_all(check.want, "'", "''", context.temp_allocator)
 		n := it_count(

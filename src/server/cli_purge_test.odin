@@ -36,17 +36,7 @@ test_parse_before_day :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, ms, i64(1709164800000))
 
-	for bad in ([]string {
-			"2026-13-01",
-			"2026-00-10",
-			"2026-02-30",
-			"2025-02-29",
-			"2026-09",
-			"2026-09-01-02",
-			"2026/09/01",
-			"yesterday",
-			"2026-09-xx",
-		}) {
+	for bad in ([]string{"2026-13-01", "2026-00-10", "2026-02-30", "2025-02-29", "2026-09", "2026-09-01-02", "2026/09/01", "yesterday", "2026-09-xx"}) {
 		_, ok = parse_before(bad)
 		testing.expectf(t, !ok, "%q was accepted", bad)
 	}

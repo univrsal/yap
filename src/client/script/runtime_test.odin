@@ -994,12 +994,7 @@ test_the_examples_describe_themselves :: proc(t: ^testing.T) {
 		settings:     int,
 		permissions:  Permissions,
 	}
-	for c in ([]Case {
-			{"keywords.lua", KEYWORDS_EXAMPLE, 2, {.Notify}},
-			{"presence.lua", PRESENCE_EXAMPLE, 2, {.Notify}},
-			{"webhook.lua", WEBHOOK_EXAMPLE, 1, {.Net}},
-			{"away.lua", AWAY_EXAMPLE, 3, {.Send}},
-		}) {
+	for c in ([]Case{{"keywords.lua", KEYWORDS_EXAMPLE, 2, {.Notify}}, {"presence.lua", PRESENCE_EXAMPLE, 2, {.Notify}}, {"webhook.lua", WEBHOOK_EXAMPLE, 1, {.Net}}, {"away.lua", AWAY_EXAMPLE, 3, {.Send}}}) {
 		info, has, err := read_info(c.file, c.source)
 		testing.expect(t, has, c.file)
 		testing.expect_value(t, err, "")
