@@ -92,15 +92,7 @@ test_scan_report :: proc(t: ^testing.T) {
 	strings.builder_init(&b, context.temp_allocator)
 	report_write(s, strings.to_stream(&b))
 	text := strings.to_string(b)
-	for want in ([]string {
-			"Team: acme (Acme)",
-			"7 from the team: 6 active, 1 deactivated",
-			"3 bots",
-			"6 channels: 5 open, 1 private, 1 archived",
-			"6 direct: 3 DMs, 1 with oneself, 2 group messages",
-			"79 in channels and 9 in direct channels",
-			"alice,erin",
-		}) {
+	for want in ([]string{"Team: acme (Acme)", "7 from the team: 6 active, 1 deactivated", "3 bots", "6 channels: 5 open, 1 private, 1 archived", "6 direct: 3 DMs, 1 with oneself, 2 group messages", "79 in channels and 9 in direct channels", "alice,erin"}) {
 		testing.expectf(t, strings.contains(text, want), "the report lacks %q:\n%s", want, text)
 	}
 }

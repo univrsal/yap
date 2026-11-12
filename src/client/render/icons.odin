@@ -59,6 +59,9 @@ Icon :: enum {
 	Plus, // a plus: add (a server, a person)
 	Back, // a chevron pointing left: back to a list, or the page before
 	Next, // a chevron pointing right: the page after
+	// Kinds of channel, in front of their names in the channel list.
+	Channel, // a '#': a channel with only text (Text_Only)
+	Voice_Channel, // a '#' with a speaker at its foot: a channel with a voice room
 	// The window's own controls, for where Windows does not provide them
 	// (ui_titlebar_windows.odin).
 	Minimize, // a line
@@ -281,6 +284,10 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return chevron(p, -1)
 	case .Next:
 		return chevron(p, 1)
+	case .Channel:
+		return hash(p, {0.5, 0.5}, 1)
+	case .Voice_Channel:
+		return hash_with_speaker(p)
 	case .Minimize, .Maximize, .Restore, .Close:
 		// These are drawn in texels instead (window_control).
 		return 1
@@ -320,6 +327,38 @@ ribbon :: proc(p: Point) -> f32 {
 	d = nearer(d, capsule(p, br, notch, STROKE))
 	d = nearer(d, capsule(p, notch, bl, STROKE))
 	return nearer(d, capsule(p, bl, tl, STROKE))
+}
+
+// hash is a '#' around `centre`, `size` times as big as a whole icon's: two
+// lines across and two leaning ones down. Its lines are as thick whatever its
+// size, so a smaller one is as easy to see.
+@(private = "file")
+hash :: proc(p, centre: Point, size: f32) -> f32 {
+	STROKE :: 0.1
+	// In the unit square, then moved and scaled to where it goes.
+	q := (p - centre) / size + 0.5
+	w := STROKE / size
+	d := capsule(q, {0.16, 0.37}, {0.86, 0.37}, w)
+	d = nearer(d, capsule(q, {0.14, 0.63}, {0.84, 0.63}, w))
+	d = nearer(d, capsule(q, {0.43, 0.14}, {0.33, 0.86}, w))
+	d = nearer(d, capsule(q, {0.67, 0.14}, {0.57, 0.86}, w))
+	return d * size
+}
+
+// hash_with_speaker is a '#' up and to the left, and over its bottom right
+// corner a speaker with one wave, with a gap around it so the two do not run
+// together.
+@(private = "file")
+hash_with_speaker :: proc(p: Point) -> f32 {
+	HASH :: 0.74
+	SPEAKER :: 0.6
+	GAP :: 0.07
+	// Where the speaker's unit square starts.
+	corner :: Point{0.4, 0.4}
+	q := (p - corner) / SPEAKER
+	sound := nearer(speaker(q), arc(q, {0.44, 0.5}, 0.3, 0.13, .Right, 0.58)) * SPEAKER
+	d := cut(hash(p, {0.39, 0.39}, HASH), sound - GAP)
+	return nearer(d, sound)
 }
 
 // spinner is a ring with a quarter of it missing, turned `step` steps of a
@@ -448,6 +487,8 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Plus,
 	     .Back,
 	     .Next,
+	     .Channel,
+	     .Voice_Channel,
 	     .Check,
 	     .Collapsed,
 	     .Expanded,

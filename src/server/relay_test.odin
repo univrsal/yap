@@ -132,12 +132,7 @@ test_relay_allow_sites_config :: proc(t: ^testing.T) {
 
 	// Each of these is refused, with an error in the log that isn't wanted here.
 	context.logger = log.nil_logger()
-	for bad in ([]string {
-			`["chat.example.org"]`,
-			`["https://"]`,
-			`["https://chat.example.org/path"]`,
-			`["ftp://x"]`,
-		}) {
+	for bad in ([]string{`["chat.example.org"]`, `["https://"]`, `["https://chat.example.org/path"]`, `["ftp://x"]`}) {
 		_, ok = load_relay(dir, bad)
 		testing.expectf(t, !ok, "%s was accepted", bad)
 	}

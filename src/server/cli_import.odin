@@ -39,15 +39,15 @@ import "mattermost"
 IMPORT_USAGE :: `usage: yap-server import mattermost <export folder> --team <name> [--owner <username>] [--passwords <file.csv>] [--dry-run] [--yes] [--fetch-icons] [config.json]`
 
 Import_Args :: struct {
-	folder:    string,
-	team:      string,
-	owner:     string,
-	passwords: string,
-	config:    string,
-	dry_run:   bool,
+	folder:      string,
+	team:        string,
+	owner:       string,
+	passwords:   string,
+	config:      string,
+	dry_run:     bool,
 	// Fetch the pictures that integrations pose with, from the web.
 	fetch_icons: bool,
-	yes:       bool,
+	yes:         bool,
 }
 
 // parse_import_args reads what follows `import`. `ok` is false after a message
@@ -119,8 +119,7 @@ run_import_command :: proc(args: []string) -> int {
 	}
 
 	progress: Progress
-	scan, err := mattermost.scan(
-		{
+	scan, err := mattermost.scan({
 			dir = a.folder,
 			team = a.team,
 			progress = proc(file: string, done, total: i64, data: rawptr) {
@@ -135,8 +134,7 @@ run_import_command :: proc(args: []string) -> int {
 				progress_update(p, done, total)
 			},
 			progress_data = &progress,
-		},
-	)
+		})
 	if progress.label != "" {
 		progress_finish(&progress)
 	}
@@ -215,12 +213,12 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	defer blob_store_close(&blobs)
 
 	im := Importer {
-		scan     = scan,
-		db       = &db,
-		accounts = &accounts,
-		convs    = &convs,
-		blobs    = &blobs,
-		emoji_dir = settings.emoji_dir,
+		scan           = scan,
+		db             = &db,
+		accounts       = &accounts,
+		convs          = &convs,
+		blobs          = &blobs,
+		emoji_dir      = settings.emoji_dir,
 		max_attachment = u64(settings.attachments.max_megabytes) * 1024 * 1024,
 	}
 	importer_init(&im)
@@ -257,7 +255,10 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		return fail(&im, err)
 	}
 	db_commit(&db)
-	report, _ := filepath.join({filepath.dir(a.config), "import-report.txt"}, context.temp_allocator)
+	report, _ := filepath.join(
+		{filepath.dir(a.config), "import-report.txt"},
+		context.temp_allocator,
+	)
 	report_err := import_write_report(&im, report)
 	made := len(scan.plan.accounts) + len(scan.authors_gone)
 	fmt.printfln(

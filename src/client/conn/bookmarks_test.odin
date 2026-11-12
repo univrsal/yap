@@ -267,15 +267,7 @@ test_bookmark_set :: proc(t: ^testing.T) {
 		status: proto.Status,
 		text:   string,
 	}
-	for k in ([]Case {
-			{
-				.Too_Large,
-				fmt.tprintf("You can't have more than %d bookmarks.", proto.MAX_BOOKMARKS),
-			},
-			{.Not_Found, "That message no longer exists."},
-			{.Invalid, "A deleted message can't be bookmarked."},
-			{.Internal, "The server failed to change the bookmark (Internal)."},
-		}) {
+	for k in ([]Case{{.Too_Large, fmt.tprintf("You can't have more than %d bookmarks.", proto.MAX_BOOKMARKS)}, {.Not_Found, "That message no longer exists."}, {.Invalid, "A deleted message can't be bookmarked."}, {.Internal, "The server failed to change the bookmark (Internal)."}}) {
 		bookmark_set(&tc.c, 55, true)
 		r, _ = tc_one(t, &tc, .Bookmark_Set)
 		tc_answer(&tc, r.id, k.status)
@@ -320,17 +312,7 @@ test_react :: proc(t: ^testing.T) {
 		status: proto.Status,
 		text:   string,
 	}
-	for k in ([]Case {
-			{
-				.Too_Large,
-				fmt.tprintf(
-					"A message can't have more than %d different reactions.",
-					proto.MAX_REACTIONS,
-				),
-			},
-			{.Invalid, "That emoji can't be used as a reaction here."},
-			{.Not_Found, "The server failed to add the reaction (Not_Found)."},
-		}) {
+	for k in ([]Case{{.Too_Large, fmt.tprintf("A message can't have more than %d different reactions.", proto.MAX_REACTIONS)}, {.Invalid, "That emoji can't be used as a reaction here."}, {.Not_Found, "The server failed to add the reaction (Not_Found)."}}) {
 		msg_react(&tc.c, {id = 77, emoji = "🎉", on = true})
 		r, _ = tc_one(t, &tc, .Msg_React)
 		tc_answer(&tc, r.id, k.status)
@@ -369,17 +351,7 @@ test_forward :: proc(t: ^testing.T) {
 		text:   string,
 		ok:     bool,
 	}
-	for k in ([]Case {
-			{.Ok, "Forwarded.", true},
-			{
-				.Not_Found,
-				"The message to forward or the destination conversation no longer exists.",
-				false,
-			},
-			{.Invalid, "That message can't be forwarded.", false},
-			{.Denied, "You don't have permission to post in that conversation.", false},
-			{.Internal, "The server failed to forward the message (Internal).", false},
-		}) {
+	for k in ([]Case{{.Ok, "Forwarded.", true}, {.Not_Found, "The message to forward or the destination conversation no longer exists.", false}, {.Invalid, "That message can't be forwarded.", false}, {.Denied, "You don't have permission to post in that conversation.", false}, {.Internal, "The server failed to forward the message (Internal).", false}}) {
 		msg_forward(&tc.c, {msg = 90, conv = 3})
 		r, _ = tc_one(t, &tc, .Msg_Forward)
 		tc_answer(&tc, r.id, k.status)
@@ -434,18 +406,7 @@ test_edit_delete_pin :: proc(t: ^testing.T) {
 	r, _ = tc_one(t, &tc, .Msg_Delete)
 	tc_answer(&tc, r.id, .Ok)
 	testing.expect_value(t, v.notice.count, count)
-	for k in ([]Case {
-			{.Denied, "You aren't allowed to modify this message."},
-			{
-				.Too_Large,
-				fmt.tprintf(
-					"A conversation can't have more than %d pinned messages.",
-					proto.MAX_PINS,
-				),
-			},
-			{.Not_Found, "That message no longer exists."},
-			{.Internal, "The server failed to change the message (Internal)."},
-		}) {
+	for k in ([]Case{{.Denied, "You aren't allowed to modify this message."}, {.Too_Large, fmt.tprintf("A conversation can't have more than %d pinned messages.", proto.MAX_PINS)}, {.Not_Found, "That message no longer exists."}, {.Internal, "The server failed to change the message (Internal)."}}) {
 		msg_pin(&tc.c, 62, true)
 		r, _ = tc_one(t, &tc, .Msg_Pin)
 		tc_answer(&tc, r.id, k.status)

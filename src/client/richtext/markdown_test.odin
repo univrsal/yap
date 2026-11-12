@@ -314,12 +314,7 @@ test_markdown_images :: proc(t: ^testing.T) {
 
 	// Not pictures: no web address, a size without an x, an open title, and
 	// anything else after the address.
-	for not_image in ([?]string {
-			"![a](b)",
-			"![a](https://x.org =44)",
-			`![a](https://x.org "t)`,
-			"![a](https://x.org x)",
-		}) {
+	for not_image in ([?]string{"![a](b)", "![a](https://x.org =44)", `![a](https://x.org "t)`, "![a](https://x.org x)"}) {
 		atoms: []Md_Atom
 		if strings.contains(not_image, "https") {
 			atoms = md_atoms(not_image, "https://x.org")

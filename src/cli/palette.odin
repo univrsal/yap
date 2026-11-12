@@ -111,11 +111,7 @@ palette_items :: proc(a: ^App) -> []Palette_Item {
 	)
 	if a.view.viewing != 0 {
 		here := viewed_name(a)
-		for line, level in ([proto.Notify_Level]string {
-				.All = "all",
-				.Mentions = "mentions",
-				.None = "none",
-			}) {
+		for line, level in ([proto.Notify_Level]string{.All = "all", .Mentions = "mentions", .None = "none"}) {
 			mark := "  (now)" if viewed_notify(a.view) == level else ""
 			command(
 				&items,

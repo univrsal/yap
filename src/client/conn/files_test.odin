@@ -364,14 +364,7 @@ test_sending_stops_when_they_cancel :: proc(t: ^testing.T) {
 		reason: proto.File_Cancel_Reason,
 		state:  File_State,
 	}
-	for k in ([]Case {
-			{.Declined, .Declined},
-			{.Cancelled, .Cancelled},
-			{.Gone, .Interrupted},
-			{.Expired, .Expired},
-			{.Elsewhere, .Elsewhere},
-			{.Failed, .Failed},
-		}) {
+	for k in ([]Case{{.Declined, .Declined}, {.Cancelled, .Cancelled}, {.Gone, .Interrupted}, {.Expired, .Expired}, {.Elsewhere, .Elsewhere}, {.Failed, .Failed}}) {
 		r: Rig
 		rig_open(t, &r)
 		defer rig_close(&r)
@@ -491,13 +484,7 @@ test_incoming_offer_is_checked :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(c.files.transfers), 1)
 
 	// What we would not save is declined straight away, and they are told.
-	for bad, i in ([]proto.Message {
-			offer_message(701, "tool.exe", 100),
-			offer_message(702, "noextension", 100),
-			offer_message(703, "photo.png", 0),
-			offer_message(704, "photo.png", proto.MAX_FILE_SIZE + 1),
-			offer_message(705, "", 100),
-		}) {
+	for bad, i in ([]proto.Message{offer_message(701, "tool.exe", 100), offer_message(702, "noextension", 100), offer_message(703, "photo.png", 0), offer_message(704, "photo.png", proto.MAX_FILE_SIZE + 1), offer_message(705, "", 100)}) {
 		file_offer_received(c, bad)
 		testing.expectf(
 			t,

@@ -81,18 +81,7 @@ test_import_accounts :: proc(t: ^testing.T) {
 	a := &it.accounts
 	// Seven members and three bots.
 	testing.expect_value(t, len(a.by_id), 11) // seven members, three bots and the CI hook's
-	for mm_name in ([]string {
-			"admin",
-			"alice",
-			"bob",
-			"carol",
-			"dave",
-			"frank",
-			"gus",
-			"buildbot",
-			"calls",
-			"playbooks",
-		}) {
+	for mm_name in ([]string{"admin", "alice", "bob", "carol", "dave", "frank", "gus", "buildbot", "calls", "playbooks"}) {
 		testing.expectf(t, mm_name in it.im.ids, "no account for %s", mm_name)
 	}
 	testing.expect(t, "erin" not_in it.im.ids) // in the other team

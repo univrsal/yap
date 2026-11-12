@@ -6,23 +6,10 @@ import "core:testing"
 
 @(test)
 test_command_name_valid :: proc(t: ^testing.T) {
-	for good in ([]string {
-			"a",
-			"roll",
-			"my-cmd_2",
-			strings.repeat("x", MAX_COMMAND_NAME, context.temp_allocator),
-		}) {
+	for good in ([]string{"a", "roll", "my-cmd_2", strings.repeat("x", MAX_COMMAND_NAME, context.temp_allocator)}) {
 		testing.expectf(t, command_name_valid(good), "%q", good)
 	}
-	for bad in ([]string {
-			"",
-			"Roll",
-			"a b",
-			"/roll",
-			"bot:roll",
-			"é",
-			strings.repeat("x", MAX_COMMAND_NAME + 1, context.temp_allocator),
-		}) {
+	for bad in ([]string{"", "Roll", "a b", "/roll", "bot:roll", "é", strings.repeat("x", MAX_COMMAND_NAME + 1, context.temp_allocator)}) {
 		testing.expectf(t, !command_name_valid(bad), "%q", bad)
 	}
 }
@@ -214,12 +201,7 @@ test_command_run :: proc(t: ^testing.T) {
 	}
 
 	// No conversation, no bot, a bad name.
-	for bad in ([]Command_Run_Request {
-			{0, 0, 5, "a", ""},
-			{3, 0, 0, "a", ""},
-			{3, 0, 5, "A", ""},
-			{3, 0, 5, "", ""},
-		}) {
+	for bad in ([]Command_Run_Request{{0, 0, 5, "a", ""}, {3, 0, 0, "a", ""}, {3, 0, 5, "A", ""}, {3, 0, 5, "", ""}}) {
 		w := Writer {
 			buf = buf[:],
 		}

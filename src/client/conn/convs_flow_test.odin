@@ -1,6 +1,7 @@
 #+build !wasi
 package conn
 
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -754,13 +755,7 @@ test_creating_a_channel :: proc(t: ^testing.T) {
 		status: proto.Status,
 		text:   string,
 	}
-	for k in ([]Case {
-			{.Denied, "You don't have permission to create channels."},
-			{.Conflict, "A channel with that name already exists."},
-			{.Invalid, "A channel must have a name, and a private one can't be default."},
-			{.Too_Large, "You've reached the maximum number of channels."},
-			{.Internal, "The server failed to create the channel (Internal)."},
-		}) {
+	for k in ([]Case{{.Denied, "You don't have permission to create channels."}, {.Conflict, "A channel with that name already exists."}, {.Invalid, "A channel must have a name, and a private one can't be default."}, {.Too_Large, "You've reached the maximum number of channels."}, {.Internal, "The server failed to create the channel (Internal)."}}) {
 		conv_create(c, "Music", "", false)
 		req, _ = tc_one(t, &tc, .Conv_Create)
 		tc_answer(&tc, req.id, k.status)
@@ -907,6 +902,67 @@ test_channels_are_listed_in_order :: proc(t: ^testing.T) {
 		testing.expect_value(t, order[3], proto.Conv_Id(11))
 	}
 	list_channels(c) // (logged)
+}
+
+@(test)
+test_our_own_channel_order :: proc(t: ^testing.T) {
+	tc: Test_Conn
+	v := open_convs(t, &tc)
+	defer close_convs(&tc)
+	defer profiles_destroy(&tc.c)
+	c := &tc.c
+	synced(&tc, channel(13, "Home", {.Home}), channel(10, "A"), channel(11, "B"), channel(12, "C"))
+	listed :: proc(v: ^View) -> []proto.Conv_Id {
+		ids := make([dynamic]proto.Conv_Id, context.temp_allocator)
+		for ch in v.channels {
+			append(&ids, ch.id)
+		}
+		return ids[:]
+	}
+	testing.expect(t, slice.equal(listed(v), []proto.Conv_Id{13, 10, 11, 12}))
+
+	// Another of our devices put them in its own order, which leaves out the
+	// channel 11 and names one we're no longer in: those it names come first,
+	// the home channel too, and the others after them in the server's order.
+	buf: [proto.SETTING_MAX_SIZE]u8
+	order := "12, 99,13,x,12"
+	tc_event(
+		&tc,
+		.Setting_Changed,
+		proto.encode_setting(buf[:], SETTING_CHANNEL_ORDER, transmute([]u8)order),
+	)
+	testing.expect(t, slice.equal(convs_ordered(c), []proto.Conv_Id{12, 13, 10, 11}))
+	testing.expect(t, slice.equal(listed(v), []proto.Conv_Id{12, 13, 10, 11}))
+
+	// Ours is kept on the server, and the list follows it at once.
+	value := channel_order_value({11, 10, 12, 13}, context.temp_allocator)
+	testing.expect_value(t, value, "11,10,12,13")
+	_ = tc_sent(t, &tc) // what the sync asked for
+	setting_put(c, SETTING_CHANNEL_ORDER, value)
+	req, ok := tc_one(t, &tc, .Setting_Set)
+	testing.expect(t, ok)
+	key, sent, _ := proto.decode_setting(req.body)
+	testing.expect_value(t, key, SETTING_CHANNEL_ORDER)
+	testing.expect_value(t, string(sent), "11,10,12,13")
+	testing.expect(t, slice.equal(listed(v), []proto.Conv_Id{11, 10, 12, 13}))
+
+	// Without it, the server's order again.
+	setting_put(c, SETTING_CHANNEL_ORDER, "")
+	testing.expect(t, slice.equal(listed(v), []proto.Conv_Id{13, 10, 11, 12}))
+}
+
+@(test)
+test_a_channel_order_too_long_for_a_setting :: proc(t: ^testing.T) {
+	ids := make([]proto.Conv_Id, 1000, context.temp_allocator)
+	for &id, i in ids {
+		id = proto.Conv_Id(1_000_000_000 + i)
+	}
+	value := channel_order_value(ids, context.temp_allocator)
+	testing.expect(t, len(value) <= proto.MAX_SETTING_VALUE)
+	places := channel_order_parse(value, context.temp_allocator)
+	testing.expect(t, len(places) > 300)
+	testing.expect_value(t, places[ids[0]], 0)
+	testing.expect_value(t, places[ids[len(places) - 1]], len(places) - 1)
 }
 
 @(test)

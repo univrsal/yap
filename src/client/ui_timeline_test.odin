@@ -124,7 +124,11 @@ test_timeline_reactions_without_width :: proc(t: ^testing.T) {
 	tt := timeline_test_start(3)
 	defer timeline_test_end(tt)
 	m := &(&tt.ui.view.timelines[tt.key]).messages[1]
-	append(&m.reactions, conn.Reaction{emoji = "👍", count = 2}, conn.Reaction{emoji = "🎉", count = 1})
+	append(
+		&m.reactions,
+		conn.Reaction{emoji = "👍", count = 2},
+		conn.Reaction{emoji = "🎉", count = 1},
+	)
 	defer delete(m.reactions)
 	for _ in 0 ..< 3 {
 		timeline_test_frame(tt, {0, 0, 20, 10})

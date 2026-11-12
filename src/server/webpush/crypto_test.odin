@@ -115,12 +115,7 @@ test_encrypt_can_be_decrypted :: proc(t: ^testing.T) {
 		b = u8(i * 7 + 1)
 	}
 
-	for text in ([]string {
-			"",
-			"x",
-			RFC_PLAINTEXT,
-			strings.repeat("é", 1000, context.temp_allocator),
-		}) {
+	for text in ([]string{"", "x", RFC_PLAINTEXT, strings.repeat("é", 1000, context.temp_allocator)}) {
 		body, ok := encrypt(transmute([]u8)text, ua_public[:], auth[:], context.temp_allocator)
 		testing.expect(t, ok)
 		testing.expect_value(t, len(body), PUSH_HEADER_SIZE + len(text) + 1 + PUSH_TAG_SIZE)
@@ -362,10 +357,7 @@ test_origin :: proc(t: ^testing.T) {
 			"https://push.example.org/a\\b",
 			"https://push.example.org/a\nb",
 			"https://push.example.org/é",
-			strings.concatenate(
-				{"https://push.example.org/", strings.repeat("a", 2048, context.temp_allocator)},
-				context.temp_allocator,
-			),
+			strings.concatenate({"https://push.example.org/", strings.repeat("a", 2048, context.temp_allocator)}, context.temp_allocator),
 		}) {
 		testing.expectf(t, origin(bad) == "", "%q was accepted", bad)
 	}

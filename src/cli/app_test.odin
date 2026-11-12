@@ -1258,10 +1258,10 @@ with_members :: proc(f: ^Fixture) {
 	f.v.my_num = 1
 	f.v.users[7] = {
 		account = 4,
-	} 	// Zoe is here
+	} // Zoe is here
 	f.v.users[8] = {
 		account = 3,
-	} 	// and ben
+	} // and ben
 	acc := f.v.accounts[3]
 	acc.activity = .Away
 	f.v.accounts[3] = acc
@@ -1498,7 +1498,7 @@ test_names_are_completed_after_commands_that_take_a_person :: proc(t: ^testing.T
 	add_account(&f.v, 3, "annabel")
 	f.v.users[7] = {
 		account = 3,
-	} 	// annabel is here
+	} // annabel is here
 	frame(&f)
 	type_text(&f, "/call an")
 	frame(&f)
@@ -2079,7 +2079,7 @@ test_completing_a_mention :: proc(t: ^testing.T) {
 	add_account(&f.v, 4, "bob")
 	f.v.users[7] = {
 		account = 3,
-	} 	// annabel is here, anna is not
+	} // annabel is here, anna is not
 	frame(&f)
 	type_text(&f, "hi @an")
 	frame(&f)

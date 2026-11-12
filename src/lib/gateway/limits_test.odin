@@ -586,22 +586,7 @@ test_status_replies :: proc(t: ^testing.T) {
 		http:   int,
 		code:   string,
 	}
-	for c in ([]Case {
-			{.Invalid, 400, "invalid"},
-			{.Unauthenticated, 401, "unauthenticated"},
-			{.Wrong_Password, 401, "wrong_password"},
-			{.Denied, 403, "denied"},
-			{.Banned, 403, "banned"},
-			{.Not_Found, 404, "not_found"},
-			{.Conflict, 409, "conflict"},
-			{.Closed, 410, "closed"},
-			{.Too_Large, 413, "too_large"},
-			{.Rate_Limited, 429, "rate_limited"},
-			{.Internal, 500, "internal"},
-			{.Unknown_Op, 501, "unknown_op"},
-			{.Reset, 503, "reset"},
-			{.Quota, 507, "quota"},
-		}) {
+	for c in ([]Case{{.Invalid, 400, "invalid"}, {.Unauthenticated, 401, "unauthenticated"}, {.Wrong_Password, 401, "wrong_password"}, {.Denied, 403, "denied"}, {.Banned, 403, "banned"}, {.Not_Found, 404, "not_found"}, {.Conflict, 409, "conflict"}, {.Closed, 410, "closed"}, {.Too_Large, 413, "too_large"}, {.Rate_Limited, 429, "rate_limited"}, {.Internal, 500, "internal"}, {.Unknown_Op, 501, "unknown_op"}, {.Reset, 503, "reset"}, {.Quota, 507, "quota"}}) {
 		r := status_reply(c.status)
 		defer delete(r.json)
 		testing.expectf(t, r.status == c.http, "%v: %d", c.status, r.status)

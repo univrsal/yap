@@ -24,7 +24,8 @@ import "common:proto"
 //   - A conversation's members, for the UI's members panel.
 //
 // The setting `ui/view` is the conversation that was looked at last, on any of
-// our devices: a fresh start on any device opens it.
+// our devices: a fresh start on any device opens it. `ui/channels/order` is
+// our own order of the channel list (SETTING_CHANNEL_ORDER, convs.odin).
 
 // The setting that stores which conversation was looked at last.
 SETTING_VIEW :: "ui/view"
@@ -158,6 +159,10 @@ shared_store :: proc(c: ^Server_Conn, key, value: string) {
 		p.shared[strings.clone(key)] = strings.clone(value)
 	}
 	publish_shared(c)
+	// Our own order of the channels: the list is shown in it.
+	if key == SETTING_CHANNEL_ORDER {
+		publish_channels(c)
+	}
 }
 
 // setting_put changes one of the account's settings, here and on the server.

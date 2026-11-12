@@ -166,15 +166,7 @@ test_plan_problems :: proc(t: ^testing.T) {
 	strings.builder_init(&b, context.temp_allocator)
 	report_write(s, strings.to_stream(&b))
 	text := strings.to_string(b)
-	for want in ([]string {
-			"alice_2",
-			"bob smith -> bob_smith",
-			"nosuchemoji (1)",
-			"system_something_new (1)",
-			"Plans (2)",
-			"the owner: alice",
-			"3 accounts of the team's members, 1 bots, 1 disabled",
-		}) {
+	for want in ([]string{"alice_2", "bob smith -> bob_smith", "nosuchemoji (1)", "system_something_new (1)", "Plans (2)", "the owner: alice", "3 accounts of the team's members, 1 bots, 1 disabled"}) {
 		testing.expectf(t, strings.contains(text, want), "the report lacks %q:\n%s", want, text)
 	}
 }

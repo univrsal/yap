@@ -13,12 +13,17 @@ import mu "vendor:microui"
 // Channels in the UI (conn/convs.odin is the network's end of it).
 //
 //   - The list down the left of the session screen: the channels we're
-//     subscribed to, the home channel first, with the number of unread
-//     messages in each (dimmer for a muted channel). Clicking a channel shows its
-//     chat and does nothing else. Right-clicking one opens its menu (how much
-//     it may interrupt, its settings, leaving it). Under each channel are the
-//     people in its voice room. At the list's foot, whichever way it is
-//     scrolled, is the button to the Join a channel window.
+//     subscribed to, the home channel first unless we have put them in our
+//     own order, with the number of unread messages in each (dimmer for a
+//     muted channel). In front of each name is what kind of channel it is: a
+//     '#' for one with only text, and a '#' with a speaker for one with a
+//     voice room too. Clicking a channel shows its chat and does nothing else.
+//     Dragging it puts it somewhere else in the list (channel_drag), which is
+//     kept on the server so that the list is in that order on every device.
+//     Right-clicking one opens its menu (how much it may interrupt, its
+//     settings, leaving it). Under each channel are the people in its voice
+//     room. At the list's foot, whichever way it is scrolled, is the button to
+//     the Join a channel window.
 //   - The line above the chat: which channel it is, and the button that
 //     joins or leaves its voice room. Looking at a channel and talking in
 //     it are two separate things, and that button is the only place where they meet.
@@ -42,6 +47,12 @@ UI_Channels :: struct {
 	// right-clicked in this frame.
 	menu_conv:  proto.Conv_Id,
 	menu_asked: bool,
+	// The channel that was pressed in the list, and where (see
+	// channel_drag). It is being dragged once the pointer has moved
+	// DRAG_START.
+	drag:       proto.Conv_Id,
+	drag_y:     i32,
+	dragging:   bool,
 }
 
 @(private = "file")
@@ -179,7 +190,10 @@ channel_rows :: proc(ui: ^UI) {
 		ctx.text_height(render.LIST_FONT) + 2 * CHANNEL_ROW_PADDING,
 		ctx.style.size.y + 2 * ctx.style.padding,
 	)
-	for ch in v.channels {
+	// Each channel's row with the people under it, for dragging.
+	blocks := make([]mu.Rect, len(v.channels), context.temp_allocator)
+	c := &ui.channels
+	for ch, i in v.channels {
 		mu.push_id(ctx, uintptr(ch.id))
 		defer mu.pop_id(ctx)
 
@@ -191,10 +205,17 @@ channel_rows :: proc(ui: ^UI) {
 		if ch.unread > 0 && ch.notify != .None {
 			ctx.style.colors[.TEXT] = theme.unread_text
 		}
+		if c.dragging && c.drag == ch.id {
+			ctx.style.colors[.TEXT] = theme.dim
+		}
 		saved_font := ctx.style.font
 		ctx.style.font = render.LIST_FONT
 		// When narrow, the list is all there is on screen, so no channel is open.
-		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow, accent = true)
+		// What kind of channel it is: text only, or with a voice room too.
+		icon := render.Icon.Channel if .Text_Only in ch.flags else render.Icon.Voice_Channel
+		clicked :=
+			.SUBMIT in
+			list_row(ctx, "view", label, viewing && !ui.narrow, accent = true, icon = icon)
 		ctx.style.font = saved_font
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
@@ -208,6 +229,11 @@ channel_rows :: proc(ui: ^UI) {
 		}
 		if clicked {
 			view_channel(ui, v, ch)
+			// Pressed with the mouse: it may be dragged too. Not on a touch
+			// screen, where a drag scrolls the list.
+			if ctx.mouse_pressed_bits == {.LEFT} && !ui.touched && !ui.narrow {
+				c.drag, c.drag_y, c.dragging = ch.id, ctx.mouse_pos.y, false
+			}
 		}
 		block := ctx.last_rect
 		mu.get_layout(ctx).indent += MEMBER_INDENT
@@ -219,7 +245,95 @@ channel_rows :: proc(ui: ^UI) {
 		// can be dropped (ui_voice_drag.odin).
 		block.h = ctx.last_rect.y + ctx.last_rect.h - block.y
 		voice_drag_target(ui, ch, block)
+		blocks[i] = block
 	}
+	channel_drag(ui, blocks)
+}
+
+// channel_drag follows a channel being dragged in the list, as the rail does
+// its servers (rail_drag): while the button is down, a line shows where it
+// would go. When the button is released over the list, it moves there, and
+// the list's new order is kept on the server, for all of our devices
+// (conn.SETTING_CHANNEL_ORDER). Released elsewhere, or with Escape, it stays
+// where it was. `blocks` is each channel's row with the people under it, in
+// the order of v.channels. Call with the View locked, inside the list's panel.
+@(private = "file")
+channel_drag :: proc(ui: ^UI, blocks: []mu.Rect) {
+	ctx := &ui.ctx
+	c := &ui.channels
+	v := ui.view
+	if c.drag == 0 {
+		return
+	}
+	from := -1
+	for ch, i in v.channels {
+		if ch.id == c.drag {
+			from = i
+		}
+	}
+	if from < 0 || .Escape in ui.keys && c.dragging {
+		if from >= 0 {
+			ui.keys -= {.Escape}
+		}
+		c.drag, c.dragging = 0, false
+		return
+	}
+	p := ctx.mouse_pos
+	if !c.dragging && abs(p.y - c.drag_y) >= DRAG_START {
+		c.dragging = true
+	}
+	// Where it would go: before the first channel whose middle is below the
+	// pointer.
+	to := 0
+	for b in blocks {
+		if b.y + b.h / 2 < p.y {
+			to += 1
+		}
+	}
+	// Only over the list, which has scrolled out of sight what isn't in it.
+	over := inside(mu.get_clip_rect(ctx), p)
+	moves := over && to != from && to != from + 1
+	if .LEFT in ctx.mouse_down_bits {
+		if c.dragging && moves {
+			// Halfway between two channels, or under the last one.
+			gap := i32(CHANNEL_ROW_GAP)
+			line_y: i32
+			if to < len(blocks) {
+				line_y = blocks[to].y - gap / 2
+			} else {
+				last := blocks[len(blocks) - 1]
+				line_y = last.y + last.h + gap / 2
+			}
+			r := blocks[from]
+			mu.draw_rect(ctx, {r.x, line_y - 1, r.w, 3}, theme.mark)
+		}
+		return
+	}
+	// Released.
+	moved, dragging := c.drag, c.dragging
+	c.drag, c.dragging = 0, false
+	if !dragging || !moves {
+		return
+	}
+	if to > from {
+		to -= 1
+	}
+	ids := make([dynamic]proto.Conv_Id, 0, len(v.channels), context.temp_allocator)
+	for ch in v.channels {
+		append(&ids, ch.id)
+	}
+	ordered_remove(&ids, from)
+	inject_at(&ids, to, moved)
+	log.debugf("ui: move %q to place %d in the channel list", v.channels[from].name, to)
+	// The whole list, so that it stays in this order whatever the server's
+	// order does. The list is shown in it at once (conn.setting_put).
+	command(
+		ui,
+		conn.Setting_Command {
+			key = strings.clone(conn.SETTING_CHANNEL_ORDER),
+			value = conn.channel_order_value(ids[:]),
+		},
+	)
 }
 
 // NOTES_NAME is what our notes are called in the channel list and the header.
@@ -447,7 +561,9 @@ NOTIFY_LABELS := [proto.Notify_Level]string {
 // channel_menu is a channel's menu, opened by right-clicking it in the
 // list: how much it may interrupt (clicking cycles through the choices), its
 // settings for those who may change them, its name and topic and no longer
-// being its admin for its admins (ui_channel_edit.odin), and leaving it.
+// being its admin for its admins (ui_channel_edit.odin), putting the list
+// back in the server's order if we have our own (channel_drag), and leaving
+// it.
 // It is drawn after the list, with the View locked.
 channel_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -506,6 +622,18 @@ channel_menu :: proc(ui: ^UI) {
 	}
 	if ch.admin && .SUBMIT in stable_button(ctx, "stop admin", "Stop being its admin") {
 		command(ui, conn.Conv_Admin_Command{conv = ch.id, account = v.me, on = false})
+		close(ctx)
+	}
+	// Our own order of the list (channel_drag), back to the server's.
+	if conn.SETTING_CHANNEL_ORDER in v.shared &&
+	   .SUBMIT in stable_button(ctx, "reset order", "Reset channel order") {
+		command(
+			ui,
+			conn.Setting_Command {
+				key = strings.clone(conn.SETTING_CHANNEL_ORDER),
+				value = strings.clone(""),
+			},
+		)
 		close(ctx)
 	}
 	if !ch.home && .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe") {

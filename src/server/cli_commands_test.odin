@@ -128,14 +128,7 @@ test_purge_unknown_targets :: proc(t: ^testing.T) {
 	seed_messages(t, r)
 	before := messages_left(t, r)
 
-	for target in ([]string {
-			"nowhere",
-			"#nowhere",
-			"nobody+bob",
-			"admin+bob+nobody",
-			"admin+admin2",
-			"bob+carol",
-		}) {
+	for target in ([]string{"nowhere", "#nowhere", "nobody+bob", "admin+bob+nobody", "admin+admin2", "bob+carol"}) {
 		testing.expectf(
 			t,
 			run_purge_command({target, "0d", "-y", r.config}) == 1,

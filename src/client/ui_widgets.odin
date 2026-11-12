@@ -382,12 +382,14 @@ keyed_toggle :: proc(ctx: ^mu.Context, label: string) {
 // the selected one and highlighted under the mouse. Clicking it with the left
 // button submits it. With `accent`, the selected one is in the accent color
 // (what is shown: a settings category, the channel that is open), rather than
-// grey (the current choice in a dropdown or a list of options).
+// grey (the current choice in a dropdown or a list of options). With an
+// `icon`, it is in front of the text, in the text's color.
 list_row :: proc(
 	ctx: ^mu.Context,
 	id_name, label: string,
 	selected: bool,
 	accent := false,
+	icon: Maybe(render.Icon) = nil,
 ) -> (
 	res: mu.Result_Set,
 ) {
@@ -414,10 +416,22 @@ list_row :: proc(
 	if selected && accent {
 		ctx.style.colors[.TEXT] = theme.accent_text
 	}
-	mu.draw_control_text(ctx, label, r, .TEXT, {})
+	text_r := r
+	if icon, ok := icon.?; ok {
+		at := mu.Rect{r.x + ctx.style.padding, r.y, render.ICON_SIZE, r.h}
+		mu.draw_icon(ctx, render.icon_id(icon), at, ctx.style.colors[.TEXT])
+		moved := i32(render.ICON_SIZE + LIST_ICON_GAP)
+		text_r.x += moved
+		text_r.w -= moved
+	}
+	mu.draw_control_text(ctx, label, text_r, .TEXT, {})
 	ctx.style.font, ctx.style.colors[.TEXT] = saved, saved_text
 	return
 }
+
+// How far a list_row's text is from its icon.
+@(private = "file")
+LIST_ICON_GAP :: 6
 
 // checkbox is mu.checkbox, except that it is ticked when the mouse button
 // goes down on it, like a button, instead of when it comes up. Otherwise a

@@ -271,24 +271,7 @@ test_status_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, status_line(429), "429 Too Many Requests")
 	// What it doesn't know reads as a server error, with the code it was given.
 	testing.expect_value(t, status_line(418), "418 Internal Server Error")
-	for code in ([]int {
-			200,
-			201,
-			204,
-			400,
-			401,
-			403,
-			404,
-			405,
-			409,
-			410,
-			411,
-			413,
-			429,
-			501,
-			502,
-			503,
-		}) {
+	for code in ([]int{200, 201, 204, 400, 401, 403, 404, 405, 409, 410, 411, 413, 429, 501, 502, 503}) {
 		line := status_line(code)
 		testing.expectf(t, !strings.contains(line, "Internal"), "%d has no reason", code)
 	}

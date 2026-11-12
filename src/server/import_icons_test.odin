@@ -133,13 +133,7 @@ test_icon_fetch :: proc(t: ^testing.T) {
 	testing.expect_value(t, why, "not on the public internet")
 	_, why = icon_fetch(&lib, h, "http://10.1.2.3/x.png", {})
 	testing.expect(t, why != "")
-	for url in ([]string {
-			"file:///etc/passwd",
-			"ftp://example.org/x.png",
-			"gopher://example.org/",
-			"example.org/x.png",
-			"",
-		}) {
+	for url in ([]string{"file:///etc/passwd", "ftp://example.org/x.png", "gopher://example.org/", "example.org/x.png", ""}) {
 		_, why = icon_fetch(&lib, h, url, {})
 		testing.expectf(t, why == "not a web address", "%q: %q", url, why)
 	}
