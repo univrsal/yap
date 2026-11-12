@@ -3,6 +3,7 @@ package conn
 import log "common:wlog"
 import "core:fmt"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 
@@ -985,9 +986,11 @@ list_channels :: proc(c: ^Server_Conn) {
 	}
 }
 
-// convs_ordered returns our channels in the order a list shows them, which is
-// the home channel first and then in the order they were made. It is allocated
-// in the temp allocator.
+// convs_ordered returns our channels in the order a list shows them. That is
+// our own order (SETTING_CHANNEL_ORDER) if we have one, with the channels that
+// aren't in it after the ones that are. Otherwise, and among those, it is the
+// server's: the home channel first, then by position and then by id. It is
+// allocated in the temp allocator.
 convs_ordered :: proc(c: ^Server_Conn) -> []proto.Conv_Id {
 	ids := make([dynamic]proto.Conv_Id, 0, len(c.convs.convs), context.temp_allocator)
 	for id, info in c.convs.convs {
@@ -995,12 +998,26 @@ convs_ordered :: proc(c: ^Server_Conn) -> []proto.Conv_Id {
 			append(&ids, id)
 		}
 	}
-	// The home channel comes first, then the channels sorted by position and
-	// then by id, the same way the server orders them.
-	context.user_ptr = c
+	Order :: struct {
+		c:      ^Server_Conn,
+		places: map[proto.Conv_Id]int,
+	}
+	order := Order {
+		c      = c,
+		places = channel_order_parse(
+			c.profiles.shared[SETTING_CHANNEL_ORDER] or_else "",
+			context.temp_allocator,
+		),
+	}
+	context.user_ptr = &order
 	slice.sort_by(ids[:], proc(x, y: proto.Conv_Id) -> bool {
-		c := (^Server_Conn)(context.user_ptr)
-		a, b := c.convs.convs[x], c.convs.convs[y]
+		order := (^Order)(context.user_ptr)
+		px := order.places[x] or_else max(int)
+		py := order.places[y] or_else max(int)
+		if px != py {
+			return px < py
+		}
+		a, b := order.c.convs.convs[x], order.c.convs.convs[y]
 		if (.Home in a.flags) != (.Home in b.flags) {
 			return .Home in a.flags
 		}
@@ -1010,6 +1027,48 @@ convs_ordered :: proc(c: ^Server_Conn) -> []proto.Conv_Id {
 		return x < y
 	})
 	return ids[:]
+}
+
+// The account setting (profiles.odin) that keeps our own order of our
+// channels, so that it is the same on every device: their ids in decimal,
+// separated by commas, in the order the list shows them. Ids of channels we
+// are no longer in are left out when it is next written. Not set: the
+// server's order.
+SETTING_CHANNEL_ORDER :: "ui/channels/order"
+
+// channel_order_parse reads SETTING_CHANNEL_ORDER: each channel's place in
+// it. Whatever isn't a channel id is skipped, and a channel that is in it
+// twice keeps its first place.
+channel_order_parse :: proc(value: string, allocator := context.allocator) -> map[proto.Conv_Id]int {
+	places := make(map[proto.Conv_Id]int, allocator)
+	rest := value
+	place := 0
+	for part in strings.split_iterator(&rest, ",") {
+		id, ok := strconv.parse_u64(strings.trim_space(part), 10)
+		if !ok || id == 0 || id > u64(max(u32)) {
+			continue
+		}
+		if proto.Conv_Id(id) not_in places {
+			places[proto.Conv_Id(id)] = place
+			place += 1
+		}
+	}
+	return places
+}
+
+// channel_order_value writes `ids` as the value of SETTING_CHANNEL_ORDER. The
+// channels that don't fit in a setting are left out, and so come after the
+// others in the server's order.
+channel_order_value :: proc(ids: []proto.Conv_Id, allocator := context.allocator) -> string {
+	b := strings.builder_make(allocator)
+	for id, i in ids {
+		part := fmt.tprintf("%s%d", "," if i > 0 else "", u32(id))
+		if strings.builder_len(b) + len(part) > proto.MAX_SETTING_VALUE {
+			break
+		}
+		strings.write_string(&b, part)
+	}
+	return strings.to_string(b)
 }
 
 // unread_count returns how an unread count is shown, which is "99+" past the
