@@ -14,6 +14,8 @@ foreign kernel32 {
 @(default_calling_convention = "system")
 foreign user32 {
 	GetDoubleClickTime :: proc() -> win.UINT ---
+	// Not in core:sys/windows before Odin's 2026-10 releases.
+	GetDpiForSystem :: proc() -> win.UINT ---
 }
 
 // On Windows the window has no title bar of its own either: the UI runs up to
@@ -181,7 +183,7 @@ titlebar_client_rect :: proc(window: glfw.WindowHandle, x, y, w, h: i32) -> (i32
 	// negative.
 	own, system: win.RECT
 	if !win.AdjustWindowRectExForDpi(&own, style, false, ex_style, win.GetDpiForWindow(hwnd)) ||
-	   !win.AdjustWindowRectExForDpi(&system, style, false, ex_style, win.GetDpiForSystem()) {
+	   !win.AdjustWindowRectExForDpi(&system, style, false, ex_style, GetDpiForSystem()) {
 		return x, y, w, h
 	}
 	if !is_merged(hwnd) {
