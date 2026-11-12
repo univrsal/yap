@@ -3,7 +3,7 @@
 FROM ubuntu:24.04 AS builder
 
 # Keep in line with ODIN_RELEASE in .github/workflows/build.yml.
-ARG ODIN_RELEASE=dev-2026-09
+ARG ODIN_RELEASE=dev-2026-10
 
 RUN apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates clang cmake curl make \
