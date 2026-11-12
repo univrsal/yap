@@ -436,32 +436,12 @@ user_menu :: proc(ui: ^UI) {
 		user_card(ui, account, acc)
 	}
 
-	widths := make([dynamic]i32, context.temp_allocator)
-	append(&widths, 0, icon_button_w(ctx), icon_button_w(ctx))
-	if user_is_screen_sharing {
-		append(&widths, icon_button_w(ctx))
-	}
 	can_call := may_call(v, account)
-	if can_call {
-		append(&widths, icon_button_w(ctx))
-	}
 	can_video_call := can_call && camera_available(v)
-	if can_video_call {
-		append(&widths, icon_button_w(ctx))
-	}
-	if talking_to {
-		append(&widths, icon_button_w(ctx))
-	}
-	// At the menu's right end, narrower if they don't all fit (on a phone,
-	// where buttons are wider).
-	n := i32(len(widths) - 1)
-	bw := min(icon_button_w(ctx), (MENU_WIDTH + ctx.style.spacing) / n - ctx.style.spacing)
-	for &w in widths[1:] {
-		w = bw
-	}
-	widths[0] = i32(MENU_WIDTH) - (bw + ctx.style.spacing) * n
-	mu.layout_row(ctx, widths[:])
-
+	icon_row(
+		ctx,
+		2 + int(user_is_screen_sharing) + int(can_call) + int(can_video_call) + int(talking_to),
+	)
 	mu.label(ctx, "")
 	if talking_to &&
 	   .SUBMIT in
@@ -537,7 +517,6 @@ user_menu :: proc(ui: ^UI) {
 		}
 	}
 
-	channel_member_items(ui, account, MENU_WIDTH)
 	moderation_items(ui, account, clicked if clicked_here else {})
 
 	if changed {
@@ -554,91 +533,190 @@ user_menu :: proc(ui: ^UI) {
 	}
 }
 
-// moderation_items is the part of the user menu for moderators, apart from
-// the rest so that muting for everyone isn't mistaken for muting for
-// ourselves: mute or unmute them for everyone (Mute_Members), and, for the
-// connection that was clicked while it is in a channel's voice room here,
-// move it to another room or out of voice (Move_Members). The rooms to move
-// to are the ones we may talk in ourselves (D5). The server checks all of it
-// again, including that we outrank them. Call with the View locked, inside
-// the menu.
+// icon_row lays out a row of the menu for a label and `n` icon buttons at its
+// right end, narrower if they don't all fit (on a phone, where buttons are
+// wider). Returns the width left for the label.
+@(private = "file")
+icon_row :: proc(ctx: ^mu.Context, n: int) -> (label_w: i32) {
+	widths := make([]i32, n + 1, context.temp_allocator)
+	bw := min(icon_button_w(ctx), (MENU_WIDTH + ctx.style.spacing) / i32(n) - ctx.style.spacing)
+	for &w in widths[1:] {
+		w = bw
+	}
+	widths[0] = i32(MENU_WIDTH) - (bw + ctx.style.spacing) * i32(n)
+	mu.layout_row(ctx, widths)
+	return widths[0]
+}
+
+// Which form is open under the row of moderation icons. Opening one closes
+// the others.
+@(private = "file")
+Moderation_Form :: enum {
+	None,
+	Move,
+	Remove,
+	Ban,
+}
+
+// moderation_items is the part of the user menu for channel admins and
+// moderators: a row of icons apart from the ones above, so that muting for
+// everyone isn't mistaken for muting for ourselves, and the form that one of
+// them opened under it. In order:
+//
+//   - make them the channel's admin, or no longer one, and remove them from
+//     a private channel (channel_member_icons, ui_channel_edit.odin);
+//   - while they are in voice, mute or unmute them for everyone
+//     (Mute_Members), and for the connection that was clicked while it is in
+//     a channel's voice room here, move it to another room, which opens the
+//     list of rooms, or out of voice (Move_Members). The rooms to move to
+//     are the ones we may talk in ourselves (D5);
+//   - remove their messages (Purge) and ban or unban them (Ban_Members),
+//     which open their forms (ui_bans.odin).
+//
+// The server checks all of it again, including that we outrank them. Call
+// with the View locked, inside the menu.
 @(private = "file")
 moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_User) {
 	ctx := &ui.ctx
 	v := ui.view
+	b := &ui.bans
+	channel := channel_member_actions(v, account)
 	acc, known := v.accounts[account]
-	if !known || acc.flags & {.Owner, .Bot} != {} {
-		return
+	moderate := known && acc.flags & {.Owner, .Bot} == {}
+	// Muting for everyone is for voice, so it is offered while one of their
+	// connections is in a voice room, and to lift a mute left over from
+	// before.
+	muted := known && .Server_Muted in acc.flags
+	in_voice := false
+	for _, user in v.users {
+		in_voice ||= user.account == account && (user.room != 0 || user.in_voice)
 	}
-	can_mute := .Mute_Members in v.permissions
+	can_mute := moderate && .Mute_Members in v.permissions && (in_voice || muted)
 	room := clicked.room
-	can_move := .Move_Members in v.permissions && room != 0 && proto.room_call(room) == 0
-	can_ban := .Ban_Members in v.permissions
-	can_purge := .Purge in v.permissions
-	if !can_mute && !can_move && !can_ban && !can_purge {
+	can_move :=
+		moderate && .Move_Members in v.permissions && room != 0 && proto.room_call(room) == 0
+	can_ban := moderate && .Ban_Members in v.permissions
+	can_purge := moderate && .Purge in v.permissions
+	n :=
+		int(channel.toggle) +
+		int(channel.remove) +
+		int(can_mute) +
+		2 * int(can_move) +
+		int(can_purge) +
+		int(can_ban)
+	if n == 0 {
 		return
 	}
 	close :: proc(ctx: ^mu.Context) {
 		mu.get_current_container(ctx).open = false
 	}
-	mu.layout_row(ctx, {MENU_WIDTH})
-	dim_label(ctx, "Moderation")
-	if can_mute {
-		muted := .Server_Muted in acc.flags
-		label := "Unmute for everyone" if muted else "Mute for everyone"
-		if .SUBMIT in stable_button(ctx, "server mute", label) {
-			command(ui, conn.Voice_Mute_Command{account = account, on = !muted})
-		}
+	open := Moderation_Form.None
+	if ui.menu_moving {
+		open = .Move
+	} else if b.removing {
+		open = .Remove
+	} else if b.banning {
+		open = .Ban
+	}
+	toggle :: proc(open: ^Moderation_Form, form: Moderation_Form) {
+		open^ = .None if open^ == form else form
+	}
+	// The icon of the open form is in the accent color.
+	tint :: proc(open, form: Moderation_Form, color: mu.Color) -> mu.Color {
+		return theme.accent if open == form else color
+	}
+
+	label_w := icon_row(ctx, n)
+	if label_w >= ctx.text_width(ctx.style.font, "Moderate") {
+		dim_label(ctx, "Moderate")
+	} else {
+		mu.label(ctx, "")
+	}
+	channel_member_icons(ui, account, channel)
+	if can_mute &&
+	   .SUBMIT in
+		   icon_button(
+			   ui,
+			   "server mute",
+			   .Mic_Off if muted else .Mic,
+			   "Unmute for everyone" if muted else "Mute for everyone",
+			   theme.error if muted else mu.Color{},
+		   ) {
+		command(ui, conn.Voice_Mute_Command{account = account, on = !muted})
 	}
 	if can_move {
-		move_items(ui, account, room)
+		if .SUBMIT in
+		   icon_button(ui, "move", .Move, "Move to another room...", tint(open, .Move, {})) {
+			toggle(&open, .Move)
+		}
+		if .SUBMIT in
+		   icon_button(ui, "disconnect", .Hang_Up, "Disconnect from voice", theme.error) {
+			command(ui, conn.Voice_Move_Command{account = account, room = 0})
+			close(ctx)
+		}
+	}
+	if can_purge &&
+	   .SUBMIT in
+		   icon_button(
+			   ui,
+			   "remove?",
+			   .Trash,
+			   "Remove their messages...",
+			   tint(open, .Remove, theme.error),
+		   ) {
+		toggle(&open, .Remove)
 	}
 	if can_ban {
 		bans_ask(ui, v) // to know whether they are banned
+		if _, banned := ban_of(v, account); banned {
+			if .SUBMIT in icon_button(ui, "unban", .Ban, "Unban (they are banned)", theme.dim) {
+				command(ui, conn.Ban_Command{account = account, on = false})
+				close(ctx)
+			}
+		} else if .SUBMIT in
+		   icon_button(ui, "ban?", .Ban, "Ban...", tint(open, .Ban, theme.error)) {
+			toggle(&open, .Ban)
+		}
 	}
-	if can_ban && ban_items(ui, account, MENU_WIDTH) {
+	ui.menu_moving = can_move && open == .Move
+	b.removing = can_purge && open == .Remove
+	b.banning = can_ban && open == .Ban
+
+	if ui.menu_moving {
+		move_list(ui, account, room)
+	}
+	if remove_form(ui, account, MENU_WIDTH) {
 		close(ctx)
 	}
-	if can_purge && remove_items(ui, account, MENU_WIDTH) {
+	if ban_form(ui, account, MENU_WIDTH) {
 		close(ctx)
 	}
 }
 
-// move_items is the moving part of moderation_items: Move to..., which opens
-// the list of rooms, and Disconnect from voice. Call with the View locked,
-// inside the menu.
+// move_list is what the Move icon of moderation_items opens: the rooms to
+// move them to. Call with the View locked, inside the menu.
 @(private = "file")
-move_items :: proc(ui: ^UI, account: proto.Account_Id, room: proto.Room) {
+move_list :: proc(ui: ^UI, account: proto.Account_Id, room: proto.Room) {
 	ctx := &ui.ctx
 	v := ui.view
-	close :: proc(ctx: ^mu.Context) {
-		mu.get_current_container(ctx).open = false
-	}
-	if .SUBMIT in stable_button(ctx, "move", "Move to..." if !ui.menu_moving else "Move to:") {
-		ui.menu_moving = !ui.menu_moving
-	}
-	if ui.menu_moving {
-		listed := false
-		for ch in v.channels {
-			if ch.id == proto.Conv_Id(room) || .Voice not_in ch.rights {
-				continue
-			}
-			listed = true
-			mu.push_id(ctx, uintptr(ch.id))
-			pressed := .SUBMIT in stable_button(ctx, "room", fmt.tprintf("  # %s", ch.name))
-			mu.pop_id(ctx)
-			if pressed {
-				command(ui, conn.Voice_Move_Command{account = account, room = proto.Room(ch.id)})
-				close(ctx)
-			}
+	mu.layout_row(ctx, {MENU_WIDTH})
+	dim_label(ctx, "Move them to:")
+	listed := false
+	for ch in v.channels {
+		if ch.id == proto.Conv_Id(room) || .Voice not_in ch.rights {
+			continue
 		}
-		if !listed {
-			dim_label(ctx, "  No other room you can talk in")
+		listed = true
+		mu.push_id(ctx, uintptr(ch.id))
+		pressed := .SUBMIT in stable_button(ctx, "room", fmt.tprintf("  # %s", ch.name))
+		mu.pop_id(ctx)
+		if pressed {
+			command(ui, conn.Voice_Move_Command{account = account, room = proto.Room(ch.id)})
+			mu.get_current_container(ctx).open = false
 		}
 	}
-	if .SUBMIT in stable_button(ctx, "disconnect", "Disconnect from voice") {
-		command(ui, conn.Voice_Move_Command{account = account, room = 0})
-		close(ctx)
+	if !listed {
+		dim_label(ctx, "  No other room you can talk in")
 	}
 }
 

@@ -62,6 +62,12 @@ Icon :: enum {
 	// Kinds of channel, in front of their names in the channel list.
 	Channel, // a '#': a channel with only text (Text_Only)
 	Voice_Channel, // a '#' with a speaker at its foot: a channel with a voice room
+	// Moderating someone, in the user menu (ui_users.odin).
+	Ban, // a ring with a line across it: ban someone
+	Crown, // a crown: make someone a channel's admin
+	Crown_Off, // a crown with a line through it: no longer the channel's admin
+	Remove_Person, // a person with a minus: remove someone from a channel
+	Move, // an arrow pointing right: move someone to another voice room
 	// The window's own controls, for where Windows does not provide them
 	// (ui_titlebar_windows.odin).
 	Minimize, // a line
@@ -288,6 +294,19 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return hash(p, {0.5, 0.5}, 1)
 	case .Voice_Channel:
 		return hash_with_speaker(p)
+	case .Ban:
+		return no_entry(p)
+	case .Crown:
+		return crown(p)
+	case .Crown_Off:
+		return crossed_out(crown(p), p)
+	case .Remove_Person:
+		d := person(p, {0.36, 0.35}, 0.9)
+		return nearer(d, capsule(p, {0.66, 0.32}, {0.86, 0.32}, CHECK_STROKE))
+	case .Move:
+		d := capsule(p, {0.16, 0.5}, {0.80, 0.5}, CHECK_STROKE)
+		d = nearer(d, capsule(p, {0.56, 0.26}, {0.80, 0.5}, CHECK_STROKE))
+		return nearer(d, capsule(p, {0.80, 0.5}, {0.56, 0.74}, CHECK_STROKE))
 	case .Minimize, .Maximize, .Restore, .Close:
 		// These are drawn in texels instead (window_control).
 		return 1
@@ -359,6 +378,26 @@ hash_with_speaker :: proc(p: Point) -> f32 {
 	sound := nearer(speaker(q), arc(q, {0.44, 0.5}, 0.3, 0.13, .Right, 0.58)) * SPEAKER
 	d := cut(hash(p, {0.39, 0.39}, HASH), sound - GAP)
 	return nearer(d, sound)
+}
+
+// no_entry is a ring with a line across it from top left to bottom right.
+@(private = "file")
+no_entry :: proc(p: Point) -> f32 {
+	RADIUS :: 0.34
+	STROKE :: 0.1
+	ring := abs(length(p - {0.5, 0.5}) - RADIUS) - STROKE / 2
+	across := RADIUS * math.SQRT_TWO / 2
+	return nearer(ring, capsule(p, Point(0.5 - across), Point(0.5 + across), STROKE))
+}
+
+// crown is a band with three points standing on it, the middle one tallest.
+@(private = "file")
+crown :: proc(p: Point) -> f32 {
+	d := rounded_box(p, {0.5, 0.71}, {0.34, 0.1}, 0.03)
+	d = nearer(d, triangle(p, {0.16, 0.24}, {0.42, 0.63}, {0.16, 0.63}))
+	d = nearer(d, triangle(p, {0.5, 0.13}, {0.69, 0.63}, {0.31, 0.63}))
+	d = nearer(d, triangle(p, {0.84, 0.24}, {0.84, 0.63}, {0.58, 0.63}))
+	return d
 }
 
 // spinner is a ring with a quarter of it missing, turned `step` steps of a
@@ -489,6 +528,11 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Next,
 	     .Channel,
 	     .Voice_Channel,
+	     .Ban,
+	     .Crown,
+	     .Crown_Off,
+	     .Remove_Person,
+	     .Move,
 	     .Check,
 	     .Collapsed,
 	     .Expanded,

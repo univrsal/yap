@@ -11,11 +11,11 @@ import "common:proto"
 // Bans (conn/moderation.odin), for those with Ban_Members, and for whoever is
 // banned:
 //
-//   - The user menu's Moderation part has Ban..., which opens a reason box,
-//     which of their messages in channels go with them, and the Ban button
-//     in the menu, or Unban for someone banned. With Permission.Purge it also
-//     has Remove messages..., which removes theirs everywhere, of the last
-//     hour, day or week or all of them.
+//   - The user menu's row of moderation icons has Ban, which opens a reason
+//     box, which of their messages in channels go with them, and the Ban
+//     button under the row, or Unban for someone banned. With
+//     Permission.Purge it also has a bin, Remove messages, which removes
+//     theirs everywhere, of the last hour, day or week or all of them.
 //   - The settings' Bans page lists who is banned, by whom, when and why,
 //     each with Unban. The Accounts page says "banned" instead of
 //     "disabled" for them.
@@ -62,28 +62,19 @@ bans_ask :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-// ban_items is the end of the user menu's Moderation part (moderation_items):
-// Ban..., which opens a reason box and the red Ban button under it, or Unban
-// for someone who is banned. Returns whether the menu should close. Call with
-// the View locked, inside the menu, with rows of `width`.
-ban_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: bool) {
+// ban_form is the user menu's ban form, under its row of moderation icons
+// (moderation_items) while its Ban icon is open: a reason box, which of
+// their messages in channels go with them, Cancel and a red Ban. Returns
+// whether the menu should close. Call with the View locked, inside the menu,
+// with rows of `width`.
+ban_form :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: bool) {
 	ctx := &ui.ctx
-	v := ui.view
 	b := &ui.bans
-	if _, banned := ban_of(v, account); banned {
-		if .SUBMIT in stable_button(ctx, "unban", "Unban") {
-			command(ui, conn.Ban_Command{account = account, on = false})
-			return true
-		}
-		return false
-	}
-	if .SUBMIT in stable_button(ctx, "ban?", "Ban..." if !b.banning else "Ban:") {
-		b.banning = !b.banning
-	}
 	if !b.banning {
 		return false
 	}
-	dim_label(ctx, "Reason (they will see it)")
+	mu.layout_row(ctx, {width})
+	dim_label(ctx, "Ban them, telling them why:")
 	submit := .SUBMIT in text_box(ui, b.reason.buf[:], &b.reason.len)
 	// Which of their messages in channels go too: a click picks the next.
 	label := fmt.tprintf("Remove their messages: %s", PURGE_CHOICES[b.purge])
@@ -126,20 +117,19 @@ PURGE_CHOICES := [proto.Ban_Purge]string {
 	.All  = "all",
 }
 
-// remove_items is the menu's Remove messages... (Permission.Purge): which of
-// their messages go, everywhere, and a red Remove. Returns whether the menu
+// remove_form is the user menu's Remove messages form (Permission.Purge),
+// under its row of moderation icons while its bin is open: which of their
+// messages go, everywhere, Cancel and a red Remove. Returns whether the menu
 // should close. Call with the View locked, inside the menu, with rows of
 // `width`.
-remove_items :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: bool) {
+remove_form :: proc(ui: ^UI, account: proto.Account_Id, width: i32) -> (close: bool) {
 	ctx := &ui.ctx
 	b := &ui.bans
-	if .SUBMIT in
-	   stable_button(ctx, "remove?", "Remove messages..." if !b.removing else "Remove messages:") {
-		b.removing = !b.removing
-	}
 	if !b.removing {
 		return false
 	}
+	mu.layout_row(ctx, {width})
+	dim_label(ctx, "Remove their messages:")
 	if b.remove == .None {
 		b.remove = .Hour
 	}
