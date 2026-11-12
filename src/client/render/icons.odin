@@ -348,7 +348,6 @@ ribbon :: proc(p: Point) -> f32 {
 	return nearer(d, capsule(p, bl, tl, STROKE))
 }
 
-<<<<<<< HEAD
 // hash is a '#' around `centre`, `size` times as big as a whole icon's: two
 // lines across and two leaning ones down. Its lines are as thick whatever its
 // size, so a smaller one is as easy to see.
