@@ -47,6 +47,11 @@ UninstallDisplayName=Yap
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; yap holds these while it runs (platform/running_windows.odin), so both
+; setup and the uninstaller ask to close it first instead of failing on a
+; locked yap.exe. Clients from before that are still found by
+; CloseApplications (on by default) when setup replaces yap.exe.
+AppMutex=YapClientRunning,Global\YapClientRunning
 
 [Types]
 Name: "full"; Description: "Yap with screen sharing"
