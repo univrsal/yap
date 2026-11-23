@@ -797,6 +797,7 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 			ui.view.roles[:],
 			ui.view.me,
 			ui.view.emoji.names[:],
+			ui.view.emoji.spans[:],
 		)
 		text = rich_make(shown, spans, emoji, nil, false)
 	}
@@ -1183,6 +1184,7 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 			nil,
 			0,
 			ui.view.emoji.names[:],
+			ui.view.emoji.spans[:],
 		)
 		w := ctx.text_width(ctx.style.font, shown) + 12
 		// The first chip always starts a row, even when there is no width
@@ -1339,10 +1341,10 @@ draw_chip_emoji :: proc(ui: ^UI, c: Chip, pos: mu.Vec2) {
 			continue
 		}
 		x := pos.x + ctx.text_width(ctx.style.font, c.text[:e.start])
-		size, advance := custom_emoji_size(ctx)
-		gap := (advance - size) / 2
+		width, size, advance := custom_emoji_size(ctx, e.span)
+		gap := (advance - width) / 2
 		y := pos.y + (ctx.text_height(ctx.style.font) - size) / 2
-		mu.draw_icon(ctx, icon, {x + gap, y, size, size}, {255, 255, 255, 255})
+		mu.draw_icon(ctx, icon, {x + gap, y, width, size}, {255, 255, 255, 255})
 	}
 }
 

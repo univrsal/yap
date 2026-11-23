@@ -1,6 +1,7 @@
 #+build !wasi
 package render
 
+import "core:fmt"
 import "core:testing"
 
 import "common:proto"
@@ -34,6 +35,25 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 		abs(font_text_width(&f, "a😀b") - (font_text_width(&f, "ab") + EMOJI_ADVANCE)) < 0.01,
 	)
 	testing.expect_value(t, font_text_width(&f, ""), f32(CUSTOM_EMOJI_ADVANCE))
+
+	// A wide one takes as much as that many emoji, less the gaps they would have
+	// between them, and the text around it is unchanged.
+	for span in 1 ..= proto.MAX_EMOJI_SPAN {
+		text := fmt.tprintf("a%rb", proto.emoji_placeholder(span))
+		testing.expect(
+			t,
+			abs(
+				font_text_width(&f, text) -
+				(font_text_width(&f, "ab") + custom_emoji_advance(span)),
+			) <
+			0.01,
+		)
+	}
+	testing.expect_value(
+		t,
+		custom_emoji_advance(3) - custom_emoji_advance(1),
+		f32(2 * CUSTOM_EMOJI_SIZE),
+	)
 
 	// One quad of the sheet, on whole pixels, inside the line's box.
 	Quads :: struct {

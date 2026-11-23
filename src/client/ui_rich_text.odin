@@ -145,7 +145,7 @@ rich_make :: proc(
 	es := make([dynamic]richtext.Emoji_Span, context.temp_allocator)
 	for em in emoji {
 		if s, e, ok := moved(r.atoms[at]); ok {
-			append(&es, richtext.Emoji_Span{s, e, em.index})
+			append(&es, richtext.Emoji_Span{s, e, em.index, em.span})
 		}
 		at += 1
 	}
@@ -734,12 +734,12 @@ rich_emoji :: proc(ui: ^UI, r: ^Rich, vl: Rich_Line, pos: mu.Vec2) {
 			continue
 		}
 		x := pos.x + rich_width(ctx, r, vl.start, e.start)
-		size, advance := custom_emoji_size(ctx)
-		gap := (advance - size) / 2
+		width, size, advance := custom_emoji_size(ctx, e.span)
+		gap := (advance - width) / 2
 		mu.draw_icon(
 			ctx,
 			icon,
-			{x + gap, pos.y + (h - size) / 2, size, size},
+			{x + gap, pos.y + (h - size) / 2, width, size},
 			{255, 255, 255, 255},
 		)
 	}

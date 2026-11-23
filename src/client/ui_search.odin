@@ -290,7 +290,14 @@ search_results :: proc(ui: ^UI, submit: bool) {
 			go_to_message(ui, f.conv, m.id)
 		}
 		mu.layout_row(ctx, {-1})
-		text, _, _ := richtext.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
+		text, _, _ := richtext.text_display(
+			m.text,
+			v.accounts,
+			v.roles[:],
+			v.me,
+			v.emoji.names[:],
+			v.emoji.spans[:],
+		)
 		if text != "" {
 			mu.text(ctx, richtext.markdown_plain(text))
 		}

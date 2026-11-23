@@ -41,7 +41,7 @@ sanitize_text :: proc(text: string, buf: []u8) -> string {
 				}
 			}
 			continue
-		case invisible(r), r == CUSTOM_EMOJI_PLACEHOLDER:
+		case invisible(r), is_emoji_placeholder(r):
 			continue
 		}
 		bytes, w := utf8.encode_rune(r)
@@ -88,7 +88,7 @@ sanitize_message :: proc(text: string, buf: []u8) -> string {
 			continue
 		case r < 0x20, r == 0x7f, r >= 0x80 && r < 0xa0:
 			continue // other control characters go
-		case invisible(r), r == CUSTOM_EMOJI_PLACEHOLDER:
+		case invisible(r), is_emoji_placeholder(r):
 			continue
 		}
 		breaks := 0 if n == 0 else min(newlines, MAX_BLANK_LINES + 1)

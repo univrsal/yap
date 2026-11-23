@@ -16,12 +16,14 @@ Emoji_Client :: struct {
 	blob:     proto.Blob_Id, // 0 if there is none
 	cell:     int,
 	names:    [dynamic]string, // owned, in the sheet's order (sorted by name)
+	spans:    [dynamic]u8, // how wide each is (proto.emoji_span), one for each name
 	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 }
 
 emoji_destroy :: proc(c: ^Server_Conn) {
 	emoji_clear(c)
 	delete(c.emoji.names)
+	delete(c.emoji.spans)
 	delete(c.emoji.animated)
 	c.emoji = {}
 }
@@ -32,6 +34,7 @@ emoji_clear :: proc(c: ^Server_Conn) {
 		delete(n)
 	}
 	clear(&c.emoji.names)
+	clear(&c.emoji.spans)
 	clear(&c.emoji.animated)
 	c.emoji.blob = 0
 }
@@ -49,8 +52,9 @@ emoji_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	emoji_clear(c)
 	e := &c.emoji
 	e.blob, e.cell = sheet.blob, sheet.cell
-	for n in sheet.names {
+	for n, i in sheet.names {
 		append(&e.names, strings.clone(n))
+		append(&e.spans, u8(proto.emoji_span(sheet.spans, i)))
 	}
 	if e.blob != 0 {
 		blob_want(c, {blob = e.blob, size = u32(sheet.size)}, keep = true)
@@ -68,6 +72,7 @@ View_Emoji :: struct {
 	blob:     proto.Blob_Id,
 	cell:     int,
 	names:    [dynamic]string, // owned
+	spans:    [dynamic]u8, // how wide each is (proto.emoji_span), one for each name
 	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 	revision: int, // incremented whenever the emoji change
 }
@@ -83,6 +88,7 @@ publish_emoji :: proc(c: ^Server_Conn) {
 	for n in c.emoji.names {
 		append(&v.emoji.names, strings.clone(n))
 	}
+	append(&v.emoji.spans, ..c.emoji.spans[:])
 	append(&v.emoji.animated, ..c.emoji.animated[:])
 	v.emoji.revision += 1
 }
@@ -93,6 +99,7 @@ view_clear_emoji :: proc(v: ^View) {
 		delete(n)
 	}
 	clear(&v.emoji.names)
+	clear(&v.emoji.spans)
 	clear(&v.emoji.animated)
 	v.emoji.blob = 0
 }

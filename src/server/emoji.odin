@@ -45,6 +45,11 @@ import "common:webp"
 // Emoji_Frames (see read_animation). The Emoji_Sheet message refers to these
 // blobs. A client that doesn't support animated emoji shows the first frame.
 //
+// A picture that is wider than tall is a wide emoji (proto.emoji_span_for): its
+// cell is 2 or 3 cells wide, and the picture is scaled to fit that, so that it
+// keeps its shape. The cells of a sheet are placed by proto.emoji_layout. In the
+// frames of an animated wide emoji each frame is as wide as its cell.
+//
 // The folder is scanned every EMOJI_RESCAN. If a file was added, removed or
 // changed, the sheet is rebuilt on a thread of its own, because reading and
 // scaling pictures takes a moment and the main loop also carries voice. Once
@@ -79,6 +84,7 @@ Custom_Emoji :: struct {
 	blob:      Blob_Id,
 	size:      int,
 	names:     [dynamic]string,
+	spans:     [dynamic]u8, // one for each name
 	animated:  [dynamic]proto.Emoji_Anim,
 	// A signature of the folder when the sheet was made, and the time it was
 	// last scanned.
@@ -99,8 +105,22 @@ Emoji_Build :: struct {
 Built_Sheet :: struct {
 	qoi:   []u8, // owned, nil if there are no emoji
 	names: []string, // owned, as is each string
+	spans: []u8, // owned, one for each name
 	anims: [dynamic]Built_Anim,
 	ok:    bool,
+}
+
+// Cell is an emoji's picture scaled to its cell, which is `span` cells wide:
+// RGBA, cell_width(span) x EMOJI_CELL pixels.
+Cell :: struct {
+	span:   int,
+	pixels: []u8,
+}
+
+// cell_width is how many pixels wide a cell of `span` is. It includes the gaps
+// between the cells it takes up.
+cell_width :: proc(span: int) -> int {
+	return span * EMOJI_STRIDE - 1
 }
 
 // Built_Anim is an animated emoji: the index of its cell and its Emoji_Frames
@@ -113,6 +133,7 @@ Built_Anim :: struct {
 
 built_sheet_destroy :: proc(b: ^Built_Sheet) {
 	delete(b.qoi)
+	delete(b.spans)
 	for n in b.names {
 		delete(n)
 	}
@@ -150,6 +171,7 @@ emoji_close :: proc(s: ^Server) {
 	}
 	delete(e.names)
 	delete(e.animated)
+	delete(e.spans)
 	delete(e.dir)
 	e^ = {}
 }
@@ -214,7 +236,7 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	blob: Blob_Id
 	if len(sheet.qoi) > 0 {
 		ok: bool
-		rows := (len(sheet.names) + EMOJI_COLUMNS - 1) / EMOJI_COLUMNS
+		_, rows := proto.emoji_layout(sheet.spans, len(sheet.names), EMOJI_COLUMNS)
 		blob, ok = blob_put(
 			&s.blobs,
 			.Emoji_Sheet,
@@ -246,6 +268,10 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	append(&e.names, ..sheet.names)
 	delete(sheet.names)
 	sheet.names = nil
+	clear(&e.spans)
+	append(&e.spans, ..sheet.spans)
+	delete(sheet.spans)
+	sheet.spans = nil
 	delete(e.animated)
 	e.animated = animated
 	e.blob, e.size = blob, len(sheet.qoi)
@@ -287,6 +313,7 @@ send_emoji_sheet :: proc(s: ^Server, u: ^Conn) {
 			cell = EMOJI_CELL,
 			names = e.names[:],
 			animated = e.animated[:],
+			spans = e.spans[:],
 		},
 	)
 	send_event(u, .Emoji_Sheet, body)
@@ -407,7 +434,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 	slice.sort(order[:])
 
 	names := make([dynamic]string)
-	cells := make([dynamic][]u8, context.temp_allocator) // RGBA, EMOJI_CELL square
+	cells := make([dynamic]Cell, context.temp_allocator)
 	for name in order {
 		path := chosen[name].path
 		if len(names) >= proto.MAX_CUSTOM_EMOJI {
@@ -462,6 +489,10 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 			delete(pop(&sheet.anims).data)
 		}
 	}
+	sheet.spans = make([]u8, len(cells))
+	for c, i in cells {
+		sheet.spans[i] = u8(c.span)
+	}
 	return
 }
 
@@ -470,7 +501,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 // (the caller sets the index). The picture type is detected from its content
 // rather than from its file name.
 @(private = "file")
-read_emoji :: proc(path: string) -> (cell: []u8, anim: Built_Anim, ok: bool) {
+read_emoji :: proc(path: string) -> (cell: Cell, anim: Built_Anim, ok: bool) {
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {
 		log.warnf("could not read %s: %v", path, err)
@@ -497,7 +528,7 @@ read_emoji :: proc(path: string) -> (cell: []u8, anim: Built_Anim, ok: bool) {
 
 // read_webp is read_emoji for a WebP, which may be still or animated.
 @(private = "file")
-read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok: bool) {
+read_webp :: proc(path: string, data: []u8) -> (cell: Cell, anim: Built_Anim, ok: bool) {
 	dec, info, opened := webp.anim_open(data)
 	if !opened {
 		log.warnf("%s isn't a readable WebP, skipping it", path)
@@ -544,7 +575,7 @@ read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok
 
 // read_gif is read_emoji for a GIF, which may be still or animated.
 @(private = "file")
-read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok: bool) {
+read_gif :: proc(path: string, data: []u8) -> (cell: Cell, anim: Built_Anim, ok: bool) {
 	g, read := gif.info(data)
 	if !read || g.width <= 0 || g.height <= 0 {
 		log.warnf("%s isn't a readable GIF, skipping it", path)
@@ -613,7 +644,7 @@ Thinning :: struct {
 	frames:    int, // the number of frames in the animation
 	kept:      int, // the number of frames that are kept
 	run:       int, // the run that the last frame taken belongs to
-	cells:     [dynamic][]u8,
+	cells:     [dynamic]Cell,
 	durations: [dynamic]int,
 }
 
@@ -621,7 +652,7 @@ Thinning :: struct {
 thin_start :: proc(t: ^Thinning) {
 	t.kept = min(t.frames, proto.MAX_EMOJI_FRAMES)
 	t.run = 0
-	t.cells = make([dynamic][]u8, context.temp_allocator)
+	t.cells = make([dynamic]Cell, context.temp_allocator)
 	t.durations = make([dynamic]int, context.temp_allocator)
 }
 
@@ -650,7 +681,7 @@ thin_still :: proc(t: ^Thinning) {
 // thin_finish returns the cell of the first frame and, if more than one frame
 // was kept, the blob containing all of them.
 @(private = "file")
-thin_finish :: proc(t: ^Thinning, path: string) -> (cell: []u8, anim: Built_Anim, ok: bool) {
+thin_finish :: proc(t: ^Thinning, path: string) -> (cell: Cell, anim: Built_Anim, ok: bool) {
 	if len(t.cells) == 0 {
 		return
 	}
@@ -677,14 +708,16 @@ frame_ms :: proc(ms: int) -> int {
 // as an Emoji_Frames blob. It returns nothing (so the emoji is not animated) if
 // the result is too big to send.
 @(private = "file")
-encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: Built_Anim) {
+encode_frames :: proc(cells: []Cell, durations: []int, path: string) -> (anim: Built_Anim) {
 	n := len(cells)
-	columns := int(math.ceil(math.sqrt(f64(n))))
+	span := cells[0].span
+	// As close to square as the wide frames allow.
+	columns := max(1, int(math.ceil(math.sqrt(f64(n) / f64(span)))))
 	rows := (n + columns - 1) / columns
-	width, height := columns * EMOJI_STRIDE, rows * EMOJI_STRIDE
+	width, height := columns * span * EMOJI_STRIDE, rows * EMOJI_STRIDE
 	pixels := make([]u8, width * height * 4)
 	defer delete(pixels)
-	place_cells(pixels, width, columns, cells)
+	place_frames(pixels, width, columns, cells)
 	image, ok := webp.encode_rgba(
 		pixels,
 		width,
@@ -713,16 +746,22 @@ encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: B
 }
 
 // scale_cell scales an RGBA picture into a cell allocated with the temp
-// allocator. The picture is made as big as fits in the cell, keeps its aspect
-// ratio and is centered. Shrinking averages the pixels covered by each target
-// pixel and growing repeats pixels.
+// allocator. The cell is as many cells wide as the picture's shape asks for
+// (proto.emoji_span_for). The picture is made as big as fits in it, keeps its
+// aspect ratio and is centered. Shrinking averages the pixels covered by each
+// target pixel and growing repeats pixels.
 @(private = "file")
-scale_cell :: proc(src: []u8, width, height: int) -> (cell: []u8) {
-	cell = make([]u8, EMOJI_CELL * EMOJI_CELL * 4, context.temp_allocator)
-	side := max(width, height)
-	w := max(1, width * EMOJI_CELL / side)
-	h := max(1, height * EMOJI_CELL / side)
-	ox, oy := (EMOJI_CELL - w) / 2, (EMOJI_CELL - h) / 2
+scale_cell :: proc(src: []u8, width, height: int) -> (cell: Cell) {
+	span := proto.emoji_span_for(width, height)
+	cw := cell_width(span)
+	cell = {span, make([]u8, cw * EMOJI_CELL * 4, context.temp_allocator)}
+	w, h: int
+	if width * EMOJI_CELL >= height * cw {
+		w, h = cw, max(1, height * cw / width)
+	} else {
+		w, h = max(1, width * EMOJI_CELL / height), EMOJI_CELL
+	}
+	ox, oy := (cw - w) / 2, (EMOJI_CELL - h) / 2
 	for y in 0 ..< h {
 		y0 := y * height / h
 		y1 := max(y0 + 1, (y + 1) * height / h)
@@ -740,7 +779,7 @@ scale_cell :: proc(src: []u8, width, height: int) -> (cell: []u8) {
 					sum += {u32(p[0]) * a, u32(p[1]) * a, u32(p[2]) * a, a}
 				}
 			}
-			d := cell[((oy + y) * EMOJI_CELL + ox + x) * 4:]
+			d := cell.pixels[((oy + y) * cw + ox + x) * 4:]
 			if sum[3] > 0 {
 				d[0], d[1], d[2] = u8(sum[0] / sum[3]), u8(sum[1] / sum[3]), u8(sum[2] / sum[3])
 			}
@@ -750,28 +789,44 @@ scale_cell :: proc(src: []u8, width, height: int) -> (cell: []u8) {
 	return cell
 }
 
-// place_cells copies the cells into `pixels` (RGBA, `width` wide) with
-// `columns` cells per row, each followed by a pixel of gap.
+// place_cell copies a cell into `pixels` (RGBA, `width` wide) with its top left
+// corner at (x, y).
 @(private = "file")
-place_cells :: proc(pixels: []u8, width, columns: int, cells: [][]u8) {
+place_cell :: proc(pixels: []u8, width, x, y: int, cell: Cell) {
+	cw := cell_width(cell.span)
+	for row in 0 ..< EMOJI_CELL {
+		copy(pixels[((y + row) * width + x) * 4:][:cw * 4], cell.pixels[row * cw * 4:][:cw * 4])
+	}
+}
+
+// place_frames copies the frames of an animation (all of the same span) into
+// `pixels` with `columns` frames per row, each followed by a pixel of gap.
+@(private = "file")
+place_frames :: proc(pixels: []u8, width, columns: int, cells: []Cell) {
 	for cell, i in cells {
-		cx, cy := (i % columns) * EMOJI_STRIDE, (i / columns) * EMOJI_STRIDE
-		for y in 0 ..< EMOJI_CELL {
-			copy(
-				pixels[((cy + y) * width + cx) * 4:][:EMOJI_CELL * 4],
-				cell[y * EMOJI_CELL * 4:][:EMOJI_CELL * 4],
-			)
-		}
+		place_cell(
+			pixels,
+			width,
+			(i % columns) * cell.span * EMOJI_STRIDE,
+			(i / columns) * EMOJI_STRIDE,
+			cell,
+		)
 	}
 }
 
 // encode_sheet arranges the cells in a grid and writes them as a QOI.
 @(private = "file")
-encode_sheet :: proc(cells: [][]u8) -> (data: []u8, ok: bool) {
-	rows := (len(cells) + EMOJI_COLUMNS - 1) / EMOJI_COLUMNS
+encode_sheet :: proc(cells: []Cell) -> (data: []u8, ok: bool) {
+	spans := make([]u8, len(cells), context.temp_allocator)
+	for c, i in cells {
+		spans[i] = u8(c.span)
+	}
+	pos, rows := proto.emoji_layout(spans, len(cells), EMOJI_COLUMNS)
 	width, height := EMOJI_COLUMNS * EMOJI_STRIDE, rows * EMOJI_STRIDE
 	pixels := make([]u8, width * height * 4, context.temp_allocator)
-	place_cells(pixels, width, EMOJI_COLUMNS, cells)
+	for c, i in cells {
+		place_cell(pixels, width, pos[i].col * EMOJI_STRIDE, pos[i].row * EMOJI_STRIDE, c)
+	}
 	img := image.Image {
 		width    = width,
 		height   = height,

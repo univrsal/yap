@@ -65,7 +65,7 @@ test_emoji_sheet_animated :: proc(t: ^testing.T) {
 	// A sheet from an older server has no animated list, so none of its
 	// emoji are animated.
 	plain := encode_emoji_sheet(buf[:], {blob = 7, size = 900, cell = 64, names = names})
-	old, old_ok := decode_emoji_sheet(plain[:len(plain) - 2])
+	old, old_ok := decode_emoji_sheet(plain[:len(plain) - 4])
 	testing.expect(t, old_ok)
 	testing.expect_value(t, len(old.names), 3)
 	testing.expect_value(t, len(old.animated), 0)
@@ -112,4 +112,87 @@ test_emoji_frames :: proc(t: ^testing.T) {
 		},
 	)
 	testing.expect(t, !ok)
+}
+
+@(test)
+test_emoji_sheet_wide :: proc(t: ^testing.T) {
+	names := []string{"a", "bb", "cc", "dd"}
+	spans := []u8{1, 3, 1, 2}
+	buf: [128]u8
+	body := encode_emoji_sheet(
+		buf[:],
+		{blob = 7, size = 900, cell = 64, names = names, spans = spans},
+	)
+	testing.expect(t, len(body) <= emoji_sheet_max_size(len(names), 0))
+	sheet, ok := decode_emoji_sheet(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, string(sheet.spans), string(spans))
+
+	// A sheet without wide emoji says so, and a sheet from a server that doesn't
+	// know about them has none.
+	square, square_ok := decode_emoji_sheet(
+		encode_emoji_sheet(buf[:], {blob = 7, size = 900, cell = 64, names = names}),
+	)
+	testing.expect(t, square_ok)
+	for i in 0 ..< len(names) {
+		testing.expect_value(t, emoji_span(square.spans, i), 1)
+	}
+	plain := encode_emoji_sheet(buf[:], {blob = 7, names = names})
+	older, older_ok := decode_emoji_sheet(plain[:len(plain) - 2])
+	testing.expect(t, older_ok && len(older.spans) == 0)
+
+	// A span that is out of range or at a name that isn't there is rejected.
+	for bad in ([]Emoji_Pos{{1, 4}, {1, 1}, {1, 2}, {4, 2}}) {
+		w := Writer {
+			buf = buf[:],
+		}
+		put_u64(&w, 7)
+		put_u32(&w, 0)
+		put_u16(&w, 64)
+		put_u16(&w, u16(len(names)))
+		for n in names {
+			put_str8(&w, n)
+		}
+		put_u16(&w, 0)
+		put_u16(&w, 1)
+		put_u16(&w, u16(bad.col))
+		put_u8(&w, u8(bad.row))
+		// (col is the index and row the span here.)
+		_, ok = decode_emoji_sheet(written(&w))
+		testing.expect_value(t, ok, bad.col < 4 && bad.row >= 2 && bad.row <= MAX_EMOJI_SPAN)
+	}
+}
+
+@(test)
+test_emoji_layout :: proc(t: ^testing.T) {
+	testing.expect_value(t, emoji_span_for(10, 10), 1)
+	testing.expect_value(t, emoji_span_for(13, 10), 1)
+	testing.expect_value(t, emoji_span_for(14, 10), 2)
+	testing.expect_value(t, emoji_span_for(23, 10), 2)
+	testing.expect_value(t, emoji_span_for(24, 10), 3)
+	testing.expect_value(t, emoji_span_for(400, 20), 3)
+	testing.expect_value(t, emoji_span_for(10, 20), 1)
+
+	// Square emoji are placed in order.
+	pos, rows := emoji_layout(nil, 5, 4)
+	testing.expect_value(t, rows, 2)
+	testing.expect_value(t, pos[3], Emoji_Pos{3, 0})
+	testing.expect_value(t, pos[4], Emoji_Pos{0, 1})
+	_, rows = emoji_layout(nil, 0, 4)
+	testing.expect_value(t, rows, 0)
+
+	// A wide one that doesn't fit in the rest of a row starts the next.
+	pos, rows = emoji_layout({1, 1, 3, 2, 1}, 5, 4)
+	testing.expect_value(t, rows, 3)
+	testing.expect_value(t, pos[2], Emoji_Pos{0, 1})
+	testing.expect_value(t, pos[3], Emoji_Pos{0, 2})
+	testing.expect_value(t, pos[4], Emoji_Pos{2, 2})
+	// One wider than a row is made to fit it.
+	pos, rows = emoji_layout({3}, 1, 2)
+	testing.expect_value(t, rows, 1)
+
+	for span in 1 ..= MAX_EMOJI_SPAN {
+		testing.expect_value(t, emoji_placeholder_span(emoji_placeholder(span)), span)
+	}
+	testing.expect_value(t, emoji_placeholder_span('a'), 0)
 }
