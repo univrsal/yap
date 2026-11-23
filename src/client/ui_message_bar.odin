@@ -302,7 +302,10 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 			mu.draw_icon(
 				ctx,
 				icon,
-				{rect.x + (rect.w - size) / 2, rect.y + (rect.h - size) / 2, size, size},
+				emoji_fit(
+					{rect.x + (rect.w - size) / 2, rect.y + (rect.h - size) / 2, size, size},
+					custom_emoji_span(ui, index),
+				),
 				{255, 255, 255, 255},
 			)
 		}

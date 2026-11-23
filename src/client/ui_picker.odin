@@ -254,7 +254,10 @@ custom_emoji_cell :: proc(ui: ^UI, index: int, code: string) -> bool {
 		mu.draw_icon(
 			ctx,
 			icon,
-			{r.x + (r.w - size) / 2, r.y + (r.h - size) / 2, size, size},
+			emoji_fit(
+				{r.x + (r.w - size) / 2, r.y + (r.h - size) / 2, size, size},
+				custom_emoji_span(ui, index),
+			),
 			{255, 255, 255, 255},
 		)
 	}

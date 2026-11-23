@@ -288,7 +288,7 @@ Glyph_Source :: enum {
 	Face, // the index is into the face's arrays
 	Unifont, // the index is the character itself
 	Emoji, // the index is its cell in the sheet (emoji_cell)
-	Placeholder, // one of the server's emoji, drawn over it by the UI: takes space but draws nothing
+	Placeholder, // one of the server's emoji, drawn over it by the UI: takes space but draws nothing; the index is its span
 	None, // draws nothing and takes no room (is_ignorable)
 }
 
@@ -323,8 +323,8 @@ find_glyph :: proc(
 	if is_ignorable(r) {
 		return 0, .None, face
 	}
-	if r == proto.CUSTOM_EMOJI_PLACEHOLDER {
-		return 0, .Placeholder, face
+	if span := proto.emoji_placeholder_span(r); span > 0 {
+		return span, .Placeholder, face
 	}
 	if r >= 0xa9 {
 		if cell, is := emoji_cell(r); is {
@@ -354,7 +354,7 @@ font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f
 		case .Emoji:
 			w += EMOJI_ADVANCE
 		case .Placeholder:
-			w += CUSTOM_EMOJI_ADVANCE
+			w += custom_emoji_advance(i)
 		case .None:
 		}
 	}
@@ -365,6 +365,12 @@ font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f
 // is drawn (in logical pixels).
 CUSTOM_EMOJI_ADVANCE :: 19
 CUSTOM_EMOJI_SIZE :: 17
+
+// custom_emoji_advance is how much room an emoji of `span` takes up: as many
+// times its size, with the gap around it that one of span 1 has.
+custom_emoji_advance :: proc(span: int) -> f32 {
+	return f32(span * CUSTOM_EMOJI_SIZE + (CUSTOM_EMOJI_ADVANCE - CUSTOM_EMOJI_SIZE))
+}
 
 // font_cache_glyphs puts the Unifont glyphs that `text` needs into their
 // atlas before font_layout. The renderer uploads whatever changed in between.
@@ -459,7 +465,7 @@ font_layout_unzoomed :: proc(
 		switch source {
 		case .None:
 		case .Placeholder:
-			pen += CUSTOM_EMOJI_ADVANCE
+			pen += custom_emoji_advance(i)
 		case .Unifont:
 			u := &f.uni
 			if slot, ok := unifont_cache(u, r); ok && u.scale == s {
