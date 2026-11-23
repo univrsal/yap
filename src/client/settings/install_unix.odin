@@ -153,7 +153,6 @@ is_our_link :: proc(link, a, b: string) -> bool {
 	return rerr == nil && to != "" && (to == a || to == b)
 }
 
-@(private = "file")
 write_file_all :: proc(path: string, data: []u8) -> bool {
 	dir, _ := os.split_path(path)
 	os.make_directory_all(dir)
