@@ -178,7 +178,7 @@ Yv :: struct {
 	share_get_bitrate:     proc "c" (share: rawptr) -> u32,
 	share_set_codecs:      proc "c" (share: rawptr, codecs: u32),
 	share_get_state:       proc "c" (share: rawptr) -> i32,
-	stream_error:          proc "c" (share: rawptr) -> cstring,
+	share_error:           proc "c" (share: rawptr) -> cstring,
 	share_stop:            proc "c" (share: rawptr),
 	capture_allowed:       proc "c" (ctx: rawptr, ask: bool) -> bool,
 	open_capture_settings: proc "c" (ctx: rawptr) -> bool,
@@ -289,7 +289,7 @@ when ODIN_OS == .Windows {
 			share_get_bitrate = yv_share_get_bitrate,
 			share_set_codecs = yv_share_set_codecs,
 			share_get_state = yv_share_get_state,
-			stream_error = yv_share_error,
+			share_error = yv_share_error,
 			share_stop = yv_share_stop,
 			capture_allowed = yv_capture_allowed,
 			open_capture_settings = yv_open_capture_settings,
@@ -1014,7 +1014,7 @@ camera_look_state :: proc() -> (state: Share_State, why: string) {
 	}
 	state = state_of(nv.look)
 	if state == .Failed {
-		why = strings.clone_from_cstring(nv.yv.stream_error(nv.look), context.temp_allocator)
+		why = strings.clone_from_cstring(nv.yv.share_error(nv.look), context.temp_allocator)
 	}
 	return
 }
@@ -1236,7 +1236,7 @@ stream_error :: proc(stream: proto.Video_Stream) -> string {
 	if share == nil {
 		return ""
 	}
-	return strings.clone_from_cstring(nv.yv.stream_error(share), context.temp_allocator)
+	return strings.clone_from_cstring(nv.yv.share_error(share), context.temp_allocator)
 }
 
 // picture is the newest frame of a stream we are watching, as a texture
