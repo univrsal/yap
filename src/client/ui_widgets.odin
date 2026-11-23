@@ -280,7 +280,12 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 		at := mu.Vec2{x + (w - big_w) / 2, line_y}
 		if index, custom := emoji.custom.?; custom {
 			if icon, ok := custom_emoji_icon(ui, index); ok {
-				mu.draw_icon(ctx, icon, {at.x, at.y, big_w, big_h}, {255, 255, 255, 255})
+				mu.draw_icon(
+					ctx,
+					icon,
+					emoji_fit({at.x, at.y, big_w, big_h}, custom_emoji_span(ui, index)),
+					{255, 255, 255, 255},
+				)
 			}
 		} else {
 			mu.draw_text(ctx, render.PREVIEW_FONT, emoji.unicode, at, ctx.style.colors[.TEXT])

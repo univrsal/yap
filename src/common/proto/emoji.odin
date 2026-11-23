@@ -21,6 +21,7 @@ import "core:unicode/utf8"
 //
 // 	Emoji_Sheet  [blob u64][size u32][cell u16][count u16][name str8]...
 // 	             [animated u16]([index u16][frames blob u64][size u32])...
+// 	             [wide u16]([index u16][span u8])...
 //
 // Some of them are animated (an animated WebP or GIF in the folder). Each
 // animated emoji has the index of its cell, which shows its first frame, and a
@@ -33,6 +34,14 @@ import "core:unicode/utf8"
 // The list of animated emoji was added later. A client that predates it stops
 // reading after the names and still shows every emoji. A sheet from a server
 // that predates it has no such list.
+//
+// Most emoji are square, but a picture that is wider than tall is wide: it
+// has a span of 2 or 3 and is drawn that many times as wide as it is tall. The
+// server decides from the picture's shape (emoji_span_for). In the sheet a wide
+// emoji takes `span` cells next to each other (see emoji_layout), in the
+// frames of an animated one each frame is that wide. Only the wide ones are
+// listed in the Emoji_Sheet. A client that doesn't know the list can't place
+// the cells, which is why it came with a new HELLO_VERSION.
 //
 // A `:name:` that isn't one of the server's emoji is just text.
 
@@ -52,6 +61,99 @@ Emoji_Ref :: struct {
 // nothing, so that the emoji's picture can be drawn over it. Nobody may send it
 // (sanitize_text drops it).
 CUSTOM_EMOJI_PLACEHOLDER :: rune(0xE000)
+
+// The same for a wide emoji of span 2 and 3: they are as wide as that many
+// emoji. emoji_placeholder gives the one for a span.
+CUSTOM_EMOJI_PLACEHOLDER_2 :: rune(0xE001)
+CUSTOM_EMOJI_PLACEHOLDER_3 :: rune(0xE002)
+
+// The widest an emoji can be, in times its height.
+MAX_EMOJI_SPAN :: 3
+
+// emoji_placeholder returns the placeholder character for an emoji of `span`.
+emoji_placeholder :: proc(span: int) -> rune {
+	switch span {
+	case 2:
+		return CUSTOM_EMOJI_PLACEHOLDER_2
+	case 3:
+		return CUSTOM_EMOJI_PLACEHOLDER_3
+	}
+	return CUSTOM_EMOJI_PLACEHOLDER
+}
+
+// emoji_placeholder_span returns the span that a placeholder character stands
+// for, or 0 if `r` is not a placeholder.
+emoji_placeholder_span :: proc(r: rune) -> int {
+	switch r {
+	case CUSTOM_EMOJI_PLACEHOLDER:
+		return 1
+	case CUSTOM_EMOJI_PLACEHOLDER_2:
+		return 2
+	case CUSTOM_EMOJI_PLACEHOLDER_3:
+		return 3
+	}
+	return 0
+}
+
+// is_emoji_placeholder reports whether `r` is a placeholder of any span.
+is_emoji_placeholder :: proc(r: rune) -> bool {
+	return emoji_placeholder_span(r) != 0
+}
+
+// emoji_span_for returns the span of an emoji from the size of its picture:
+// 3 if it is at least 2.4 times as wide as tall, 2 if it is at least 1.4 times
+// as wide, else 1.
+emoji_span_for :: proc(width, height: int) -> int {
+	switch {
+	case width * 10 >= height * 24:
+		return 3
+	case width * 10 >= height * 14:
+		return 2
+	}
+	return 1
+}
+
+// emoji_span returns the span of emoji `index`, given the sheet's `spans`
+// (which is empty if all are square).
+emoji_span :: proc(spans: []u8, index: int) -> int {
+	if index < 0 || index >= len(spans) || spans[index] < 1 {
+		return 1
+	}
+	return min(int(spans[index]), MAX_EMOJI_SPAN)
+}
+
+// Where an emoji's cell is in a sheet, in cells.
+Emoji_Pos :: struct {
+	col, row: int,
+}
+
+// emoji_layout places the cells of a sheet: in order, `columns` to a row, an
+// emoji of span n taking n cells in a row. One that doesn't fit in what is
+// left of a row starts the next one. It returns where each of the `count` emoji
+// is, and the number of rows. The positions are allocated with `allocator`.
+emoji_layout :: proc(
+	spans: []u8,
+	count, columns: int,
+	allocator := context.temp_allocator,
+) -> (
+	pos: []Emoji_Pos,
+	rows: int,
+) {
+	pos = make([]Emoji_Pos, count, allocator)
+	col, row := 0, 0
+	for i in 0 ..< count {
+		span := min(emoji_span(spans, i), columns)
+		if col + span > columns {
+			col, row = 0, row + 1
+		}
+		pos[i] = {col, row}
+		col += span
+	}
+	if count > 0 {
+		rows = row + 1
+	}
+	return
+}
 
 // The layout of a sheet's cells: this many per row, in name order.
 EMOJI_SHEET_COLUMNS :: 16
@@ -138,6 +240,8 @@ Emoji_Sheet :: struct {
 	names:    []string,
 	// The animated emoji, identified by the index of their cell.
 	animated: []Emoji_Anim,
+	// The span of each emoji (see emoji_span), or empty if all are square.
+	spans:    []u8,
 }
 
 // One of the server's animated emoji. It consists of the index of its cell,
@@ -151,7 +255,17 @@ Emoji_Anim :: struct {
 // The maximum size of an Emoji_Sheet with `names` emoji, of which `animated`
 // are animated.
 emoji_sheet_max_size :: proc(names, animated: int) -> int {
-	return 8 + 4 + 2 + 2 + names * (1 + MAX_EMOJI_NAME) + 2 + animated * (2 + 8 + 4)
+	return(
+		8 +
+		4 +
+		2 +
+		2 +
+		names * (1 + MAX_EMOJI_NAME) +
+		2 +
+		animated * (2 + 8 + 4) +
+		2 +
+		names * 3 \
+	)
 }
 
 encode_emoji_sheet :: proc(out: []u8, sheet: Emoji_Sheet) -> []u8 {
@@ -170,6 +284,19 @@ encode_emoji_sheet :: proc(out: []u8, sheet: Emoji_Sheet) -> []u8 {
 		put_u16(&w, u16(a.index))
 		put_u64(&w, u64(a.blob))
 		put_u32(&w, u32(a.size))
+	}
+	wide := 0
+	for i in 0 ..< len(sheet.names) {
+		if emoji_span(sheet.spans, i) > 1 {
+			wide += 1
+		}
+	}
+	put_u16(&w, u16(wide))
+	for i in 0 ..< len(sheet.names) {
+		if span := emoji_span(sheet.spans, i); span > 1 {
+			put_u16(&w, u16(i))
+			put_u8(&w, u8(span))
+		}
 	}
 	return written(&w)
 }
@@ -217,6 +344,28 @@ decode_emoji_sheet :: proc(body: []u8) -> (sheet: Emoji_Sheet, ok: bool) {
 		return
 	}
 	sheet.animated = animated
+	if r.pos == len(body) {
+		return sheet, true
+	}
+	wide := int(get_u16(&r))
+	if r.overflow || wide > count {
+		return
+	}
+	spans := make([]u8, count, context.temp_allocator)
+	for &sp in spans {
+		sp = 1
+	}
+	for _ in 0 ..< wide {
+		index, span := int(get_u16(&r)), int(get_u8(&r))
+		if index >= count || span < 2 || span > MAX_EMOJI_SPAN {
+			return
+		}
+		spans[index] = u8(span)
+	}
+	if r.overflow {
+		return
+	}
+	sheet.spans = spans
 	return sheet, true
 }
 

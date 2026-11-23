@@ -1030,23 +1030,39 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	t.frame = im.frame
 	im.textures[key] = t
 	cols := proto.EMOJI_SHEET_COLUMNS
-	rows := (len(e.names) + cols - 1) / cols
-	return emoji_cell(im, t.texture, index, cols, rows, e.cell), true
+	pos, rows := proto.emoji_layout(v.emoji.spans[:], len(e.names), cols)
+	return emoji_cell(
+			im,
+			t.texture,
+			pos[index].col,
+			pos[index].row,
+			cols,
+			rows,
+			proto.emoji_span(v.emoji.spans[:], index),
+			e.cell,
+		),
+		true
 }
 
-// emoji_cell draws cell `index` of a grid of `cols` x `rows` cells of
-// `cell` pixels, each followed by a pixel of gap (see EMOJI_STRIDE on the
-// server).
+// custom_emoji_span is how many times as wide as tall the server's emoji
+// number `index` is (proto.emoji_span).
+custom_emoji_span :: proc(ui: ^UI, index: int) -> int {
+	return proto.emoji_span(ui.view.emoji.spans[:], index)
+}
+
+// emoji_cell draws the cell at (`col`, `row`) of a grid of `cols` x `rows`
+// units, each unit a cell of `cell` pixels plus a pixel of gap (see EMOJI_STRIDE
+// on the server). The cell is `span` units wide, including the gaps in it.
 @(private = "file")
 emoji_cell :: proc(
 	im: ^UI_Images,
 	texture: render.Gpu_Texture,
-	index, cols, rows, cell: int,
+	col, row, cols, rows, span, cell: int,
 ) -> mu.Icon {
 	stride := f32(cell + 1)
-	u0 := f32(index % cols) / f32(cols)
-	v0 := f32(index / cols) / f32(rows)
-	du := f32(cell) / (f32(cols) * stride)
+	u0 := f32(col) / f32(cols)
+	v0 := f32(row) / f32(rows)
+	du := (f32(span) * stride - 1) / (f32(cols) * stride)
 	dv := f32(cell) / (f32(rows) * stride)
 	append(&im.draws, render.Image_Draw{texture = texture, uv = {u0, v0, u0 + du, v0 + dv}})
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1)
@@ -1123,5 +1139,18 @@ custom_emoji_frame :: proc(ui: ^UI, index: int) -> (icon: mu.Icon, ok: bool) {
 	anim_redraw_at(ui, time.tick_add(time.tick_now(), time.Duration(ends - at) * time.Millisecond))
 	n := len(timing.durations)
 	rows := (n + timing.columns - 1) / timing.columns
-	return emoji_cell(im, t.texture, frame, timing.columns, rows, e.cell), true
+	span := proto.emoji_span(v.emoji.spans[:], index)
+	// The frames of a wide emoji are wide: each takes `span` units of the grid, so
+	// the grid has `columns` of them.
+	return emoji_cell(
+			im,
+			t.texture,
+			frame % timing.columns * span,
+			frame / timing.columns,
+			timing.columns * span,
+			rows,
+			span,
+			e.cell,
+		),
+		true
 }

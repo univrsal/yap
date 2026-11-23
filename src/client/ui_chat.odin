@@ -1016,12 +1016,20 @@ wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 	}
 }
 
-// custom_emoji_size is how big one of the server's emoji is drawn and
-// how much room it has, in the current font: bigger in the chat when
-// its text is (see render.CHAT_FONT).
-custom_emoji_size :: proc(ctx: ^mu.Context) -> (size, advance: i32) {
+// custom_emoji_size is how big one of the server's emoji of `span` is drawn
+// (its width and height) and how much room it has, in the current font: bigger
+// in the chat when its text is (see render.CHAT_FONT).
+custom_emoji_size :: proc(ctx: ^mu.Context, span := 1) -> (width, height, advance: i32) {
 	zoom := f32(ctx.text_height(ctx.style.font)) / render.LINE_HEIGHT
-	return i32(render.CUSTOM_EMOJI_SIZE * zoom), i32(render.CUSTOM_EMOJI_ADVANCE * zoom)
+	height = i32(render.CUSTOM_EMOJI_SIZE * zoom)
+	return height * i32(span), height, i32(render.custom_emoji_advance(span) * zoom)
+}
+
+// emoji_fit is the part of the square `r` in which an emoji of `span` is drawn
+// when all of `r` is its width: a wide one is flatter, in the middle.
+emoji_fit :: proc(r: mu.Rect, span: int) -> mu.Rect {
+	h := r.h / i32(span)
+	return {r.x, r.y + (r.h - h) / 2, r.w, h}
 }
 
 // wrap_line returns the first line of `text` wrapped at `width`, as the chat

@@ -226,10 +226,12 @@ custom_emoji_index :: proc(names: []string, name: string) -> (int, bool) {
 }
 
 // Emoji_Span is the position of one of the server's emoji in the shown text
-// (its placeholder character), and which emoji it is (its cell in the sheet).
+// (its placeholder character), and which emoji it is (its cell in the sheet) and
+// how many times as wide as tall it is (proto.emoji_span).
 Emoji_Span :: struct {
 	start, end: int,
 	index:      int,
+	span:       int,
 }
 
 // mentions_display returns a stored message as it is shown. Tokens become
@@ -252,7 +254,8 @@ mentions_display :: proc(
 
 // text_display is like mentions_display, and additionally replaces the server's
 // emoji (`emoji`, its names in order) written as `:name:` with one
-// proto.CUSTOM_EMOJI_PLACEHOLDER each. `custom` says where each placeholder is
+// placeholder each (proto.emoji_placeholder, by the emoji's span in `wide`,
+// which is empty if they are all square). `custom` says where each placeholder is
 // and which emoji it stands for. A `:name:` that isn't one of the server's emoji
 // stays unchanged.
 text_display :: proc(
@@ -261,12 +264,13 @@ text_display :: proc(
 	roles: []Role,
 	me: proto.Account_Id,
 	emoji: []string,
+	wide: []u8 = nil,
 ) -> (
 	shown: string,
 	spans: []Mention_Span,
 	custom: []Emoji_Span,
 ) {
-	shown, spans, custom, _ = text_display_links(text, accounts, roles, me, emoji)
+	shown, spans, custom, _ = text_display_links(text, accounts, roles, me, emoji, wide = wide)
 	return
 }
 
@@ -291,6 +295,7 @@ text_display_links :: proc(
 	emoji: []string,
 	label: proc(data: rawptr, l: proto.Msg_Link) -> string = nil,
 	label_data: rawptr = nil,
+	wide: []u8 = nil,
 ) -> (
 	shown: string,
 	spans: []Mention_Span,
@@ -348,8 +353,9 @@ text_display_links :: proc(
 				name := text[i + 1:][:end]
 				if index, known := custom_emoji_index(emoji, name); known {
 					start := strings.builder_len(b)
-					strings.write_rune(&b, proto.CUSTOM_EMOJI_PLACEHOLDER)
-					append(&icons, Emoji_Span{start, strings.builder_len(b), index})
+					span := proto.emoji_span(wide, index)
+					strings.write_rune(&b, proto.emoji_placeholder(span))
+					append(&icons, Emoji_Span{start, strings.builder_len(b), index, span})
 					i += end + 2
 					continue
 				}

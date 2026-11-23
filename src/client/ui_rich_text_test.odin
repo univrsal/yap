@@ -177,10 +177,10 @@ test_rich_spans :: proc(t: ^testing.T) {
 	shown := "**@Ann**  [site](https://a.org) https://b.org"
 	ann := strings.index(shown, "@Ann")
 	icon := strings.index(shown, "")
-	r := rich_make(shown, {{ann, ann + 4, true}}, {{icon, icon + 3, 2}}, nil, true)
+	r := rich_make(shown, {{ann, ann + 4, true}}, {{icon, icon + 3, 2, 1}}, nil, true)
 	testing.expect_value(t, r.text, "@Ann  site https://b.org")
 	testing.expect_value(t, r.mentions[0], richtext.Mention_Span{0, 4, true})
-	testing.expect_value(t, r.emoji[0], richtext.Emoji_Span{5, 8, 2})
+	testing.expect_value(t, r.emoji[0], richtext.Emoji_Span{5, 8, 2, 1})
 	testing.expect_value(t, len(r.links), 1)
 	testing.expect_value(t, r.text[r.links[0].start:r.links[0].end], "site")
 	testing.expect_value(t, r.links[0].url, "https://a.org")

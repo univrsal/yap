@@ -38,6 +38,7 @@ test_emoji_sheet_event :: proc(t: ^testing.T) {
 				cell = 32,
 				names = {"party", "wave", "zzz"},
 				animated = {{index = 2, blob = 901, size = 700}},
+				spans = {1, 3, 1},
 			},
 		),
 	)
@@ -47,6 +48,7 @@ test_emoji_sheet_event :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.emoji.names[1], "wave")
 	testing.expect_value(t, len(c.emoji.animated), 1)
 	testing.expect_value(t, c.emoji.animated[0].blob, proto.Blob_Id(901))
+	testing.expect_value(t, string(c.emoji.spans[:]), "\x01\x03\x01")
 
 	// The sheet and each animated emoji's frames are fetched, and kept whatever
 	// else is cached.
@@ -63,6 +65,7 @@ test_emoji_sheet_event :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.emoji.cell, 32)
 	testing.expect_value(t, len(v.emoji.names), 3)
 	testing.expect_value(t, len(v.emoji.animated), 1)
+	testing.expect_value(t, string(v.emoji.spans[:]), "\x01\x03\x01")
 	testing.expect_value(t, v.emoji.revision, 1)
 	testing.expect(t, raw_data(v.emoji.names[0]) != raw_data(c.emoji.names[0]))
 }

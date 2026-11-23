@@ -224,6 +224,7 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 				v.roles[:],
 				v.me,
 				v.emoji.names[:],
+				v.emoji.spans[:],
 			)
 			said = richtext.markdown_plain(said)
 			if len(said) > LINK_SNIPPET {
@@ -276,6 +277,7 @@ message_text :: proc(
 		v.emoji.names[:],
 		link_label,
 		ui,
+		v.emoji.spans[:],
 	)
 }
 

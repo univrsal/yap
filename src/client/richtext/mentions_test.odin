@@ -153,10 +153,24 @@ test_emoji_transform :: proc(t: ^testing.T) {
 	testing.expect_value(t, shown, fmt.tprintf("%r%r x :nope: @unknown", ph, ph))
 	testing.expect_value(t, len(icons), 2)
 	if len(icons) == 2 {
-		testing.expect_value(t, icons[0], Emoji_Span{0, 3, 0})
-		testing.expect_value(t, icons[1], Emoji_Span{3, 6, 1})
+		testing.expect_value(t, icons[0], Emoji_Span{0, 3, 0, 1})
+		testing.expect_value(t, icons[1], Emoji_Span{3, 6, 1, 1})
 	}
 	plain, _, none := text_display("no :emoji: here", accounts, nil, 0, nil)
 	testing.expect_value(t, plain, "no :emoji: here")
 	testing.expect_value(t, len(none), 0)
+
+	// A wide emoji gets the placeholder of its span.
+	wide := []u8{1, 3}
+	shown, _, icons = text_display(":party::smile:", accounts, nil, 0, custom, wide)
+	testing.expect_value(
+		t,
+		shown,
+		fmt.tprintf("%r%r", proto.CUSTOM_EMOJI_PLACEHOLDER, proto.CUSTOM_EMOJI_PLACEHOLDER_3),
+	)
+	testing.expect_value(t, len(icons), 2)
+	if len(icons) == 2 {
+		testing.expect_value(t, icons[0], Emoji_Span{0, 3, 0, 1})
+		testing.expect_value(t, icons[1], Emoji_Span{3, 6, 1, 3})
+	}
 }
