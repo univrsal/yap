@@ -227,10 +227,13 @@ outbox_fail :: proc(c: ^Server_Conn) {
 	if p.kind == .File {
 		file_post_failed(c, p.nonce)
 	}
-	if p.attach != nil {
-		attach_post_failed(c, p.attach)
-	}
+	// The entry goes first: dropping its files' post frees it and publishes the
+	// outbox, which must not find an entry that still points at it.
+	attach := p.attach
 	outbox_pop(c)
+	if attach != nil {
+		attach_post_failed(c, attach)
+	}
 }
 
 // outbox_give_up is outbox_fail, with a notice of why.
