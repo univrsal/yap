@@ -63,6 +63,12 @@ link_end :: proc(text: string, start: int) -> int {
 			end = start + i
 			break
 		}
+		// "[https://a.example](https://b.example)": the text of a markdown
+		// link ends where its address starts.
+		if r == ']' && strings.has_prefix(text[start + i + 1:], "(") {
+			end = start + i
+			break
+		}
 	}
 	// The brackets are counted once and adjusted as characters are cut off,
 	// not counted again for every one (a link of 60 000 closing brackets

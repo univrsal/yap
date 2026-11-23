@@ -201,6 +201,9 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	push_frame(ui)
 	if ui.hidden {
 		ui.meter_shown = false
+		// Nothing is being read in a window that isn't there; the drawing
+		// that usually says so (see side_panel) isn't running.
+		timeline_reading(ui, false)
 		return true // there is no window to draw in
 	}
 	drag_frame(ui)

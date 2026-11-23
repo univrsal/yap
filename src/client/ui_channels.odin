@@ -200,9 +200,10 @@ channel_rows :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1}, row_h)
 		viewing := ch.id == v.viewing
 		label := fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else "")
-		// Unread and not muted: brighter, as well as showing the count.
+		// Unread and notifying: brighter, as well as showing the count. A
+		// channel that is only for mentions or muted stays quiet.
 		saved := ctx.style.colors[.TEXT]
-		if ch.unread > 0 && ch.notify != .None {
+		if ch.unread > 0 && ch.notify == .All {
 			ctx.style.colors[.TEXT] = theme.unread_text
 		}
 		if c.dragging && c.drag == ch.id {
@@ -222,7 +223,7 @@ channel_rows :: proc(ui: ^UI) {
 			ui.channels.menu_conv, ui.channels.menu_asked = ch.id, true
 		}
 		if ch.unread > 0 {
-			w := unread_badge(ctx, ctx.last_rect, ch.unread, ch.notify == .None)
+			w := unread_badge(ctx, ctx.last_rect, ch.unread, ch.notify != .All)
 			if ch.mentions > 0 {
 				mention_badge(ctx, ctx.last_rect, ch.mentions, w)
 			}
@@ -539,12 +540,13 @@ badge :: proc(
 	return taken + w + 4
 }
 
-// unread_total is how many messages are unread in the channels and DMs
-// that aren't muted, for the window's title and the tray. Call with the
-// View locked.
+// unread_total is how many messages are unread in the channels that notify
+// for everything and in the DMs that aren't muted, for the window's title and
+// the tray. A channel that is muted or only for mentions doesn't count: its
+// mentions are counted on their own. Call with the View locked.
 unread_total :: proc(s: ^settings.Settings, v: ^conn.View) -> (n: int) {
 	for ch in v.channels {
-		if ch.notify != .None {
+		if ch.notify == .All {
 			n += ch.unread
 		}
 	}
