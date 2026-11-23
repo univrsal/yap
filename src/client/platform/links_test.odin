@@ -26,6 +26,11 @@ test_find_links :: proc(t: ^testing.T) {
 		{"HTTPS://Example.COM/Path", {"HTTPS://Example.COM/Path"}},
 		{"<https://a.example>\"https://b.example\"", {"https://a.example", "https://b.example"}},
 		{"https://ü.example/ö then text", {"https://ü.example/ö"}},
+		// A markdown link whose text is an address too: both are links.
+		{
+			"[https://a.example/x_y](https://b.example/p_q_)",
+			{"https://a.example/x_y", "https://b.example/p_q_"},
+		},
 		// Not links: mid-word, prefix only, other schemes.
 		{"xhttps://example.com", {}},
 		{"just https:// and www.", {}},
