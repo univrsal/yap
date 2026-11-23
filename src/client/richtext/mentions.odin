@@ -304,6 +304,7 @@ text_display_links :: proc(
 ) {
 	if !strings.contains(text, "<@") &&
 	   !strings.contains(text, proto.LINK_PREFIX) &&
+	   !strings.contains(text, proto.INLINE_IMAGE_PREFIX) &&
 	   (len(emoji) == 0 || strings.count(text, ":") < 2) {
 		return text, nil, nil, nil
 	}
@@ -319,6 +320,17 @@ text_display_links :: proc(
 				strings.write_string(&b, label(label_data, l) if label != nil else LINK_TEXT)
 				append(&found, Link_Span{start, strings.builder_len(b), l})
 				i = l.end
+				continue
+			}
+		}
+		if strings.has_prefix(text[i:], proto.INLINE_IMAGE_PREFIX) {
+			// A picture that isn't shown in the text (a place that has no room
+			// for it, or one the message doesn't carry): its name.
+			if img, ok := proto.next_inline_image(text, i); ok && img.start == i {
+				strings.write_byte(&b, '[')
+				strings.write_string(&b, img.name)
+				strings.write_byte(&b, ']')
+				i = img.end
 				continue
 			}
 		}
