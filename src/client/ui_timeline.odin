@@ -781,8 +781,9 @@ thread_line_height :: proc(ctx: ^mu.Context) -> i32 {
 }
 
 // Each message has up to this many items to select from (ui_select.odin): its
-// header and text, or a file's header, name and state.
-ITEMS_PER_MESSAGE :: 4
+// header and text (and the pieces of text between its pictures), or a file's
+// header, name and state.
+ITEMS_PER_MESSAGE :: 16
 
 // pending_message draws a message of ours that is on its way.
 pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
@@ -814,6 +815,78 @@ message_file :: proc(v: ^conn.View, m: conn.View_Message) -> conn.View_File {
 		return f
 	}
 	return {name = m.text, size = m.file_size, outgoing = m.sender == v.me, state = .Unknown}
+}
+
+// A piece of a message's text: the text of the message, or one that follows a
+// picture in it.
+Inline_Part :: struct {
+	text: string,
+	file: int, // the picture's index in the message's files, -1 for text
+}
+
+// inline_parts splits a text message into the pieces it is drawn in when the
+// text has tokens that name pictures it carries (proto/inline_image.odin): the
+// first is always text (maybe empty), the rest are pictures and the text after
+// each. `in_text` says which of its files are shown that way. nil if none is.
+// The pieces are in the temp allocator.
+inline_parts :: proc(m: conn.View_Message) -> (parts: []Inline_Part, in_text: u32) {
+	if len(m.files) == 0 || m.kind != .Text || .Deleted in m.flags {
+		return
+	}
+	if !strings.contains(m.text, proto.INLINE_IMAGE_PREFIX) {
+		return
+	}
+	list := make([dynamic]Inline_Part, context.temp_allocator)
+	pictures := 0
+	start, at := 0, 0
+	for {
+		img, ok := proto.next_inline_image(m.text, at)
+		if !ok {
+			break
+		}
+		at = img.end
+		found := -1
+		for f, i in m.files {
+			if in_text & (1 << u32(i)) == 0 && f.name == img.name && inline_picture_ok(f) {
+				found = i
+				break
+			}
+		}
+		if found < 0 || pictures >= proto.MAX_INLINE_IMAGES {
+			continue
+		}
+		piece := m.text[start:img.start]
+		// The line breaks and spaces around a picture are only there to set it apart.
+		piece = strings.trim_right(piece, " \n") if len(list) == 0 else strings.trim(piece, " \n")
+		if len(list) == 0 || piece != "" {
+			append(&list, Inline_Part{piece, -1})
+		}
+		append(&list, Inline_Part{"", found})
+		in_text |= 1 << u32(found)
+		pictures += 1
+		start = img.end
+	}
+	if pictures == 0 {
+		return nil, 0
+	}
+	if rest := strings.trim_left(m.text[start:], " \n"); rest != "" {
+		append(&list, Inline_Part{rest, -1})
+	}
+	return list[:], in_text
+}
+
+// chat_text_piece draws the text that follows a picture in a message, in
+// a message `width` wide, as one more block of the message's column.
+@(private = "file")
+chat_text_piece :: proc(ui: ^UI, text: ^Rich, color: mu.Color, item: i64, width: i32) {
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1}, 1)
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+	saved := ctx.style.spacing
+	ctx.style.spacing = 0
+	defer ctx.style.spacing = saved
+	rich_text(ui, text, color, item)
 }
 
 // message_height is how far drawing msgs[i] at `width` moves the layout down
@@ -855,6 +928,7 @@ message_height :: proc(
 	}
 	ctx := &ui.ctx
 	body: i32
+	in_text_h: i32 // pictures in the text, and the text after them
 	kind := m.kind
 	if .Deleted in m.flags {
 		kind = .System // drawn as DELETED_TEXT, like a kind that has no drawing
@@ -862,8 +936,23 @@ message_height :: proc(
 	// Measured as chat_message draws it (rich_text).
 	#partial switch kind {
 	case .Text:
-		text := message_rich(ui, m.text)
-		body = rich_height(ctx, &text, width)
+		parts, _ := inline_parts(m)
+		if parts == nil {
+			text := message_rich(ui, m.text)
+			body = rich_height(ctx, &text, width)
+		} else {
+			// The first piece is the message's text block, the rest follow it.
+			first := message_rich(ui, parts[0].text)
+			body = rich_height(ctx, &first, width)
+			for p in parts[1:] {
+				if p.file >= 0 {
+					in_text_h += inline_picture_height(ui, m.files[p.file], width)
+				} else {
+					r := message_rich(ui, p.text)
+					in_text_h += rich_height(ctx, &r, width)
+				}
+			}
+		}
 	case .System:
 		text := rich_plain(DELETED_TEXT if .Deleted in m.flags else conn.system_line(ui.view, m))
 		body = rich_height(ctx, &text, width)
@@ -875,7 +964,9 @@ message_height :: proc(
 	if m.kind == .File && .Deleted not_in m.flags {
 		h = file_block_height(ui, message_file(ui.view, m), width, merged, reply_line)
 	}
-	h += message_files_height(ui, m, width)
+	h += in_text_h
+	_, in_text := inline_parts(m)
+	h += message_files_height(ui, m, width, in_text)
 	h += reactions_height(ui, m, width)
 	if reply_line {
 		h += reply_line_height(ctx)
@@ -1040,9 +1131,20 @@ timeline_message :: proc(
 	case .File:
 		file_message(ui, header, header_color, m.id, message_file(v, m), merged, item, tight)
 	case .Text:
-		text := message_rich(ui, m.text)
+		parts, in_text := inline_parts(m)
+		text := message_rich(ui, parts[0].text if parts != nil else m.text)
 		chat_message(ui, header, header_color, &text, ctx.style.colors[.TEXT], merged, item, tight)
-		message_files(ui, st.key.conv, m, width)
+		if parts != nil {
+			for p, k in parts[1:] {
+				if p.file >= 0 {
+					inline_picture(ui, st.key.conv, m, p.file, width)
+				} else {
+					r := message_rich(ui, p.text)
+					chat_text_piece(ui, &r, ctx.style.colors[.TEXT], item + 2 + i64(k), width)
+				}
+			}
+		}
+		message_files(ui, st.key.conv, m, width, in_text)
 	case .System:
 		text := rich_plain(conn.system_line(ui.view, m))
 		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)

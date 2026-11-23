@@ -149,7 +149,9 @@ an ordinary account), or disabling or deleting the account.
 - Something that isn't there is `null`, not left out.
 - `content` is text as a person types it: markdown, `@username` to
   mention someone, `:name:` for the server's own emoji, and
-  `<msg:CONV:ID>` to link a message.
+  `<msg:CONV:ID>` to link a message, and `<img:name>` to show the picture
+  attachment called `name` there, in the text, instead of under it (a
+  client shows `[name]` for a token that names no picture of the message).
 - History is oldest first; search is newest first.
 
 ### Errors

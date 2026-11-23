@@ -334,6 +334,8 @@ DELETED_NAME_FALLBACK :: "Somebody"
 // the temp allocator: mentions are replaced by names, the text is put on one
 // line, and it is cut off at DIGEST_QUOTE_MOST.
 digest_quote :: proc(s: ^Server, item: Digest_Item) -> string {
+	item := item
+	item.text = proto.inline_images_plain(item.text)
 	if item.text == "" {
 		return "(sent a file)" if item.files else "(no text)"
 	}

@@ -310,14 +310,46 @@ drop_hint :: proc(ui: ^UI) {
 	)
 }
 
-// What a chip takes besides its name: the multiplication sign, the size and the gaps.
+// chip_picture says whether a chip is for a picture, which can be shown in the
+// message's text: clicking its name puts a token for it in the text
+// (composer_insert), and its own × removes it. Other chips are removed by a click.
+@(private = "file")
+chip_picture :: proc(f: Picked_File) -> bool {
+	return conn.preview_wanted(f.name, f.size)
+}
+
+// What a chip takes besides its name: the multiplication sign (not on a
+// picture's, which has a button for it), the size and the gaps.
 @(private = "file")
 chip_label :: proc(ctx: ^mu.Context, f: Picked_File, name_width: i32) -> string {
 	return fmt.tprintf(
-		"× %s  %s",
+		"%s%s  %s",
+		"" if chip_picture(f) else "× ",
 		cut_to_width(ctx, f.name, name_width),
 		conn.format_bytes(f.size),
 	)
+}
+
+// composer_insert writes `text` into a composer where its caret is (in place of
+// what is selected), or at the end if the text box was not the last one used.
+composer_insert :: proc(ui: ^UI, c: Composer, text: string) {
+	ctx := &ui.ctx
+	s := &ctx.textbox_state
+	lo, hi := c.len^, c.len^
+	mine := s.id == u64(mu.get_id(ctx, uintptr(&c.buf[0])))
+	if mine {
+		lo = clamp(min(s.selection[0], s.selection[1]), 0, c.len^)
+		hi = clamp(max(s.selection[0], s.selection[1]), 0, c.len^)
+	}
+	cur := string(c.buf[:c.len^])
+	out := strings.concatenate({cur[:lo], text, cur[hi:]}, context.temp_allocator)
+	if len(out) > len(c.buf) {
+		return
+	}
+	c.len^ = copy(c.buf, out)
+	if mine {
+		s.selection = {lo + len(text), lo + len(text)}
+	}
 }
 
 // chip_rows lays a composer's chips out in rows that are `width` wide. It returns
@@ -331,12 +363,18 @@ chip_rows :: proc(ui: ^UI, files: []Picked_File, width: i32) -> [][dynamic]i32 {
 	pad := 2 * ctx.style.padding
 	for f in files {
 		w := min(ctx.text_width(ctx.style.font, chip_label(ctx, f, width / 2)) + pad, width)
-		if len(rows) == 0 || used + gap + w > width {
+		// A picture's chip is followed by the button that removes it.
+		remove_w := ctx.text_width(ctx.style.font, "×") + pad if chip_picture(f) else 0
+		whole := w + (gap + remove_w if remove_w > 0 else 0)
+		if len(rows) == 0 || used + gap + whole > width {
 			append(&rows, make([dynamic]i32, context.temp_allocator))
 			used = -gap
 		}
 		append(&rows[len(rows) - 1], w)
-		used += gap + w
+		if remove_w > 0 {
+			append(&rows[len(rows) - 1], remove_w)
+		}
+		used += gap + whole
 	}
 	return rows[:]
 }
@@ -364,11 +402,33 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 	i := 0
 	for row in rows {
 		mu.layout_row(ctx, row[:], control_height(ctx))
+		x_next := false
 		for _ in row {
+			if x_next {
+				// The button of the picture chip before.
+				x_next = false
+				of := &c.files[i - 1]
+				x_name := fmt.tprintf("chip x %d %d", c.thread, i - 1)
+				if .SUBMIT in
+				   stable_button_hint(ui, x_name, "×", fmt.tprintf("Remove %s", of.name)) {
+					remove = i - 1
+				}
+				continue
+			}
 			f := &c.files[i]
 			label := chip_label(ctx, f^, width / 2)
 			id_name := fmt.tprintf("chip %d %d", c.thread, i)
-			if .SUBMIT in
+			if chip_picture(f^) {
+				x_next = true
+				hint := fmt.tprintf("Show %s in the text", f.name)
+				if .SUBMIT in stable_button_hint(ui, id_name, label, hint) {
+					name_buf: [proto.MAX_FILE_NAME]u8
+					// Under the name that the message will list it by.
+					if name := proto.sanitize_file_name(f.name, &name_buf); name != "" {
+						composer_insert(ui, c, proto.inline_image_token(name))
+					}
+				}
+			} else if .SUBMIT in
 			   stable_button_hint(ui, id_name, label, fmt.tprintf("Remove %s", f.name)) {
 				remove = i
 			}
@@ -616,8 +676,19 @@ previewed :: proc(f: conn.Msg_File) -> bool {
 // wide: the size the message states for the picture, made smaller to fit.
 // One whose size isn't known gets all the room.
 @(private = "file")
-preview_size :: proc(ctx: ^mu.Context, f: conn.Msg_File, width: i32) -> (w, h: i32) {
-	room := max(min(width - ICON_SIZE_CELL - ctx.style.spacing, PREVIEW_WIDTH), 1)
+preview_size :: proc(
+	ctx: ^mu.Context,
+	f: conn.Msg_File,
+	width: i32,
+	in_text := false,
+) -> (
+	w, h: i32,
+) {
+	// In the text a picture starts where the text does, under the icons' column otherwise.
+	room := max(
+		min(width if in_text else width - ICON_SIZE_CELL - ctx.style.spacing, PREVIEW_WIDTH),
+		1,
+	)
 	if f.width <= 0 || f.height <= 0 {
 		return room, PREVIEW_HEIGHT
 	}
@@ -627,12 +698,22 @@ preview_size :: proc(ctx: ^mu.Context, f: conn.Msg_File, width: i32) -> (w, h: i
 
 // message_files_height is how far a message's files push the layout
 // down, in a message `width` wide. Call with the View locked.
-message_files_height :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> (h: i32) {
+message_files_height :: proc(
+	ui: ^UI,
+	m: conn.View_Message,
+	width: i32,
+	in_text: u32 = 0,
+) -> (
+	h: i32,
+) {
 	if .Deleted in m.flags {
 		return
 	}
 	ctx := &ui.ctx
-	for f in m.files {
+	for f, i in m.files {
+		if in_text & (1 << u32(i)) != 0 {
+			continue
+		}
 		h += control_height(ctx) + ctx.style.spacing
 		if s, ok := file_save(ui, f); ok && saving(s) {
 			h += FILES_BAR + ctx.style.spacing
@@ -656,12 +737,15 @@ file_preview :: proc(
 	i: int,
 	f: conn.Msg_File,
 	width: i32,
+	in_text := false,
 ) {
 	ctx := &ui.ctx
-	w, h := preview_size(ctx, f, width)
+	w, h := preview_size(ctx, f, width, in_text)
 	mu.layout_row(ctx, {-1}, h)
 	area := mu.layout_next(ctx)
-	area.x += ICON_SIZE_CELL + ctx.style.spacing
+	if !in_text {
+		area.x += ICON_SIZE_CELL + ctx.style.spacing
+	}
 	area.w = w
 	img, here := ui.view.blobs[f.blob]
 	if !here || img.state != .Ready {
@@ -684,9 +768,38 @@ file_preview :: proc(
 	}
 }
 
+// inline_picture_ok says whether a file of a message is a picture that can be
+// shown in its text (see proto/inline_image.odin).
+inline_picture_ok :: proc(f: conn.Msg_File) -> bool {
+	return previewed(f)
+}
+
+// inline_picture_height is how far a picture in the text moves the layout down.
+inline_picture_height :: proc(ui: ^UI, f: conn.Msg_File, width: i32) -> i32 {
+	_, h := preview_size(&ui.ctx, f, width, true)
+	return h + ui.ctx.style.spacing
+}
+
+// inline_picture draws the message's file `i`, a picture, in its text, in a
+// message `width` wide. Call with the View locked.
+inline_picture :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, i: int, width: i32) {
+	mu.push_id(&ui.ctx, uintptr(m.id))
+	defer mu.pop_id(&ui.ctx)
+	mu.push_id(&ui.ctx, uintptr(i))
+	defer mu.pop_id(&ui.ctx)
+	file_preview(ui, conv, m, i, m.files[i], width, true)
+}
+
 // message_files draws a message's files, in `conv`, in a message `width`
-// wide. Call with the View locked.
-message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width: i32) {
+// wide, except those whose bit is set in `in_text` (they are in the text, see
+// inline_picture). Call with the View locked.
+message_files :: proc(
+	ui: ^UI,
+	conv: proto.Conv_Id,
+	m: conn.View_Message,
+	width: i32,
+	in_text: u32 = 0,
+) {
 	if .Deleted in m.flags || len(m.files) == 0 {
 		return
 	}
@@ -694,6 +807,9 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, width:
 	mu.push_id(ctx, uintptr(m.id))
 	defer mu.pop_id(ctx)
 	for f, i in m.files {
+		if in_text & (1 << u32(i)) != 0 {
+			continue
+		}
 		mu.push_id(ctx, uintptr(i))
 		defer mu.pop_id(ctx)
 		s, has_save := file_save(ui, f)

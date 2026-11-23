@@ -135,3 +135,29 @@ test_timeline_reactions_without_width :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, tt.cnt != nil)
 }
+
+// A picture shown in the text takes the room that the layout cache says: the
+// cache and what is drawn agree about a message's height with and without it.
+@(test)
+test_timeline_inline_picture_height :: proc(t: ^testing.T) {
+	content :: proc(text: string, files: []conn.Msg_File) -> (drawn, cached: i32) {
+		tt := timeline_test_start(1)
+		defer timeline_test_end(tt)
+		m := &(&tt.ui.view.timelines[tt.key]).messages[0]
+		m.text = text
+		m.files = files
+		for _ in 0 ..< 3 {
+			timeline_test_frame(tt, {0, 0, 400, 2000})
+		}
+		_, l, _, _ := map_entry(&tt.st.layouts, m.id)
+		return tt.cnt.content_size.y, l.height
+	}
+	files := []conn.Msg_File{{blob = 1, size = 100, name = "a.png", width = 200, height = 100}}
+	plain_drawn, plain_cached := content("before after", nil)
+	// The same words, with the picture between them.
+	inline_drawn, inline_cached := content("before\n<img:a.png>\nafter", files)
+	// What is drawn beyond the cached height is the same whatever the message has.
+	testing.expect_value(t, inline_drawn - inline_cached, plain_drawn - plain_cached)
+	// The picture (100 high, and its spacing) and one more line of text are in it.
+	testing.expect(t, inline_cached > plain_cached + 100)
+}

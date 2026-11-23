@@ -174,3 +174,12 @@ test_emoji_transform :: proc(t: ^testing.T) {
 		testing.expect_value(t, icons[1], Emoji_Span{3, 6, 1, 3})
 	}
 }
+
+@(test)
+test_picture_tokens_shown :: proc(t: ^testing.T) {
+	accounts: map[proto.Account_Id]Account
+	defer delete(accounts)
+	shown, spans, _, _ := text_display_links("a <img:x y.png> b <img:oops", accounts, nil, 0, nil)
+	testing.expect_value(t, shown, "a [x y.png] b <img:oops")
+	testing.expect_value(t, len(spans), 0)
+}
