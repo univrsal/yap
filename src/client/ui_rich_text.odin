@@ -749,10 +749,17 @@ rich_emoji :: proc(ui: ^UI, r: ^Rich, vl: Rich_Line, pos: mu.Vec2) {
 		return
 	}
 	mouse := ctx.mouse_pos.x
-	x := pos.x
+	// Where each character is comes from the width of the line up to it, as
+	// when it is drawn. Adding up the characters' own widths drifts: every
+	// width is rounded up to whole pixels, which is a fraction of a pixel
+	// too much for each one, and after a line of text the pointer is over
+	// the wrong character.
+	before: i32
 	for i := vl.start; i < vl.end; {
 		ch, size := utf8.decode_rune_in_string(r.text[i:vl.end])
-		w := rich_width(ctx, r, i, i + size)
+		upto := rich_width(ctx, r, vl.start, i + size)
+		x, w := pos.x + before, upto - before
+		before = upto
 		if mouse >= x && mouse < x + w {
 			name := ""
 			custom: Maybe(int)
@@ -781,7 +788,6 @@ rich_emoji :: proc(ui: ^UI, r: ^Rich, vl: Rich_Line, pos: mu.Vec2) {
 			}
 			return
 		}
-		x += w
 		i += size
 	}
 }
