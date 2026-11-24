@@ -65,10 +65,10 @@ test_cache_pages :: proc(t: ^testing.T) {
 	for from := 851; from > 0; from -= 50 {
 		cache_prepend(&cache, page(max(from, 1), from + 49), 0 if from <= 1 else proto.MORE_BEFORE)
 	}
-	testing.expect_value(t, len(cache.messages), MAX_CACHE_MESSAGES)
+	testing.expect_value(t, len(cache.messages), DEFAULT_CACHE_MESSAGES)
 	testing.expect(t, cache.have_oldest && !cache.have_newest)
 	first, last = ids(&cache)
-	testing.expect(t, first == 1 && last == MAX_CACHE_MESSAGES)
+	testing.expect(t, first == 1 && last == DEFAULT_CACHE_MESSAGES)
 	testing.expect(t, !cache_new(&cache, page(1002, 1002)[0]))
 	consecutive(t, &cache)
 
@@ -77,7 +77,7 @@ test_cache_pages :: proc(t: ^testing.T) {
 	testing.expect(t, cache.have_newest && !cache.have_oldest)
 	first, last = ids(&cache)
 	testing.expect(t, first == 3 && last == 1002)
-	testing.expect_value(t, len(cache.messages), MAX_CACHE_MESSAGES)
+	testing.expect_value(t, len(cache.messages), DEFAULT_CACHE_MESSAGES)
 
 	// A jump replaces all messages.
 	cache_replace(&cache, page(400, 419), proto.MORE_BEFORE | proto.MORE_AFTER)
@@ -87,6 +87,43 @@ test_cache_pages :: proc(t: ^testing.T) {
 	cache_append(&cache, page(420, 439), proto.MORE_AFTER)
 	testing.expect_value(t, len(cache.messages), 40)
 	consecutive(t, &cache)
+}
+
+@(test)
+test_cache_limit :: proc(t: ^testing.T) {
+	cache: Conv_Cache
+	defer cache_destroy(&cache)
+	cache.limit = 100
+	cache_replace(&cache, page(1, 100), proto.MORE_BEFORE)
+
+	// New messages push the oldest out.
+	cache_new(&cache, page(101, 101)[0])
+	first, last := ids(&cache)
+	testing.expect(t, first == 2 && last == 101 && !cache.have_oldest)
+
+	// Not while the UI is looking at the old ones, until the window is twice
+	// the limit.
+	cache.held = true
+	for id in 102 ..= 250 {
+		cache_new(&cache, page(id, id)[0])
+	}
+	first, last = ids(&cache)
+	testing.expect_value(t, len(cache.messages), 200)
+	testing.expect(t, first == 51 && last == 250)
+
+	// The window is
+	// shortened once it is not held any more.
+	cache.held = false
+	cache_fit(&cache)
+	first, last = ids(&cache)
+	testing.expect(t, first == 151 && last == 250)
+
+	// A lower limit keeps the old end of a window that doesn't reach the end.
+	cache_replace(&cache, page(1, 100), proto.MORE_AFTER)
+	cache.limit = 60
+	cache_fit(&cache)
+	first, last = ids(&cache)
+	testing.expect(t, first == 1 && last == 60 && !cache.have_newest)
 }
 
 @(test)

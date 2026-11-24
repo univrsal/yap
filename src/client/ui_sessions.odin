@@ -164,6 +164,7 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	)
 	conn.push_command(&ns.client.commands, conn.gate_command(&ui.settings))
 	conn.push_command(&ns.client.commands, conn.transfer_limits_command(&ui.settings))
+	conn.push_command(&ns.client.commands, conn.history_limit_command(&ui.settings))
 	return ns
 }
 

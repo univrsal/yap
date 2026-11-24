@@ -166,6 +166,10 @@ UI_Timeline :: struct {
 	offset:       i32,
 	// Whether the end is shown and stays in view as messages come in.
 	follow:       bool,
+	// Whether the conversation has been told that we are looking at older
+	// messages (History_Hold_Command), so that new ones don't push out the
+	// oldest.
+	held:         bool,
 	// Whether we are going to the end, which the window may not reach yet:
 	// we posted a message (set by whatever sent it, since the post may be
 	// answered before a frame shows it on its way) and the newest page is
@@ -320,6 +324,12 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 			}
 			mentions = m
 		}
+		if st.held && ui.session != nil {
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.History_Hold_Command{key = st.key, held = false},
+			)
+		}
 		timeline_reset(st, key, unread_line, unread_from)
 		st.seek_mention = mentions > 0
 	}
@@ -330,6 +340,19 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		tl, msgs = found, found.messages[:]
 	}
 	st.at_start = tl != nil && tl.have_oldest
+	// A message's layout is only worth keeping while the message is in the
+	// window; the ones that were pushed out of it would pile up.
+	if n := len(msgs); len(st.layouts) > 2 * n + 100 {
+		stale := make([dynamic]proto.Msg_Id, context.temp_allocator)
+		for id in st.layouts {
+			if n == 0 || id < msgs[0].id || id > msgs[n - 1].id {
+				append(&stale, id)
+			}
+		}
+		for id in stale {
+			delete_key(&st.layouts, id)
+		}
+	}
 	pending := make([dynamic]conn.View_Pending, context.temp_allocator)
 	for p in v.outbox {
 		if p.conv == conv && p.root == key.root {
@@ -550,6 +573,15 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		(tl == nil || tl.have_newest)
 	if up || (st.follow && tl != nil && !tl.loading) {
 		st.to_end = false // scrolled away from the end, or already there (with its messages loaded)
+	}
+	// Looking at older messages: new ones are not to push them out.
+	held := !st.follow && !st.to_end
+	if held != st.held && ui.session != nil {
+		st.held = held
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.History_Hold_Command{key = key, held = held},
+		)
 	}
 
 	// Near either end of the window, request the next page in that direction.
