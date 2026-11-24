@@ -887,7 +887,9 @@ inline_parts :: proc(m: conn.View_Message) -> (parts: []Inline_Part, in_text: u3
 		if found < 0 || pictures >= proto.MAX_INLINE_IMAGES {
 			continue
 		}
-		piece := m.text[start:img.start]
+		// A picture that a link wraps is shown without the link.
+		from, to := proto.unlinked_span(m.text, img.start, img.end)
+		piece := m.text[start:from]
 		// The line breaks and spaces around a picture are only there to set it apart.
 		piece = strings.trim_right(piece, " \n") if len(list) == 0 else strings.trim(piece, " \n")
 		if len(list) == 0 || piece != "" {
@@ -896,7 +898,8 @@ inline_parts :: proc(m: conn.View_Message) -> (parts: []Inline_Part, in_text: u3
 		append(&list, Inline_Part{"", found})
 		in_text |= 1 << u32(found)
 		pictures += 1
-		start = img.end
+		start = to
+		at = max(at, to)
 	}
 	if pictures == 0 {
 		return nil, 0

@@ -28,3 +28,18 @@ test_inline_images :: proc(t: ^testing.T) {
 	testing.expect_value(t, inline_images_plain("a <img:x.png> b <img:y>"), "a [x.png] b [y]")
 	testing.expect_value(t, inline_images_plain("plain"), "plain")
 }
+
+@(test)
+test_unlinked_span :: proc(t: ^testing.T) {
+	text := "see [<img:a.png>](https://x.org/a_(1).html) done"
+	img, _ := next_inline_image(text)
+	from, to := unlinked_span(text, img.start, img.end)
+	testing.expect_value(t, text[:from], "see ")
+	testing.expect_value(t, text[to:], " done")
+	// Not wrapped: left alone.
+	plain := "a <img:a.png> [b](c)"
+	img, _ = next_inline_image(plain)
+	from, to = unlinked_span(plain, img.start, img.end)
+	testing.expect_value(t, from, img.start)
+	testing.expect_value(t, to, img.end)
+}

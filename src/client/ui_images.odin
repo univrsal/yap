@@ -597,6 +597,7 @@ image_fitted :: proc(
 	area: mu.Rect,
 	name := "",
 	hovered := false,
+	cover := mu.Rect{}, // a control drawn over the picture: a press on it does not open the viewer
 ) -> (
 	save: bool,
 ) {
@@ -656,7 +657,8 @@ image_fitted :: proc(
 	}
 	if over {
 		ui.chat.hovering = true // show the pointing hand
-		if .LEFT in ctx.mouse_pressed_bits {
+		if .LEFT in ctx.mouse_pressed_bits &&
+		   !(cover.w > 0 && mu.rect_overlaps_vec2(cover, ctx.mouse_pos)) {
 			im.viewer, im.placed = key, false
 		}
 	}
