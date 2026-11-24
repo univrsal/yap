@@ -1,5 +1,5 @@
 @echo off
-rem Builds bin\yap-server.exe and bin\yap.exe, both with the yap icon. The server
+rem Builds bin\yap-server.exe, bin\yap.exe and bin\yap-cli.exe, all with the yap icon. The server
 rem links SQLite (src\server\sqlite), whose source is fetched into .cache the first time.
 rem Extra arguments are passed to both builds. Run from a Visual Studio developer prompt (Odin
 rem needs MSVC's linker anyway); cl.exe compiles the trimmed-down miniaudio
@@ -119,6 +119,8 @@ rem "lib:http" (the same as scripts/build/collections.sh).
 set COLLECTIONS=-collection:common=src\common -collection:client=src\client -collection:lib=src\lib
 odin build src\server %COLLECTIONS% -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
 odin build src\client %COLLECTIONS% -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
+rem yap-cli, the terminal client (src\cli, docs/Terminal.md): a console program.
+odin build src\cli %COLLECTIONS% -vet -strict-style -out:bin\yap-cli.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
 exit /b 0
 
 :build_sqlite

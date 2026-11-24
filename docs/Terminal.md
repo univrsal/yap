@@ -2,7 +2,8 @@
 
 `yap-cli` is a chat client for the terminal: the same server, the same account
 and the same text chat as the window client, with the mouse and the keyboard.
-It runs on Linux, macOS and the BSDs, also over ssh.
+It runs on Linux, macOS and the BSDs, also over ssh, and on Windows 10 and 11
+(see [Windows](#windows)).
 
 ```
 yap-cli host[:port]          connect to a server
@@ -123,10 +124,27 @@ Terminal.app does not, and gets none). They are small, to fit among the text:
 
 ## What is not there
 
-Screen sharing and cameras, the tray, themes and avatars. Windows is not supported
-yet. The
-design notes, with what was built when, are in
+Screen sharing and cameras, the tray, themes and avatars. The design notes, with what was built when, are in
 [design/cli-client.md](design/cli-client.md).
+
+## Windows
+
+`yap-cli.exe` is built by `build.bat` next to `yap.exe`, and the installer puts
+it beside the client. Run it from a console: Windows Terminal (the default on
+Windows 11), or a cmd or PowerShell window. It needs Windows 10 1809 or later,
+whose console understands the same escape sequences as a Unix terminal.
+
+- **Windows Terminal** does everything described here: colours, pictures, the
+  mouse, pasting, notifications (OSC 9) and colour emoji.
+- **The old console window** of Windows 10 (conhost) works too, with the mouse
+  and 24-bit colour, but draws emoji in its font's black-and-white or not at all,
+  and shows no desktop notifications (only the bell). Its *Quick Edit* selection
+  is switched off while `yap-cli` runs, so that clicks reach the program.
+
+Copying (a dragged selection, *Copy text*) goes straight to the Windows
+clipboard. The config folder is the window client's (`%LOCALAPPDATA%\yap`), so
+the login, the trusted servers and the joined servers are shared with it, as on
+the other systems.
 
 ## Emoji that shift a line (tmux)
 

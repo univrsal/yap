@@ -4,12 +4,19 @@ package platform
 import "core:os"
 
 // default_config_path returns <config dir>/yap/<name>, or "" if there is no
-// config dir. The result is kept for the whole run, so it must not be allocated
-// in the temp allocator, which the client loop frees every iteration.
+// config dir. YAP_CONFIG_HOME, if set, is the config dir instead of the system's
+// (on Windows the system's can't be moved with a variable, so tests use this to
+// keep away from the real settings). The result is kept for the whole run, so
+// it must not be allocated in the temp allocator, which the client loop frees
+// every iteration.
 default_config_path :: proc(name: string, allocator := context.allocator) -> string {
-	dir, err := os.user_config_dir(context.temp_allocator)
-	if err != nil {
-		return ""
+	dir := os.get_env("YAP_CONFIG_HOME", context.temp_allocator)
+	if dir == "" {
+		err: os.Error
+		dir, err = os.user_config_dir(context.temp_allocator)
+		if err != nil {
+			return ""
+		}
 	}
 	config_dir, _ := os.join_path({dir, "yap"}, context.temp_allocator)
 	if mkdir_err := os.make_directory_all(config_dir); mkdir_err != nil && !os.exists(config_dir) {
