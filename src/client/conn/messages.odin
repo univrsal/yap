@@ -1,5 +1,6 @@
 package conn
 
+import "client:settings"
 import log "common:wlog"
 import "core:fmt"
 import "core:strings"
@@ -39,9 +40,9 @@ import "common:proto"
 // show what a reply replies to and the root isn't in a window. They are kept
 // as long as their conversation's window is.
 
-// How many messages a conversation's window holds, and how many conversations
-// keep a window.
-MAX_CACHE_MESSAGES :: 1000
+// How many messages a conversation's window holds unless the settings say
+// otherwise (History_Limit_Command), and how many conversations keep a window.
+DEFAULT_CACHE_MESSAGES :: 500
 CACHE_KEEP :: 8
 // The number of messages requested per page.
 HISTORY_PAGE :: proto.MAX_HISTORY_LIMIT
@@ -145,6 +146,12 @@ Conv_Cache :: struct {
 	// made for the previous window can be recognized as outdated.
 	generation:  u32,
 	used:        time.Tick, // when the window was last looked at
+	// How many messages the window holds at most; 0 is the default.
+	limit:       int,
+	// The UI is looking at older messages than the end of the window. New
+	// messages don't push the oldest ones out then (up to twice the limit),
+	// since those may be what is on screen.
+	held:        bool,
 }
 
 Message_Client :: struct {
@@ -161,6 +168,9 @@ Message_Client :: struct {
 	reactors_id:    proto.Msg_Id,
 	reactors_emoji: string, // owned
 	generation:     u32,
+	// How many messages a window holds (see History_Limit_Command); 0 is the
+	// default.
+	limit:          int,
 	outbox:         [dynamic]Pending,
 	// Typing notices: when the last one was sent, and where it was sent to.
 	last_typing:    time.Tick,
@@ -180,6 +190,24 @@ History_Command :: struct {
 	conv:  proto.Conv_Id, // 0 means the conversation we are looking at
 	root:  proto.Msg_Id,
 	newer: bool,
+}
+
+// History_Limit_Command sets how many messages each window holds, from the
+// settings.
+History_Limit_Command :: struct {
+	limit: int,
+}
+
+// history_limit_command returns the history limit configured in `s`.
+history_limit_command :: proc(s: ^settings.Settings) -> History_Limit_Command {
+	return {limit = settings.history_limit_count(s)}
+}
+
+// History_Hold_Command tells whether the UI is looking at older messages than
+// the window's newest (Conv_Cache.held).
+History_Hold_Command :: struct {
+	key:  Timeline_Key,
+	held: bool,
 }
 
 // Opens a thread (fetches its replies and its root, and keeps them up to date),
@@ -303,17 +331,22 @@ cache_prepend :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	cache.have_oldest = more & proto.MORE_BEFORE == 0
 	// The window is too long now, so drop the newest messages. They are fetched
 	// again if they are wanted.
-	for len(cache.messages) > MAX_CACHE_MESSAGES {
+	for len(cache.messages) > cache_limit(cache) {
 		msg_destroy(&cache.messages[len(cache.messages) - 1])
 		pop(&cache.messages)
 		cache.have_newest = false
 	}
 }
 
+// cache_limit is how many messages the window holds at most.
+cache_limit :: proc(cache: ^Conv_Cache) -> int {
+	return cache.limit if cache.limit > 0 else DEFAULT_CACHE_MESSAGES
+}
+
 // cache_append adds newer messages, either a page of them or one that was just
-// posted. It takes ownership of the messages, and drops those that the window
-// already has.
-cache_append :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
+// posted (`live`). It takes ownership of the messages, and drops those that the
+// window already has.
+cache_append :: proc(cache: ^Conv_Cache, page: []Msg, more: u8, live := false) {
 	for &m in page {
 		if len(cache.messages) > 0 && m.id <= cache.messages[len(cache.messages) - 1].id {
 			msg_destroy(&m)
@@ -322,13 +355,18 @@ cache_append :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 		append(&cache.messages, m)
 	}
 	cache.have_newest = more & proto.MORE_AFTER == 0
-	cache_trim_front(cache)
+	cache_trim_front(cache, live)
 }
 
-// cache_trim_front drops the oldest messages beyond MAX_CACHE_MESSAGES.
+// cache_trim_front drops the oldest messages beyond the limit. A live message
+// doesn't push any out while the window is held, until it is twice as long.
 @(private = "file")
-cache_trim_front :: proc(cache: ^Conv_Cache) {
-	extra := len(cache.messages) - MAX_CACHE_MESSAGES
+cache_trim_front :: proc(cache: ^Conv_Cache, live := false) {
+	limit := cache_limit(cache)
+	if live && cache.held {
+		limit *= 2
+	}
+	extra := len(cache.messages) - limit
 	if extra <= 0 {
 		return
 	}
@@ -348,8 +386,54 @@ cache_new :: proc(cache: ^Conv_Cache, m: Msg) -> bool {
 		msg_destroy(&m)
 		return false
 	}
-	cache_append(cache, {m}, 0)
+	cache_append(cache, {m}, 0, live = true)
 	return true
+}
+
+// cache_fit applies the limit to a window that may be longer than it now: the
+// oldest messages are dropped, or the newest if the window doesn't reach the
+// end (what was scrolled to is kept).
+cache_fit :: proc(cache: ^Conv_Cache) {
+	if len(cache.messages) <= cache_limit(cache) {
+		return
+	}
+	if cache.have_newest {
+		cache_trim_front(cache)
+		return
+	}
+	// Away from the end: keep the front, which is what was scrolled to.
+	for len(cache.messages) > cache_limit(cache) {
+		msg_destroy(&cache.messages[len(cache.messages) - 1])
+		pop(&cache.messages)
+	}
+}
+
+// history_limit sets how many messages windows hold, and shortens those that
+// are longer.
+history_limit :: proc(c: ^Server_Conn, limit: int) {
+	c.msgs.limit = limit
+	for key, cache in c.msgs.caches {
+		cache.limit = limit
+		before := len(cache.messages)
+		cache_fit(cache)
+		if len(cache.messages) != before {
+			publish_timeline(c, key)
+		}
+	}
+}
+
+// history_hold records that the UI is looking away from the end of a window,
+// or no longer is, in which case the window is shortened to its limit.
+history_hold :: proc(c: ^Server_Conn, key: Timeline_Key, held: bool) {
+	cache := c.msgs.caches[key] or_else nil
+	if cache == nil {
+		return
+	}
+	cache.held = held
+	if !held && len(cache.messages) > cache_limit(cache) {
+		cache_trim_front(cache)
+		publish_timeline(c, key)
+	}
 }
 
 // The network side.
@@ -361,6 +445,7 @@ cache_of :: proc(c: ^Server_Conn, key: Timeline_Key) -> ^Conv_Cache {
 	cache := mc.caches[key] or_else nil
 	if cache == nil {
 		cache = new(Conv_Cache)
+		cache.limit = mc.limit
 		mc.generation += 1
 		cache.generation = mc.generation
 		mc.caches[key] = cache
@@ -820,7 +905,10 @@ message_changed :: proc(c: ^Server_Conn, changed: proto.Message) {
 	}
 	// Update the conversation's window, and the window of the thread it's a
 	// reply in or the root of.
-	for key in ([]Timeline_Key{{m.conv, 0}, {m.conv, m.thread_root if m.thread_root != 0 else m.id}}) {
+	for key in ([]Timeline_Key {
+			{m.conv, 0},
+			{m.conv, m.thread_root if m.thread_root != 0 else m.id},
+		}) {
 		cache := c.msgs.caches[key] or_else nil
 		if cache == nil {
 			continue

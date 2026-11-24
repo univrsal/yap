@@ -36,6 +36,7 @@ import "common:proto"
 //		"merge_title_bar": true,
 //		"window": { "x": 120, "y": 80, "w": 760, "h": 480, "maximized": false, "placed": true },
 //		"chat_scale": 1,
+//		"history_limit": 500,
 //		"animate_pictures": "hover",
 //		"image_cache_mb": 256,
 //		"image_cache_dir": "",
@@ -133,6 +134,9 @@ Settings :: struct {
 	// same size as the rest of the UI, in the range
 	// MIN_CHAT_SCALE..MAX_CHAT_SCALE.
 	chat_scale:              f32,
+	// How many messages of a conversation are kept in memory
+	// (conn/messages.odin), in the range MIN_HISTORY_MESSAGES..MAX_HISTORY_MESSAGES.
+	history_limit:           f32,
 	// When animated pictures in the chat play: "hover" (or unset) while
 	// the pointer is over one, "always" or "never" (see animate_pictures).
 	animate_pictures:        string,
@@ -246,6 +250,7 @@ DEFAULT_SETTINGS :: Settings {
 	chat_pictures           = true,
 	merge_title_bar         = ODIN_OS == .Darwin || ODIN_OS == .Windows,
 	chat_scale              = 1,
+	history_limit           = 500,
 	image_cache_mb          = 256,
 	share_cursor            = true,
 	camera_mirror           = true,
@@ -643,6 +648,16 @@ recent_reactions_destroy :: proc(s: ^Settings) {
 settings_quality :: proc(s: ^Settings) -> audio.Quality {
 	q, _ := audio.parse_quality(s.quality)
 	return q
+}
+
+// The range of the history limit: two pages (proto.MAX_HISTORY_LIMIT) at least,
+// so that a page that was just fetched isn't dropped right away.
+MIN_HISTORY_MESSAGES :: 100
+MAX_HISTORY_MESSAGES :: 2000
+
+// history_limit_count returns how many messages a conversation keeps in memory.
+history_limit_count :: proc(s: ^Settings) -> int {
+	return int(clamp(s.history_limit, MIN_HISTORY_MESSAGES, MAX_HISTORY_MESSAGES))
 }
 
 MAX_IMAGE_CACHE_MB :: 4096 // the maximum of the settings slider

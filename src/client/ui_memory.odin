@@ -2,6 +2,7 @@ package client
 
 import "client:conn"
 import "client:render"
+import "client:settings"
 import "common:memtrack"
 import log "common:wlog"
 import "core:fmt"
@@ -116,6 +117,26 @@ memory_settings :: proc(ui: ^UI) {
 	dim_note(
 		ctx,
 		"Give back returns heap free's pages to the system: resident drops, malloc still lists them.",
+	)
+	mu.layout_row(ctx, {120, -1})
+	mu.label(ctx, "Messages kept")
+	if .CHANGE in
+	   slider(
+		   ctx,
+		   &ui.settings.history_limit,
+		   settings.MIN_HISTORY_MESSAGES,
+		   settings.MAX_HISTORY_MESSAGES,
+		   50,
+		   "%.0f",
+	   ) {
+		// Sliders change every frame while dragged. The settings are saved within a second.
+		ui.settings_dirty = true
+		command_all(ui, conn.history_limit_command(&ui.settings))
+	}
+	mu.layout_row(ctx, {-1})
+	dim_note(
+		ctx,
+		"  Per conversation. Older ones are fetched again when you scroll back, and newer ones when you scroll down.",
 	)
 	memory_report(ui, m.report)
 }

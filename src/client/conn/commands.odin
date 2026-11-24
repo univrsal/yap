@@ -145,6 +145,8 @@ Command :: union {
 	Notify_Command,
 	// Messages, see messages.odin.
 	History_Command,
+	History_Limit_Command,
+	History_Hold_Command,
 	Edit_Command,
 	Delete_Command,
 	Pin_Command,
@@ -385,6 +387,10 @@ process_commands :: proc(c: ^Server_Conn) {
 			conv_notify(c, v)
 		case History_Command:
 			messages_more(c, {v.conv if v.conv != 0 else c.convs.viewing, v.root}, v.newer)
+		case History_Limit_Command:
+			history_limit(c, v.limit)
+		case History_Hold_Command:
+			history_hold(c, v.key, v.held)
 		case Edit_Command:
 			msg_edit(c, v.id, typed_text(c, v.text) if v.typed else v.text)
 		case Delete_Command:
