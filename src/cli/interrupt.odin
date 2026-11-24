@@ -1,25 +1,24 @@
-#+build linux, darwin, freebsd, openbsd, netbsd
 package main
 
 import "core:sync"
-import "core:sys/posix"
 import "core:time"
 
 import "tui"
 
 // Ctrl+C and the view's wake-up. Both are only flags for now; the event loop
 // of the terminal UI will wait on a pipe instead (docs/design/cli-client.md).
+// In the terminal UI Ctrl+C is a key (the terminal is raw); this is for -print,
+// and for being told to stop (SIGTERM, or the console window closing).
 
 @(private = "file")
 got_interrupt: bool
 
 interrupt_install :: proc() {
-	posix.signal(.SIGINT, interrupt_handler)
-	posix.signal(.SIGTERM, interrupt_handler)
+	interrupt_install_os()
 }
 
-@(private = "file")
-interrupt_handler :: proc "c" (_: posix.Signal) {
+@(private)
+interrupt_set :: proc "contextless" () {
 	sync.atomic_store(&got_interrupt, true)
 	tui.terminal_wake() // the loop is waiting for a key
 }

@@ -68,6 +68,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#ClientDir}\yap.exe"; DestDir: "{app}"; Components: client; Flags: ignoreversion
+; The terminal client (docs/Terminal.md), run from a console.
+Source: "{#ClientDir}\yap-cli.exe"; DestDir: "{app}"; Components: client; Flags: ignoreversion
 ; The add-on's README says to unpack it next to yap, which this does.
 Source: "{#VideoDir}\*"; Excludes: "README.txt"; DestDir: "{app}"; Components: video; Flags: ignoreversion
 

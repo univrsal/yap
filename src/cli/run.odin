@@ -1,11 +1,9 @@
-#+build linux, darwin, freebsd, openbsd, netbsd
 package main
 
 import "core:encoding/base64"
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "core:sys/posix"
 import "core:time"
 import "core:time/timezone"
 
@@ -326,31 +324,22 @@ write_cursor :: proc(out: ^strings.Builder, a: ^App) {
 	}
 }
 
-// write_clipboard puts text a copy was asked for on the clipboard (OSC 52, which
-// terminals pass on to the system's, also over ssh).
+// write_clipboard puts text a copy was asked for on the clipboard: the system's
+// directly where it can (Windows), or else with OSC 52, which terminals pass on
+// to the system's, also over ssh.
 @(private = "file")
 write_clipboard :: proc(out: ^strings.Builder, a: ^App) {
 	if a.clipboard == "" {
 		return
 	}
-	encoded, _ := base64.encode(transmute([]u8)a.clipboard, allocator = context.temp_allocator)
-	fmt.sbprintf(out, "\x1b]52;c;%s\x07", encoded)
+	if !tui.terminal_copy(a.clipboard) {
+		encoded, _ := base64.encode(transmute([]u8)a.clipboard, allocator = context.temp_allocator)
+		fmt.sbprintf(out, "\x1b]52;c;%s\x07", encoded)
+	}
 	delete(a.clipboard)
 	a.clipboard = ""
 }
 
-
-// redirect_stderr sends what is written to stderr to the file (appending), or
-// nowhere if there is none.
-@(private = "file")
-redirect_stderr :: proc(path: string) {
-	target := strings.clone_to_cstring(path if path != "" else "/dev/null", context.temp_allocator)
-	fd := posix.open(target, {.WRONLY, .CREAT, .APPEND}, {.IRUSR, .IWUSR})
-	if fd >= 0 {
-		posix.dup2(fd, posix.STDERR_FILENO)
-		posix.close(fd)
-	}
-}
 
 // How the terminal is told to announce something.
 Notify_Style :: enum {

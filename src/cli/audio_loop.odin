@@ -1,4 +1,3 @@
-#+build linux, darwin, freebsd, openbsd, netbsd
 package main
 
 import "core:strings"

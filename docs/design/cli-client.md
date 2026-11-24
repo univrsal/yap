@@ -538,14 +538,12 @@ opens them is the window client's, but it was only run here without a card.
   need 24-bit colour. A real protocol would give full resolution on the terminals
   that have one (kitty, WezTerm, iTerm2, foot) and could be added beside this as
   an option, with this as the fallback.
-- **Windows (not done).** It needs a console layer beside `terminal_posix.odin`:
-  virtual-terminal output and input modes (`SetConsoleMode`, which make the
-  escape sequences and the SGR mouse reports work as on Unix, so `input.odin`,
-  `flush.odin` and everything above are reused), the size from
+- **Windows (done 2026-11-24, see below).** It needed a console layer beside
+  `terminal_posix.odin`: virtual-terminal output and input modes (`SetConsoleMode`,
+  which make the escape sequences and the SGR mouse reports work as on Unix, so
+  `input.odin`, `flush.odin` and everything above are reused), the size from
   `GetConsoleScreenBufferInfo`, and a wait on the console handle and an event
-  instead of `poll` and a pipe. Then `build.bat`, the CI job, the installer and the
-  smoke test (which needs a ConPTY) follow. It is a day's work that cannot be
-  tested from here, so it is left until someone can.
+  instead of `poll` and a pipe.
 
 Tests: 185 in `src/cli` (6 on pictures). The smoke test also sends a picture
 and sees it come back as cells.
@@ -615,3 +613,40 @@ found two of my own help lines being cut.
 **Picking with Down stopped short (2026-11-07).** `move_cursor` kept only the first row of the picked message in view, so a message of several rows (a thread reply has an "in reply to" row above its text, and may have reactions below) was cut off at the bottom until PgDn. It now keeps all of the message's rows in view (the start at the top for one taller than the pane). Tab also picks the last message *shown* now, not the newest, when scrolled up. A test starts scrolled up and steps down onto a four-line last message.
 
 **Shortcodes, unknown commands, the table (2026-11-07).** `:rocke` in a message completes to the emoji (two letters, the colon at the start of a word, so 10:30 and URLs are left alone; the server's emoji come as `:name:`). A command that nothing knows (`command_known`: the table, aliases, scripts, bots) is answered with "There is no command /x. Did you mean /y?" and not sent. A bot's command goes straight to the bot: through the headless client it also made it print its list of commands into an Output dialog. A test reads the headless client's source (`#load`) and fails when it handles a command that `COMMAND_DOCS` lacks (13 were missing and were added; `/memory` and `/server-memory` are left out on purpose).
+
+
+**Windows (2026-11-24).** `tui/terminal_windows.odin` is the console layer; what
+both systems share (the escape sequences, the width probe) moved to
+`tui/terminal.odin`, and the signals and the stderr redirect are in
+`system_posix.odin` / `system_windows.odin`.
+
+- Input is read with `ReadConsoleInputW`, not `ReadFile`: the records carry the
+  resize (`WINDOW_BUFFER_SIZE_EVENT`, as there is no SIGWINCH), and UTF-16 is turned
+  into UTF-8 here, so the code page does not matter. Only key-down records with a
+  character are text; with virtual-terminal input the console already sends keys
+  as escape sequences. The console handle is also signalled for records that are
+  no input (a key let go, the focus), so `terminal_wait` waits again until there are
+  bytes, as `terminal_read` returning 0 means the terminal is gone.
+- The mouse: Windows Terminal and the newer conhost send SGR reports; the older
+  conhost sends `MOUSE_EVENT` records, which are written as the same reports.
+  Quick Edit is switched off (`ENABLE_EXTENDED_FLAGS` without it), or conhost takes
+  the mouse for selecting.
+- Output goes as UTF-16 with `WriteConsoleW`.
+- Ctrl+C is a key (processed input is off), as on Unix with ISIG off.
+  `SetConsoleCtrlHandler` handles Ctrl+C for `-print` and the console window
+  closing, where Windows ends the process a few seconds after the handler returns.
+- The clipboard is set with the Win32 API (`tui.terminal_copy`) instead of OSC 52,
+  which conhost ignores.
+- The config folder can't be moved with an environment variable on Windows (the
+  known-folder API ignores them), so `YAP_CONFIG_HOME` now overrides it on every
+  system; the smoke test uses it instead of `XDG_CONFIG_HOME`.
+
+Tried: the unit tests (217 + 49) on Windows 10 22H2, and `scripts/cli-smoke.py` in
+a ConPTY, all passing. The ConPTY of Windows 10 passes none of the modes, the
+alternate screen or OSC 52 to the other end and takes no mouse from it, so the
+smoke test skips those checks and writes the clicks into the console's input as
+records (`WriteConsoleInputW` from a process attached to it). Also tried by hand
+in a real conhost window, driven the same way: logging in, a message with emoji,
+a click opening the message menu, and Ctrl+C. Not tried: Windows Terminal itself
+(it does the same as ConPTY plus the mouse, colour emoji and OSC 9), and how the
+emoji look in conhost.
