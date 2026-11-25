@@ -726,6 +726,10 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				push_shadow(r, rect, c.color)
 				continue
 			}
+			if c.id == SQUIGGLE_ICON {
+				push_squiggle(r, rect, c.color)
+				continue
+			}
 			if shape, corners, radius, ok := rounded_of(c.id); ok {
 				push_rounded(r, rect, c.color, shape, corners, radius)
 				continue
@@ -882,6 +886,39 @@ push_border_px :: proc(r: ^Renderer, box: [4]f32, color: mu.Color, inside := fal
 	push_quad(r, [4]f32{x0, y1 - t, x1, y1} / s, uv, color)
 	push_quad(r, [4]f32{x0, y0 + t, x0 + t, y1 - t} / s, uv, color)
 	push_quad(r, [4]f32{x1 - t, y0 + t, x1, y1 - t} / s, uv, color)
+}
+
+// push_squiggle draws a squiggle (see squiggle.odin).
+@(private = "file")
+push_squiggle :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color) {
+	s := r.scale
+	w := rect_white(r)
+	uv := [4]f32{w.x, w.y, w.x, w.y}
+	x0, x1 := math.round(f32(rect.x) * s), math.round(f32(rect.x + rect.w) * s)
+	y1 := math.round(f32(rect.y + rect.h) * s)
+	y0 := y1 - math.round(SQUIGGLE_HEIGHT * s)
+	// A part of a pixel: the color with as much of its alpha as is covered.
+	part :: proc(r: ^Renderer, x, y, cover: f32, uv: [4]f32, color: mu.Color) {
+		if cover <= 0.01 {
+			return
+		}
+		c := color
+		c.a = u8(f32(color.a) * min(cover, 1) + 0.5)
+		push_quad(r, [4]f32{x, y, x + 1, y + 1} / r.scale, uv, c)
+	}
+	for x, i := x0, 0; x < x1; x, i = x + 1, i + 1 {
+		top, bottom := squiggle_column(i, y0, y1, s)
+		first, last := math.floor(top), math.ceil(bottom) - 1
+		if first == last {
+			part(r, x, first, bottom - top, uv, color)
+			continue
+		}
+		part(r, x, first, first + 1 - top, uv, color)
+		if last > first + 1 {
+			push_quad(r, [4]f32{x, first + 1, x + 1, last} / s, uv, color)
+		}
+		part(r, x, last, bottom - last, uv, color)
+	}
 }
 
 // push_shadow draws the shadow of a window `rect` (draw_shadow), from the

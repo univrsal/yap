@@ -1,10 +1,13 @@
 package client
 
+import "core:hash"
 import "core:strings"
 import textedit "core:text/edit"
+import "core:time"
 import mu "vendor:microui"
 
 import "client:platform"
+import "client:render"
 
 // A text area is the box that messages are written in: a text box over several
 // lines. Its text wraps the way the chat wraps messages (wrap_line), it grows
@@ -17,7 +20,9 @@ import "client:platform"
 // list, the composer's keys, pasting) works on this too. On top of that, Up
 // and Down (the UI's own keys, ui.keys) move between lines and keep to the
 // column they started in, Home and End go to the ends of the line (with Ctrl,
-// of the text), and the pointer lands on the line it is over.
+// of the text), and the pointer lands on the line it is over. A double click
+// selects the word under the pointer, and dragging on from it selects whole
+// words.
 //
 // The box's height is worked out before it is laid out (text_area_height), so
 // the rows above can make room. It is based on the width the text had in the
@@ -32,39 +37,72 @@ import "client:platform"
 // The most lines a text area grows to. Beyond that it scrolls.
 TEXT_AREA_MAX_LINES :: 10
 
+// The most misspelled words a text area underlines.
+TEXT_AREA_MAX_MARKS :: 64
+
+// How soon after a press another one near it makes a double click.
+TEXT_AREA_DOUBLE_CLICK :: 500 * time.Millisecond
+
 // What a text area keeps between frames.
 Text_Area :: struct {
-	width:        i32, // the text's width in the last frame, for working out the height
-	scroll:       i32, // pixels of the text above the box's top
+	width:         i32, // the text's width in the last frame, for working out the height
+	scroll:        i32, // pixels of the text above the box's top
 	// Up and Down keep to the column they started in: where they left the
 	// caret, and the x position they were aiming for.
-	vert_at:      int,
-	vert_x:       i32,
+	vert_at:       int,
+	vert_x:        i32,
 	// The selection and length in the last frame. When either changes, the
 	// box scrolls to the caret.
-	last_sel:     [2]int,
-	last_len:     int,
+	last_sel:      [2]int,
+	last_len:      int,
 	// Its scrollbar, when there is more text than it shows: where it was in
 	// the last frame (zero: none), and while its thumb is dragged, how far
 	// down the thumb it was grabbed.
-	bar:          mu.Rect,
-	dragging:     bool,
-	drag_at:      i32,
+	bar:           mu.Rect,
+	dragging:      bool,
+	drag_at:       i32,
 	// Whether the message is shown as it will look instead (the composer's
 	// eye, preview_button).
-	preview:      bool,
-	had_focus:    bool, // in the last frame
+	preview:       bool,
+	had_focus:     bool, // in the last frame
 	// Set by its owner before it is measured and laid out: how many lines tall
 	// it is at least (0 or 1 for one), and how tall the strip at its bottom is.
-	min_lines:    int,
-	footer:       i32,
+	min_lines:     int,
+	footer:        i32,
 	// A press in the footer, which the caret ignores until it is released.
-	footer_press: bool,
+	footer_press:  bool,
+	// A press that started on the text: only that one moves the caret and
+	// selects while it is held. One that started elsewhere (on a menu over the
+	// box) doesn't, even when the box gets the focus while it is held.
+	text_press:    bool,
+	// The last press on the text, to tell a double click: when and where.
+	press_tick:    time.Tick,
+	press_pos:     mu.Vec2,
+	// While the press that made a double click is held: the word it selected,
+	// which dragging selects whole words from.
+	word_held:     bool,
+	word:          [2]int,
+	// Set by its owner: whether its words are spell checked (ui_spell.odin).
+	spell:         bool,
+	// The misspelled words, as worked out for the text with the hash
+	// `spell_hash` under the speller's generation `spell_gen`.
+	spell_hash:    u64,
+	spell_gen:     u32,
+	spell_n:       int,
+	spell_marks:   [TEXT_AREA_MAX_MARKS][2]int,
+	// A misspelled word was right-clicked in this frame: which one. Its owner
+	// opens the menu for it (spell_menu_open).
+	spell_clicked: bool,
+	spell_word:    [2]int,
+	// Where the caret was when the text last changed, while it stays there
+	// (-1: it has moved on). The word there is still being typed and isn't
+	// underlined yet.
+	typed_at:      int,
 	// In a web build, the page's own text field that stands in for it.
-	field:        Field_Sync,
+	field:         Field_Sync,
 	// What Ctrl+Z and Ctrl+Y go through (ui_text_history.odin). Not in a web
 	// build, where the page's field has its own.
-	history:      Text_History,
+	history:       Text_History,
 }
 
 // What a text area keeps about the page's text field that stands in for it in
@@ -155,6 +193,95 @@ area_vertical :: proc(
 	return offset_at(ctx, font, text, l.start, l.stop, x)
 }
 
+// area_offset_at is the place in `text` under the point `p`: on the line it is
+// over, or the first or last line if it is past them. `top` is from the box's
+// top (r) to its first line's top, before scrolling by `scroll`.
+@(private = "file")
+area_offset_at :: proc(
+	ctx: ^mu.Context,
+	font: mu.Font,
+	text: string,
+	lines: []Area_Line,
+	r: mu.Rect,
+	top, scroll: i32,
+	p: mu.Vec2,
+) -> int {
+	lh := ctx.text_height(font)
+	i := clamp((p.y - r.y - top + scroll) / lh, 0, i32(len(lines) - 1))
+	l := lines[i]
+	return offset_at(ctx, font, text, l.start, l.stop, p.x - r.x - ctx.style.padding)
+}
+
+// text_area_spell works out which words of `text` are misspelled when the text
+// or the speller changed, and keeps track of the word being typed.
+@(private = "file")
+text_area_spell :: proc(ui: ^UI, area: ^Text_Area, text: string, focused: bool, caret: int) {
+	sp := ui_speller(ui) if area.spell else nil
+	if sp == nil {
+		area.spell_n, area.spell_hash, area.typed_at = 0, 0, -1
+		return
+	}
+	h := hash.fnv64a(transmute([]u8)text)
+	if h != area.spell_hash || ui.spell.generation != area.spell_gen {
+		if h != area.spell_hash {
+			area.typed_at = caret if focused else -1
+		}
+		area.spell_hash, area.spell_gen = h, ui.spell.generation
+		area.spell_n = spell_marks(sp, text, area.spell_marks[:])
+	} else if caret != area.typed_at {
+		area.typed_at = -1
+	}
+}
+
+// spell_mark_typing is whether the misspelled word `m` is the one being typed,
+// which isn't underlined until the caret leaves it.
+@(private = "file")
+spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int) -> bool {
+	return focused && area.typed_at >= 0 && m[0] <= caret && caret <= m[1]
+}
+
+// area_word is the word at the place `at` in `text`, as its start and end: a
+// run of letters, digits and underscores (any non-ASCII character counts as a
+// letter), a run of spaces, or a single other character. It is the one right
+// after `at`, unless `at` is at the end of a word and not at the start of
+// another (at the end of the text, or before a space or punctuation), where it
+// is the one before.
+area_word :: proc(text: string, at: int) -> [2]int {
+	Class :: enum {
+		Word,
+		Space,
+		Other,
+	}
+	class :: proc(b: u8) -> Class {
+		switch b {
+		case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', 0x80 ..= 0xff:
+			return .Word
+		case ' ', '\t', '\n', '\r':
+			return .Space
+		}
+		return .Other
+	}
+	if len(text) == 0 {
+		return {}
+	}
+	i := clamp(at, 0, len(text))
+	if i == len(text) || (i > 0 && class(text[i]) != .Word && class(text[i - 1]) == .Word) {
+		i -= 1
+	}
+	c := class(text[i])
+	start, end := i, i + 1
+	if c == .Other {
+		return {start, end} // always one byte: non-ASCII counts as a letter
+	}
+	for start > 0 && class(text[start - 1]) == c {
+		start -= 1
+	}
+	for end < len(text) && class(text[end]) == c {
+		end += 1
+	}
+	return {start, end}
+}
+
 // text_area_single is how tall a text area of one line is: a control's
 // height, or more for a bigger font. Each additional line adds a line's height.
 text_area_single :: proc(ctx: ^mu.Context, font: mu.Font) -> i32 {
@@ -218,8 +345,11 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	tr := text_area_text_rect(r, area)
 	if .LEFT in ctx.mouse_pressed_bits {
 		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)
+		area.text_press = ctx.hover_id == id && mu.mouse_over(ctx, tr)
 	} else if .LEFT not_in ctx.mouse_down_bits {
 		area.footer_press = false
+		area.text_press = false
+		area.word_held = false
 	}
 	if ctx.hover_id == id && mu.mouse_over(ctx, tr) {
 		ui.select.over_text = true // shows an I-beam over it (draw_frame)
@@ -368,27 +498,45 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 			// Pressing or dragging puts the caret where the pointer is: on the
 			// line it is over, or the first or last line if it is past them. Not
-			// on the scrollbar, though.
+			// on the scrollbar, though, and only for a press on the text.
 			on_bar :=
 				.LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
-			if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar && !area.footer_press {
-				i := clamp(
-					(ctx.mouse_pos.y - r.y - top + area.scroll) / lh,
-					0,
-					i32(len(lines) - 1),
-				)
-				pl := lines[i]
-				at := offset_at(
-					ctx,
-					font,
-					text,
-					pl.start,
-					pl.stop,
-					ctx.mouse_pos.x - r.x - ctx.style.padding,
-				)
-				s.selection[0] = at
-				if .LEFT in ctx.mouse_pressed_bits && !shift {
-					s.selection[1] = at
+			if .LEFT in ctx.mouse_down_bits &&
+			   area.text_press &&
+			   !area.dragging &&
+			   !on_bar &&
+			   !area.footer_press {
+				at := area_offset_at(ctx, font, text, lines, r, top, area.scroll, ctx.mouse_pos)
+				if .LEFT in ctx.mouse_pressed_bits {
+					now := time.tick_now()
+					d := ctx.mouse_pos - area.press_pos
+					double :=
+						area.press_tick != {} &&
+						time.tick_diff(area.press_tick, now) < TEXT_AREA_DOUBLE_CLICK &&
+						abs(d.x) <= 4 &&
+						abs(d.y) <= 4
+					area.press_tick, area.press_pos = now, ctx.mouse_pos
+					area.word_held = double && !shift
+					if area.word_held {
+						area.press_tick = {} // a third press is a single one again
+						area.word = area_word(text, at)
+					}
+				}
+				if area.word_held {
+					// The caret is at the end the pointer is past: from the
+					// double-clicked word to the word the pointer is on.
+					if at < area.word[0] {
+						s.selection = {area_word(text, at)[0], area.word[1]}
+					} else if at > area.word[1] {
+						s.selection = {area_word(text, at)[1], area.word[0]}
+					} else {
+						s.selection = {area.word[1], area.word[0]}
+					}
+				} else {
+					s.selection[0] = at
+					if .LEFT in ctx.mouse_pressed_bits && !shift {
+						s.selection[1] = at
+					}
 				}
 			}
 		}
@@ -467,6 +615,22 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		area.dragging = false
 	}
 
+	text_area_spell(ui, area, text, focused, s.selection[0])
+	// Right-clicking a misspelled word: its owner opens the menu for it.
+	area.spell_clicked = false
+	if area.spell_n > 0 &&
+	   .RIGHT in ctx.mouse_pressed_bits &&
+	   mu.mouse_over(ctx, tr) &&
+	   !(area.bar.w > 0 && mu.mouse_over(ctx, area.bar)) {
+		at := area_offset_at(ctx, font, text, lines, r, top, area.scroll, ctx.mouse_pos)
+		for m in area.spell_marks[:area.spell_n] {
+			if m[0] <= at && at <= m[1] {
+				area.spell_clicked, area.spell_word = true, m
+				break
+			}
+		}
+	}
+
 	mu.draw_control_frame(ctx, id, r, .BASE, {})
 	mu.push_clip_rect(ctx, tr)
 	defer mu.pop_clip_rect(ctx)
@@ -492,6 +656,20 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			mu.draw_rect(ctx, {x0 + a, y, b - a, lh}, ctx.style.colors[.SELECTION_BG])
 		}
 		mu.draw_text(ctx, font, text[l.start:l.end], {x0, y}, color)
+		for m in area.spell_marks[:area.spell_n] {
+			if m[1] <= l.start ||
+			   m[0] >= l.end ||
+			   spell_mark_typing(area, m, focused, s.selection[0]) {
+				continue
+			}
+			a := area_x(ctx, font, text, l, max(m[0], l.start))
+			b := area_x(ctx, font, text, l, min(m[1], l.end))
+			render.draw_squiggle(
+				ctx,
+				{x0 + a, y + lh - render.SQUIGGLE_HEIGHT, b - a, render.SQUIGGLE_HEIGHT},
+				theme.error,
+			)
+		}
 		if focused && i == caret {
 			x := min(area_x(ctx, font, text, l, s.selection[0]), width)
 			mu.draw_rect(ctx, {x0 + x, y, 1, lh}, color)

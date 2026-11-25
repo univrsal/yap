@@ -401,7 +401,12 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	saved := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved
-	return text_area(ui, c.buf, c.len, c.area)
+	c.area.spell = true
+	res := text_area(ui, c.buf, c.len, c.area)
+	if c.area.spell_clicked {
+		spell_menu_open(ui, c, c.area.spell_word)
+	}
+	return res
 }
 
 @(private = "file")

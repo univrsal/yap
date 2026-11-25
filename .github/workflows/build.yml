@@ -280,6 +280,7 @@ jobs:
           odin test src/client/audio/rnn $collections -vet -strict-style
           odin test src/client/render $collections -vet -strict-style
           odin test src/client/conn $collections -vet -strict-style
+          odin test src/client/spell $collections -vet -strict-style
           odin test src/client $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 

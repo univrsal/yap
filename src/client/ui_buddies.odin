@@ -264,6 +264,7 @@ buddies_screen :: proc(ui: ^UI) {
 	}
 	user_menu(ui)
 	message_menu(ui)
+	spell_menu(ui)
 	app_audio_menu(ui)
 	share_menu(ui)
 }

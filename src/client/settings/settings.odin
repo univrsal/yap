@@ -196,6 +196,16 @@ Settings :: struct {
 	// the user's own ("custom:<file>", kept in the config folder's "sounds"
 	// folder). Events that play their default sound aren't stored.
 	sounds:                  map[string]string,
+	// Spell checking in the composer (ui_spell.odin): whether it is on, and
+	// the languages it checks against, by their tags ("en-US"). Until some
+	// are picked (spell_languages_picked), it checks the system's language
+	// and English, whichever of them the system's checker has.
+	spell_check:             bool,
+	spell_languages:         [dynamic]string,
+	spell_languages_picked:  bool,
+	// The user's own words, which the spell checker takes as right, in the
+	// order they were added.
+	spell_words:             [dynamic]string,
 }
 
 // Window_Place is the window's place when it isn't maximized or minimized,
@@ -254,6 +264,7 @@ DEFAULT_SETTINGS :: Settings {
 	image_cache_mb          = 256,
 	share_cursor            = true,
 	camera_mirror           = true,
+	spell_check             = true,
 }
 
 // settings_load reads `path` and falls back to the defaults if the file
@@ -378,6 +389,14 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(name)
 	}
 	delete(s.sounds)
+	for l in s.spell_languages {
+		delete(l)
+	}
+	delete(s.spell_languages)
+	for w in s.spell_words {
+		delete(w)
+	}
+	delete(s.spell_words)
 	s^ = {}
 }
 

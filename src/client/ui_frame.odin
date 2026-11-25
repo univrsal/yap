@@ -197,6 +197,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	thumbbar_update(ui)
 	activity_step(ui)
 	scripts_frame(ui)
+	spell_download_step(ui) // ui_spell_download.odin
 	status_sync(ui)
 	push_frame(ui)
 	if ui.hidden {
@@ -464,6 +465,8 @@ ui_shutdown :: proc(ui: ^UI) {
 	known_servers_destroy(ui)
 	install_destroy(ui)
 	ui_chat_destroy(ui)
+	spell_download_destroy(ui)
+	ui_spell_destroy(ui)
 	ui_select_destroy(ui)
 	conn.view_destroy(ui.view)
 }
