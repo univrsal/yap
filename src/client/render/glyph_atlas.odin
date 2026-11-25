@@ -1,0 +1,185 @@
+package render
+
+import "core:math"
+
+// The fallback atlas holds the glyphs that come from neither a face's own
+// atlas nor the emoji sheet: Unifont's (unifont.odin) and the system's fonts'
+// (sysfont.odin). Each font has one, rasterized at the font's scale like its
+// faces' atlases, but unlike those it starts empty and gets a glyph the first
+// time text needs it, because these fonts have far too many glyphs to
+// rasterize all of them up front (a Chinese font has tens of thousands).
+//
+// Glyphs are packed on shelves: rows as tall as the first glyph put on them,
+// which later glyphs of about the same height share, left to right. Text in
+// one font has glyphs of nearly one height, so little room is lost. When a
+// glyph doesn't fit any more, the atlas is flagged as full and emptied before
+// the next frame, which then puts in only what it draws (as with Unifont's
+// slots before).
+//
+// A glyph is found by its character alone. A character's glyph comes from
+// Unifont or from a system font, never both: what the system fonts offer is
+// fixed for a character (sysfont.odin), and the atlas is emptied when they
+// are turned on or off.
+
+// How many glyphs as tall as the chosen line fit across the atlas (it is
+// sized for this many, up to GLYPH_ATLAS_MAX).
+@(private = "file")
+GLYPH_ATLAS_PER_ROW :: 32
+GLYPH_ATLAS_MAX :: 2048
+// Pixels between glyphs, so that filtering one doesn't pull in its neighbor.
+@(private = "file")
+GLYPH_GAP :: 1
+// The size of the solid block that rects are drawn from (glyph_atlas_white).
+@(private = "file")
+WHITE_SIDE :: 4
+
+// A glyph in the atlas: where it is and how it sits on the pen position and
+// baseline (all physical pixels).
+Atlas_Glyph :: struct {
+	x, y, w, h: i32,
+	xoff, yoff: i32, // from the pen to the left edge, and from the baseline to the top
+}
+
+@(private = "file")
+Shelf :: struct {
+	y, h: i32, // its top and height
+	x:    i32, // where the next glyph goes
+}
+
+Glyph_Atlas :: struct {
+	scale:              f32, // physical pixels per logical pixel of the font
+	glyphs:             map[rune]Atlas_Glyph,
+	pixels:             []u8, // side * side, one alpha byte per texel; nil until needed
+	side:               i32,
+	shelves:            [dynamic]Shelf,
+	bottom:             i32, // the first row below the last shelf
+	white:              [2]f32, // texture coordinates in the middle of the white block
+	full:               bool, // out of room: start again next frame
+	dirty_y0, dirty_y1: i32, // rows changed since the atlas was last uploaded
+}
+
+glyph_atlas_destroy :: proc(a: ^Glyph_Atlas) {
+	delete(a.pixels)
+	delete(a.glyphs)
+	delete(a.shelves)
+	a^ = {}
+}
+
+// glyph_atlas_reset empties the atlas and prepares a new one for `scale`.
+glyph_atlas_reset :: proc(a: ^Glyph_Atlas, scale: f32) {
+	delete(a.pixels)
+	a.pixels = nil
+	clear(&a.glyphs)
+	clear(&a.shelves)
+	a.scale = scale
+	a.full = false
+	a.bottom = 0
+	// Room for a few rows of Unifont's 16-pixel glyphs (about as tall as the
+	// system fonts' glyphs at this size), the way its slots were sized.
+	line := max(1, i32(math.round(UNIFONT_SIZE * scale))) + GLYPH_GAP
+	a.side = 256
+	for a.side < line * GLYPH_ATLAS_PER_ROW && a.side < GLYPH_ATLAS_MAX {
+		a.side *= 2
+	}
+	a.dirty_y0, a.dirty_y1 = a.side, 0
+}
+
+// glyph_atlas_find returns a character's glyph, if it is in the atlas.
+glyph_atlas_find :: proc(a: ^Glyph_Atlas, r: rune) -> (g: Atlas_Glyph, ok: bool) {
+	return a.glyphs[r]
+}
+
+// glyph_atlas_add makes room for a glyph of w x h pixels and returns the
+// pixels to draw it into (rows `side` apart). Once there is no room, it fails
+// and the atlas is flagged to be emptied before the next frame. The glyph is
+// found by `r` afterwards.
+glyph_atlas_add :: proc(
+	a: ^Glyph_Atlas,
+	r: rune,
+	w, h, xoff, yoff: i32,
+) -> (
+	g: Atlas_Glyph,
+	pixels: []u8,
+	ok: bool,
+) {
+	if a.full || a.side == 0 {
+		return
+	}
+	if w <= 0 || h <= 0 {
+		// Blank (a space): nothing to draw, but known.
+		a.glyphs[r] = {xoff = xoff, yoff = yoff}
+		return a.glyphs[r], nil, true
+	}
+	glyph_atlas_pixels(a)
+	x, y, placed := place(a, w, h)
+	if !placed {
+		a.full = true
+		return
+	}
+	g = {x, y, w, h, xoff, yoff}
+	a.glyphs[r] = g
+	a.dirty_y0 = min(a.dirty_y0, y)
+	a.dirty_y1 = max(a.dirty_y1, y + h)
+	return g, a.pixels[int(y) * int(a.side) + int(x):], true
+}
+
+// place finds room for w x h pixels on a shelf, or starts a new one.
+@(private = "file")
+place :: proc(a: ^Glyph_Atlas, w, h: i32) -> (x, y: i32, ok: bool) {
+	if w + GLYPH_GAP > a.side {
+		return
+	}
+	// The lowest shelf it fits on without wasting more than a quarter of the
+	// shelf's height.
+	best := -1
+	for s, i in a.shelves {
+		if h <= s.h && h >= s.h - s.h / 4 - 2 && s.x + w + GLYPH_GAP <= a.side {
+			if best < 0 || s.h < a.shelves[best].h {
+				best = i
+			}
+		}
+	}
+	if best < 0 {
+		if a.bottom + h + GLYPH_GAP > a.side {
+			return
+		}
+		append(&a.shelves, Shelf{y = a.bottom, h = h})
+		a.bottom += h + GLYPH_GAP
+		best = len(a.shelves) - 1
+	}
+	s := &a.shelves[best]
+	x, y = s.x, s.y
+	s.x += w + GLYPH_GAP
+	return x, y, true
+}
+
+// glyph_atlas_pixels allocates the atlas's pixels, including a block of
+// white texels that rects can be drawn from, so that a rect between glyphs
+// from this atlas doesn't need to switch textures.
+glyph_atlas_pixels :: proc(a: ^Glyph_Atlas) {
+	if a.pixels != nil || a.side == 0 {
+		return
+	}
+	a.pixels = make([]u8, int(a.side) * int(a.side))
+	x, y, _ := place(a, WHITE_SIDE, WHITE_SIDE)
+	for j in 0 ..< i32(WHITE_SIDE) {
+		for i in 0 ..< i32(WHITE_SIDE) {
+			a.pixels[int(y + j) * int(a.side) + int(x + i)] = 255
+		}
+	}
+	a.white = {
+		(f32(x) + WHITE_SIDE / 2) / f32(a.side),
+		(f32(y) + WHITE_SIDE / 2) / f32(a.side),
+	}
+	a.dirty_y0 = min(a.dirty_y0, y)
+	a.dirty_y1 = max(a.dirty_y1, y + WHITE_SIDE)
+}
+
+// glyph_atlas_white returns the texture coordinates of a white texel. It is
+// not ok before the atlas has pixels.
+glyph_atlas_white :: proc(a: ^Glyph_Atlas) -> (uv: [2]f32, ok: bool) {
+	if a.pixels == nil {
+		return
+	}
+	return a.white, true
+}

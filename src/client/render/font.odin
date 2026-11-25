@@ -11,9 +11,11 @@ import "core:unicode/utf8"
 // Cyrillic letters and common punctuation and symbols. Emoji (proto/emoji.odin)
 // are color pictures from a sheet (emoji_atlas.odin). Each emoji takes a fixed
 // amount of space in the line and is drawn from a texture of its own instead
-// of from a font's atlas. Any other character comes from Unifont
+// of from a font's atlas. Any other character comes from one of the system's
+// fonts if one has it and they are turned on (sysfont.odin), from Unifont
 // (unifont.odin) if it has a glyph for it, and is drawn as the replacement
-// character otherwise.
+// character otherwise. Those glyphs share an atlas that fills up as text
+// needs them (glyph_atlas.odin).
 //
 // A font has faces, one per Font_Style: Roboto Regular, which the UI uses,
 // and, for messages, Roboto Bold, Italic and Bold Italic, plus JetBrains Mono
@@ -112,8 +114,12 @@ Font :: struct {
 	// is for a different density is rebuilt before it is drawn.
 	scale:    f32,
 
-	// The fallback font, with an atlas of its own.
+	// The fallbacks: the system's fonts, shared by all fonts (nil for none),
+	// and Unifont. Their glyphs are in an atlas of their own, which fills up
+	// as text needs them (glyph_atlas.odin).
+	sys:      ^System_Fonts,
 	uni:      Unifont,
+	fallback: Glyph_Atlas,
 }
 
 font_init :: proc(f: ^Font) -> bool {
@@ -208,6 +214,7 @@ font_line_height :: proc(f: ^Font) -> i32 {
 
 font_destroy :: proc(f: ^Font) {
 	unifont_destroy(&f.uni)
+	glyph_atlas_destroy(&f.fallback)
 	for &fc in f.faces {
 		delete(fc.pixels)
 		delete(fc.codepoints)
@@ -286,6 +293,7 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 @(private = "file")
 Glyph_Source :: enum {
 	Face, // the index is into the face's arrays
+	System, // one of the system's fonts (sysfont.odin); the index is the character itself
 	Unifont, // the index is the character itself
 	Emoji, // the index is its cell in the sheet (emoji_cell)
 	Placeholder, // one of the server's emoji, drawn over it by the UI: takes space but draws nothing; the index is its span
@@ -331,6 +339,9 @@ find_glyph :: proc(
 			return cell, .Emoji, face
 		}
 	}
+	if _, ok := system_glyph(f.sys, r); ok {
+		return int(r), .System, face
+	}
 	if unifont_width(&f.uni, r) > 0 {
 		return int(r), .Unifont, face
 	}
@@ -351,6 +362,9 @@ font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f
 			w += f.faces[face].advance[i]
 		case .Unifont:
 			w += f32(f.uni.width[i])
+		case .System:
+			g, _ := system_glyph(f.sys, rune(i))
+			w += g.advance * f.em
 		case .Emoji:
 			w += EMOJI_ADVANCE
 		case .Placeholder:
@@ -372,13 +386,15 @@ custom_emoji_advance :: proc(span: int) -> f32 {
 	return f32(span * CUSTOM_EMOJI_SIZE + (CUSTOM_EMOJI_ADVANCE - CUSTOM_EMOJI_SIZE))
 }
 
-// font_cache_glyphs puts the Unifont glyphs that `text` needs into their
+// font_cache_glyphs puts the fallback glyphs that `text` needs into their
 // atlas before font_layout. The renderer uploads whatever changed in between.
 font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
 	for r in text {
 		#partial switch _, source, _ := find_glyph(f, style, r); source {
+		case .System:
+			system_glyph_cache(f.sys, &f.fallback, r, f.em)
 		case .Unifont:
-			unifont_cache(&f.uni, r)
+			unifont_cache(&f.uni, &f.fallback, r)
 		}
 	}
 }
@@ -397,7 +413,7 @@ font_faces_used :: proc(f: ^Font, text: string, style: Font_Style) -> (used: bit
 Glyph_Quad :: struct {
 	x0, y0, x1, y1: f32, // logical pixels
 	u0, v0, u1, v1: f32,
-	unifont:        bool, // from the Unifont atlas rather than a face's
+	fallback:       bool, // from the fallback atlas (Unifont's and the system's glyphs) rather than a face's
 	emoji:          bool, // from the emoji sheet, in color; neither of the others
 	face:           Font_Style, // which face's atlas the glyph is from, if it is a face glyph
 }
@@ -466,30 +482,39 @@ font_layout_unzoomed :: proc(
 		case .None:
 		case .Placeholder:
 			pen += custom_emoji_advance(i)
-		case .Unifont:
-			u := &f.uni
-			if slot, ok := unifont_cache(u, r); ok && u.scale == s {
-				h := f32(unifont_glyph_height(s))
-				w := f32(unifont_glyph_width(u, r))
-				px := origin + math.round(pen * s)
-				py := baseline - math.round(UNIFONT_ASCENT * h / UNIFONT_SIZE)
-				sx := f32((slot % u.per_row) * u.cell)
-				sy := f32((slot / u.per_row) * u.cell)
-				side := f32(u.side)
-				emit(
-					data,
-					Glyph_Quad {
-						x0 = px / s,
-						y0 = py / s,
-						x1 = (px + w) / s,
-						y1 = (py + h) / s,
-						u0 = sx / side,
-						v0 = sy / side,
-						u1 = (sx + w) / side,
-						v1 = (sy + h) / side,
-						unifont = true,
-					},
-				)
+		case .Unifont, .System:
+			advance: f32
+			g: Atlas_Glyph
+			ok: bool
+			if source == .Unifont {
+				advance = f32(f.uni.width[i])
+				g, ok = unifont_cache(&f.uni, &f.fallback, r)
+			} else {
+				sg, _ := system_glyph(f.sys, r)
+				advance = sg.advance * f.em
+				g, ok = system_glyph_cache(f.sys, &f.fallback, r, f.em)
+			}
+			a := &f.fallback
+			if ok && a.scale == s {
+				if g.w > 0 && g.h > 0 {
+					px := origin + math.round(pen * s) + f32(g.xoff)
+					py := baseline + f32(g.yoff)
+					side := f32(a.side)
+					emit(
+						data,
+						Glyph_Quad {
+							x0 = px / s,
+							y0 = py / s,
+							x1 = (px + f32(g.w)) / s,
+							y1 = (py + f32(g.h)) / s,
+							u0 = f32(g.x) / side,
+							v0 = f32(g.y) / side,
+							u1 = f32(g.x + g.w) / side,
+							v1 = f32(g.y + g.h) / side,
+							fallback = true,
+						},
+					)
+				}
 			} else {
 				// The atlas is full, so this frame uses the fallback in the
 				// space the glyph would have had.
@@ -504,7 +529,7 @@ font_layout_unzoomed :: proc(
 					emit,
 				)
 			}
-			pen += f32(u.width[i])
+			pen += advance
 		case .Emoji:
 			// Place it on whole physical pixels like the text next to it.
 			px := origin + math.round(pen * s) + math.round((EMOJI_ADVANCE - EMOJI_SIZE) / 2 * s)

@@ -252,6 +252,7 @@ Msg_Layout :: struct {
 	pictures:   bool, // laid out with the pictures' column (avatar_column)
 	time_w:     i32, // and with the times' column this wide (time_column)
 	line:       i32, // and with lines of text this tall (the chat's text size)
+	fonts:      int, // and with these fonts (render.system_fonts_generation)
 	// Worked out together with what is worked out afresh every frame
 	// (reactions, files, an offer of a file), so it can't be reused as it is
 	// once that has gone, for example when the last reaction is taken back.
@@ -955,7 +956,8 @@ message_height :: proc(
 	   l.reply_line == reply_line &&
 	   l.pictures == ui.settings.chat_pictures &&
 	   l.time_w == time_w &&
-	   l.line == ui.ctx.text_height(ui.ctx.style.font) {
+	   l.line == ui.ctx.text_height(ui.ctx.style.font) &&
+	   l.fonts == render.system_fonts_generation(&ui.renderer) {
 		return l.height
 	}
 	ctx := &ui.ctx
@@ -1018,6 +1020,7 @@ message_height :: proc(
 	l.pictures = ui.settings.chat_pictures
 	l.time_w = time_w
 	l.line = ctx.text_height(ctx.style.font)
+	l.fonts = render.system_fonts_generation(&ui.renderer)
 	l.changing = changing
 	return h
 }

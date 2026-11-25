@@ -206,6 +206,9 @@ Settings :: struct {
 	// The user's own words, which the spell checker takes as right, in the
 	// order they were added.
 	spell_words:             [dynamic]string,
+	// Draw the characters that the bundled fonts lack from the system's own
+	// fonts where it has them, rather than from Unifont (render/sysfont.odin).
+	system_fonts:            bool,
 }
 
 // Window_Place is the window's place when it isn't maximized or minimized,
@@ -265,6 +268,7 @@ DEFAULT_SETTINGS :: Settings {
 	share_cursor            = true,
 	camera_mirror           = true,
 	spell_check             = true,
+	system_fonts            = true,
 }
 
 // settings_load reads `path` and falls back to the defaults if the file

@@ -65,6 +65,8 @@ window_open :: proc(ui: ^UI) -> bool {
 		ui.window = nil
 		return false
 	}
+	// Which of the system's fonts to prefer where they differ by language.
+	render.set_system_fonts_language(&ui.renderer, platform.locale_name())
 	// Before the title bar, whose window procedure goes in front of this one.
 	thumbbar_attach(ui.window)
 	titlebar_merge(ui.window, ui.settings.merge_title_bar)

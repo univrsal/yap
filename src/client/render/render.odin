@@ -379,7 +379,7 @@ font_style :: proc(font: mu.Font) -> Font_Style {
 Font_Slot :: struct {
 	font:            Font,
 	textures:        [Font_Style]Gpu_Texture, // the faces' atlases; 0 until drawn
-	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
+	fallback_texture: Gpu_Texture, // the fallback glyphs' atlas (glyph_atlas.odin); 0 until it has glyphs
 	// The requested zoom (font_set_zoom). The font applies it with its next
 	// atlas.
 	zoom:            f32,
@@ -388,6 +388,8 @@ Font_Slot :: struct {
 Renderer :: struct {
 	gpu:              Gpu,
 	fonts:            [Font_Kind]Font_Slot,
+	// The system's fonts, which every font falls back on (sysfont.odin).
+	system:           System_Fonts,
 	icon_texture:     Gpu_Texture, // microui's own icons
 	icons:            Icon_Atlas, // our own icons (icons.odin)
 	icons_texture:    Gpu_Texture,
@@ -444,7 +446,7 @@ heading_zoom :: proc(r: ^Renderer, zoom: f32) {
 		slot := &r.fonts[Font_Kind(int(Font_Kind.Heading_1) + i)]
 		slot.zoom = zoom * factor
 		slot.font.zoom = zoom * factor
-		slot.font.scale, slot.font.uni.scale = 0, 0
+		slot.font.scale, slot.font.fallback.scale = 0, 0
 	}
 }
 
@@ -459,8 +461,45 @@ set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
 	slot.zoom = zoom
 	slot.font.zoom = zoom
 	// The next frame rebuilds them at the new size.
-	slot.font.scale, slot.font.uni.scale = 0, 0
+	slot.font.scale, slot.font.fallback.scale = 0, 0
 	heading_zoom(r, zoom)
+}
+
+// set_system_fonts turns the system's fonts for the characters that the
+// bundled ones lack on or off (sysfont.odin). Text measuring uses the change
+// immediately, and the fallback glyphs are drawn again in the next frame.
+// Call it between frames.
+set_system_fonts :: proc(r: ^Renderer, enabled: bool) {
+	if !system_fonts_enable(&r.system, enabled) {
+		return
+	}
+	// The atlases have glyphs of the other kind for the same characters.
+	for &slot in r.fonts {
+		if slot.font.fallback.side != 0 {
+			glyph_atlas_reset(&slot.font.fallback, slot.font.fallback.scale)
+		}
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+	}
+}
+
+// set_system_fonts_language sets the user's language, which picks between
+// fonts of the system's that have different shapes for the same characters
+// (Chinese, Japanese and Korean). `locale` is a locale's name such as
+// "ja-JP" or "de_DE.UTF-8".
+set_system_fonts_language :: proc(r: ^Renderer, locale: string) {
+	system_fonts_language(&r.system, locale)
+}
+
+// system_fonts_generation changes whenever set_system_fonts changes what text
+// is drawn with, so that sizes worked out before can be worked out again.
+system_fonts_generation :: proc(r: ^Renderer) -> int {
+	return r.system.generation
+}
+
+// system_fonts_used returns the names of the system's fonts that text has
+// been drawn with so far. In the temp allocator.
+system_fonts_used :: proc(r: ^Renderer) -> []string {
+	return system_fonts_in_use(&r.system)
 }
 
 // quad_indices returns the contents of the index buffer: two triangles per
@@ -491,6 +530,9 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	r.fonts[.List].zoom, r.fonts[.List].font.zoom = LIST_ZOOM, LIST_ZOOM
 	heading_zoom(r, 1)
 	g_fonts = &r.fonts
+	for &slot in r.fonts {
+		slot.font.sys = &r.system
+	}
 	if !gpu_init(&r.gpu, window) {
 		for &slot in r.fonts {
 			font_destroy(&slot.font)
@@ -512,7 +554,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 		for &t in slot.textures {
 			gpu_texture_delete(&r.gpu, &t)
 		}
-		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
@@ -520,6 +562,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	icon_atlas_destroy(&r.icons)
 	icon_atlas_destroy(&r.controls)
+	system_fonts_destroy(&r.system)
 	gpu_destroy(&r.gpu)
 	for &slot in r.fonts {
 		font_destroy(&slot.font)
@@ -538,8 +581,8 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 		for &t in slot.textures {
 			gpu_texture_delete(&r.gpu, &t)
 		}
-		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
-		slot.font.scale, slot.font.uni.scale = 0, 0
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+		slot.font.scale, slot.font.fallback.scale = 0, 0
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
@@ -602,8 +645,14 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	for kind in Font_Kind {
 		// The preview and list fonts wait until they are drawn with
 		// (Command_Text).
+		slot := &r.fonts[kind]
 		if !lazy_font(kind) {
-			slot_prepare(r, &r.fonts[kind], scale)
+			slot_prepare(r, slot, scale)
+		} else if slot.font.fallback.full {
+			// Their fallback glyphs start again too once they run out of
+			// room, though not in the middle of a frame.
+			glyph_atlas_reset(&slot.font.fallback, slot.font.fallback.scale)
+			gpu_texture_delete(&r.gpu, &slot.fallback_texture)
 		}
 	}
 	if scale != r.icons.scale {
@@ -664,7 +713,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			}
 			style := font_style(c.font)
 			font_cache_glyphs(&slot.font, c.str, style)
-			upload_unifont(r, slot)
+			upload_fallback(r, slot)
 			if style != .Regular {
 				for face in font_faces_used(&slot.font, c.str, style) {
 					face_ready(r, slot, face)
@@ -700,7 +749,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 					}
 					use_texture(
 						e.r,
-						e.slot.unifont_texture if q.unifont else e.slot.textures[q.face],
+						e.slot.fallback_texture if q.fallback else e.slot.textures[q.face],
 					)
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
@@ -801,11 +850,11 @@ slot_prepare :: proc(r: ^Renderer, slot: ^Font_Slot, scale: f32) {
 		font_set_scale(&slot.font, at)
 	}
 	face_ready(r, slot, .Regular)
-	// The fallback font's atlas fills up as text needs glyphs. It starts
+	// The fallback glyphs' atlas fills up as text needs glyphs. It starts
 	// empty at a new scale and is emptied again once it runs out of room.
-	if at != slot.font.uni.scale || slot.font.uni.full {
-		unifont_reset(&slot.font.uni, at)
-		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+	if at != slot.font.fallback.scale || slot.font.fallback.full {
+		glyph_atlas_reset(&slot.font.fallback, at)
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
 	}
 }
 
@@ -1072,21 +1121,21 @@ face_ready :: proc(r: ^Renderer, slot: ^Font_Slot, face: Font_Style) {
 	}
 }
 
-// upload_unifont uploads the rows of the fallback font's atlas that have
+// upload_fallback uploads the rows of the fallback glyphs' atlas that have
 // changed to its texture, and creates the texture the first time. Glyphs are
-// only ever added to empty slots, so quads that are already waiting to be
+// only ever added to empty room, so quads that are already waiting to be
 // drawn still find their glyphs.
 @(private = "file")
-upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
-	u := &slot.font.uni
+upload_fallback :: proc(r: ^Renderer, slot: ^Font_Slot) {
+	u := &slot.font.fallback
 	if u.dirty_y1 <= u.dirty_y0 {
 		return
 	}
-	if slot.unifont_texture == 0 {
-		slot.unifont_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
+	if slot.fallback_texture == 0 {
+		slot.fallback_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
 	} else {
 		rows := u.pixels[int(u.dirty_y0) * int(u.side):int(u.dirty_y1) * int(u.side)]
-		gpu_texture_update_rows(&r.gpu, slot.unifont_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
+		gpu_texture_update_rows(&r.gpu, slot.fallback_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
 	}
 	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
@@ -1104,8 +1153,8 @@ rect_white :: proc(r: ^Renderer) -> [2]f32 {
 	}
 	if r.bound != 0 && !r.rgba {
 		for &slot in r.fonts {
-			if r.bound == slot.unifont_texture {
-				if uv, ok := unifont_white(&slot.font.uni); ok {
+			if r.bound == slot.fallback_texture {
+				if uv, ok := glyph_atlas_white(&slot.font.fallback); ok {
 					return uv
 				}
 			}
