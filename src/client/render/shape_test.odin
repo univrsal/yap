@@ -2,7 +2,14 @@
 package render
 
 import "core:log"
+import "core:math"
+import "core:sync"
 import "core:testing"
+
+// kb_text_shape's state is global and one thread's (yap_shape.c), and
+// destroying a System_Fonts shuts it down, so the tests that shape take turns.
+@(private = "file")
+shaping_lock: sync.Mutex
 
 // A font with the system's fonts on, for shaping.
 @(private = "file")
@@ -25,6 +32,8 @@ x_of :: proc(sh: Shaped, at: int) -> f32 {
 
 @(test)
 test_needs_shaping :: proc(t: ^testing.T) {
+	sync.mutex_lock(&shaping_lock)
+	defer sync.mutex_unlock(&shaping_lock)
 	s: System_Fonts
 	defer system_fonts_destroy(&s)
 	f: Font
@@ -48,6 +57,8 @@ test_needs_shaping :: proc(t: ^testing.T) {
 // (Unifont's letters are reordered too).
 @(test)
 test_shaping_order :: proc(t: ^testing.T) {
+	sync.mutex_lock(&shaping_lock)
+	defer sync.mutex_unlock(&shaping_lock)
 	s: System_Fonts
 	defer system_fonts_destroy(&s)
 	f: Font
@@ -91,6 +102,8 @@ test_shaping_order :: proc(t: ^testing.T) {
 // word than on its own. Only where the system has a font for Arabic.
 @(test)
 test_shaping_joins :: proc(t: ^testing.T) {
+	sync.mutex_lock(&shaping_lock)
+	defer sync.mutex_unlock(&shaping_lock)
 	s: System_Fonts
 	defer system_fonts_destroy(&s)
 	f: Font
@@ -151,6 +164,8 @@ test_shaping_joins :: proc(t: ^testing.T) {
 // Marks combine with the letter before them, in its font.
 @(test)
 test_shaping_marks :: proc(t: ^testing.T) {
+	sync.mutex_lock(&shaping_lock)
+	defer sync.mutex_unlock(&shaping_lock)
 	s: System_Fonts
 	defer system_fonts_destroy(&s)
 	f: Font
@@ -170,6 +185,8 @@ test_shaping_marks :: proc(t: ^testing.T) {
 // grapheme, a letter after a letter starts a new one.
 @(test)
 test_shaping_graphemes :: proc(t: ^testing.T) {
+	sync.mutex_lock(&shaping_lock)
+	defer sync.mutex_unlock(&shaping_lock)
 	s: System_Fonts
 	defer system_fonts_destroy(&s)
 	f: Font
@@ -188,5 +205,55 @@ test_shaping_graphemes :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(conj.joined), 3)
 	if len(conj.joined) == 3 {
 		testing.expect(t, !conj.joined[0] && conj.joined[1] && conj.joined[2])
+	}
+}
+
+// Typing a letter on the left of right-to-left text leaves the letters
+// already there where they are, when the line is kept against the same
+// right edge: they are placed from the right end, not rounded from the
+// start of a line whose width has just changed.
+@(test)
+test_rtl_layout_from_right :: proc(t: ^testing.T) {
+	sync.mutex_lock(&shaping_lock)
+	defer sync.mutex_unlock(&shaping_lock)
+	s: System_Fonts
+	defer system_fonts_destroy(&s)
+	f: Font
+	shaping_font(t, &f, &s)
+	defer font_destroy(&f)
+
+	if _, has := system_glyph(&s, 'ש'); !has {
+		log.info("no system font for Hebrew")
+		return
+	}
+	for scale in ([?]f32{1, 1.5, 1.25}) {
+		font_set_scale(&f, scale)
+		glyph_atlas_reset(&f.fallback, scale)
+		Quads :: struct {
+			x: [dynamic]f32,
+		}
+		layout :: proc(f: ^Font, text: string, right: f32) -> [dynamic]f32 {
+			q: Quads
+			q.x = make([dynamic]f32, context.temp_allocator)
+			font_cache_glyphs(f, text)
+			x := right - math.ceil(font_text_width(f, text))
+			font_layout(f, text, x, 0, &q, proc(data: rawptr, g: Glyph_Quad) {
+				q := (^Quads)(data)
+				append(&q.x, g.x1)
+			})
+			return q.x
+		}
+		for right in ([?]f32{300, 301, 333}) {
+			short := layout(&f, "שלום", right)
+			long := layout(&f, "שלוםא", right)
+			testing.expect(t, len(short) > 0 && len(long) > len(short))
+			// The letters of the short line are the last ones of the long.
+			for v, i in short {
+				j := len(long) - len(short) + i
+				if j >= 0 && j < len(long) {
+					testing.expectf(t, v == long[j], "scale %v right %v glyph %d: %v vs %v", scale, right, i, v, long[j])
+				}
+			}
+		}
 	}
 }

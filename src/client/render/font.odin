@@ -514,9 +514,23 @@ font_layout_unzoomed :: proc(
 	// would shuffle.
 	origin := math.round(x * s)
 	if needs_shaping(f, text) {
-		for g in shaped_text(f, style, text).glyphs {
+		sh := shaped_text(f, style, text)
+		// A right-to-left line is placed from its right end, which is where
+		// it is aligned (ui_bidi.odin's line_is_rtl): the end of the room
+		// its measured width (rounded up) takes. Measuring each glyph back
+		// from there keeps the letters that are already typed where they
+		// are when another is added on their left; measured from the start
+		// the rounding of each would change with the line's width and the
+		// text would shuffle.
+		back: f32
+		if sh.rtl {
+			end := x + math.ceil(sh.width * f.zoom) / f.zoom
+			origin = math.round(end * s)
+			back = sh.width
+		}
+		for g in sh.glyphs {
 			if g.kind == .Char {
-				layout_rune(f, style, g.r, g.x, origin, baseline, y, data, emit)
+				layout_rune(f, style, g.r, g.x - back, origin, baseline, y, data, emit)
 				continue
 			}
 			a := &f.fallback
@@ -524,7 +538,7 @@ font_layout_unzoomed :: proc(
 			if !ok || a.scale != s || ag.w == 0 || ag.h == 0 {
 				continue
 			}
-			px := origin + math.round((g.x + g.dx) * s) + f32(ag.xoff)
+			px := origin + math.round((g.x + g.dx - back) * s) + f32(ag.xoff)
 			py := baseline - math.round(g.dy * s) + f32(ag.yoff)
 			emit_atlas_glyph(a, ag, px, py, s, data, emit)
 		}

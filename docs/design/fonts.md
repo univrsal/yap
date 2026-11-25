@@ -445,6 +445,12 @@ wait until someone needs them.
    and the text area keeps it as `Area_Line.shift`, which `area_x`,
    `area_hit`, `area_ranges` and the drawing all include.
 
+   Typing in Hebrew made the text shuffle by a pixel: glyphs were placed
+   from the line's start, so each one's rounding changed with the line's
+   width as letters were added on the left. `font_layout` now places a
+   right-to-left line's glyphs from its right end (`x` plus its measured
+   width rounded up, which is where the callers align it).
+
 4. **A two-sided caret at direction changes.** Where the direction
    changes, one place in the text can be shown in two spots: the place
    before ש in "abc שלום 123" is shown after "abc ", where Latin typed
