@@ -26,6 +26,14 @@ import mu "vendor:microui"
 TITLEBAR_BUTTON_WIDTH :: 46
 TITLEBAR_BUTTON_COUNT :: 3
 
+// How tall the merged title bar is where we draw the window's buttons
+// ourselves (Windows, X11), in logical pixels: down to the line under the
+// first row of the normal layout (title_row), which is the window's padding
+// (6), a row (14 + 2 * 6) and half the gap after it (3). It is the same in the
+// compact layout, whose first row fits itself to it, so the title bar doesn't
+// change height with the window's width. On macOS the system says.
+MERGED_TITLE_HEIGHT :: 35
+
 // How far in from the window's edge the pointer resizes it, in logical
 // pixels, where that is left to us (titlebar_resizable).
 @(private = "file")

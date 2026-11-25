@@ -148,16 +148,13 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 // fullscreen.
 //
 // There is no system title bar to match here, so it is sized in the UI's own
-// pixels, as the first row is, and scales with it. It reaches down to where the
-// first row ends, so that the buttons keep the same spacing from the second row
-// as the rows keep from each other.
+// pixels (MERGED_TITLE_HEIGHT) and scales with it, the same in the normal and
+// compact layouts. It reaches down to the line under the first row.
 titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	if !merged(ui.window) || ui.input_scale <= 0 {
 		return
 	}
-	style := ui.ctx.style
-	row := style.size.y + style.padding * 2 // a row's height (mu.layout_next)
-	height = f32(style.padding + row) / ui.input_scale
+	height = f32(MERGED_TITLE_HEIGHT) / ui.input_scale
 	right = f32(TITLEBAR_BUTTON_WIDTH * TITLEBAR_BUTTON_COUNT + TITLEBAR_GAP) / ui.input_scale
 	return
 }
