@@ -1425,5 +1425,16 @@ text_spans :: proc(font: mu.Font, text: string) -> []Char_Span {
 		}
 		start = end
 	}
+	if sh.rtl {
+		// A right-to-left line is drawn from its right end, the end of the
+		// room its width rounded up takes (font_layout), so the characters
+		// are that much further right than their glyphs' pen positions.
+		w := sh.width * f.zoom
+		pad := math.ceil(w) - w
+		for &s in spans {
+			s.x0 += pad
+			s.x1 += pad
+		}
+	}
 	return spans
 }

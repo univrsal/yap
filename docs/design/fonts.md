@@ -450,6 +450,9 @@ wait until someone needs them.
    width as letters were added on the left. `font_layout` now places a
    right-to-left line's glyphs from its right end (`x` plus its measured
    width rounded up, which is where the callers align it).
+   `text_spans` adds the same rounding-up room to such a line's
+   characters, so the caret, selection and spell-check squiggles stay on
+   the glyphs (the squiggles used to move as the line's width changed).
 
 4. **A two-sided caret at direction changes.** Where the direction
    changes, one place in the text can be shown in two spots: the place
