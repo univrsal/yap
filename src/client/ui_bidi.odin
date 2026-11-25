@@ -94,6 +94,20 @@ line_spans :: proc(
 	return out[:], true
 }
 
+// line_is_rtl returns whether the line text[start:end] is shaped and right to
+// left (its first strong character is), which makes it sit against the right
+// edge of its column.
+line_is_rtl :: proc(
+	ctx: ^mu.Context,
+	font: mu.Font,
+	text: string,
+	start, end: int,
+	rich: ^Rich = nil,
+) -> bool {
+	spans, shaped := line_spans(ctx, font, text, start, end, rich)
+	return shaped && len(spans) > 0 && spans[0].line_rtl
+}
+
 // span_end returns where the character of spans[i] ends in the text: where
 // the next one starts, or `end`.
 @(private = "file")

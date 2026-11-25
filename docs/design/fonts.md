@@ -439,6 +439,12 @@ wait until someone needs them.
    Done when: a Hebrew message and a Hebrew line in the composer sit at
    the right, and clicking and selecting in them still land right.
 
+   *Done, each line by its own direction:* `line_is_rtl` (ui_bidi.odin)
+   tells whether a line is shaped and right to left. `rich_text` moves such
+   a line's `pos` by the room left over (not in code blocks or table cells),
+   and the text area keeps it as `Area_Line.shift`, which `area_x`,
+   `area_hit`, `area_ranges` and the drawing all include.
+
 4. **A two-sided caret at direction changes.** Where the direction
    changes, one place in the text can be shown in two spots: the place
    before ש in "abc שלום 123" is shown after "abc ", where Latin typed

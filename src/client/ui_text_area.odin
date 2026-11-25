@@ -123,8 +123,13 @@ Field_Sync :: struct {
 // One line of a text area's text: text[start:end] is drawn, and the caret is
 // on it from `start` up to `stop` (where the next line starts, or before the
 // newline that ends it, or the end of the text).
+//
+// `shift` is how far the line is drawn from the left edge of the text: the
+// room left over in a line that is right to left, which sits against the
+// right edge. Every x of a line that these procs take or give includes it.
 Area_Line :: struct {
 	start, end, stop: int,
+	shift:            i32,
 }
 
 // area_lines lays `text` out in lines `width` wide. Every place in the text is
@@ -146,11 +151,19 @@ area_lines :: proc(
 		if at + next == len(text) && text[len(text) - 1] != '\n' {
 			stop = len(text)
 		}
-		append(&lines, Area_Line{at, at + end, stop})
+		l := Area_Line {
+			start = at,
+			end   = at + end,
+			stop  = stop,
+		}
+		if line_is_rtl(ctx, font, text, l.start, l.end) {
+			l.shift = max(0, width - ctx.text_width(font, text[l.start:l.end]))
+		}
+		append(&lines, l)
 		at += next
 	}
 	if len(text) == 0 || text[len(text) - 1] == '\n' {
-		append(&lines, Area_Line{len(text), len(text), len(text)})
+		append(&lines, Area_Line{start = len(text), end = len(text), stop = len(text)})
 	}
 	return lines[:]
 }
@@ -165,7 +178,7 @@ area_line_of :: proc(lines: []Area_Line, at: int) -> int {
 	return len(lines) - 1
 }
 
-// area_x is how far along its line the place `at` is, in pixels: the width
+// area_x is how far along its line (from the text's left edge) the place `at` is, in pixels: the width
 // of the text before it, or where the caret is drawn in a line with
 // right-to-left text (ui_bidi.odin). Places past the drawn part (the spaces
 // a wrap broke at) follow it.
@@ -173,15 +186,16 @@ area_x :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, plac
 	at := clamp(place, l.start, l.stop)
 	if spans, shaped := line_spans(ctx, font, text, l.start, l.end); shaped {
 		if at <= l.end {
-			return round_px(bidi_caret_x(spans, l.start, l.end, at))
+			return l.shift + round_px(bidi_caret_x(spans, l.start, l.end, at))
 		}
-		return ctx.text_width(font, text[l.start:l.end]) + ctx.text_width(font, text[l.end:at])
+		return l.shift + ctx.text_width(font, text[l.start:l.end]) + ctx.text_width(font, text[l.end:at])
 	}
 	return ctx.text_width(font, text[l.start:at])
 }
 
 // area_hit is the place on the line `l` nearest to `x` pixels along it.
-area_hit :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, x: i32) -> int {
+area_hit :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, x_in: i32) -> int {
+	x := x_in - l.shift
 	if spans, shaped := line_spans(ctx, font, text, l.start, l.end); shaped {
 		w := ctx.text_width(font, text[l.start:l.end])
 		if x < w || l.end == l.stop {
@@ -199,7 +213,7 @@ area_ranges :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line,
 	out := make([dynamic][2]i32, context.temp_allocator)
 	if spans, shaped := line_spans(ctx, font, text, l.start, l.end); shaped {
 		for r in bidi_ranges(spans, lo, hi) {
-			append(&out, [2]i32{round_px(r[0]), round_px(r[1])})
+			append(&out, [2]i32{l.shift + round_px(r[0]), l.shift + round_px(r[1])})
 		}
 		if hi > l.end && lo < l.stop {
 			// The spaces a wrap broke at, after the drawn part.
@@ -741,7 +755,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 				mu.draw_rect(ctx, {x0 + r[0], y, r[1] - r[0], lh}, ctx.style.colors[.SELECTION_BG])
 			}
 		}
-		mu.draw_text(ctx, font, text[l.start:l.end], {x0, y}, color)
+		mu.draw_text(ctx, font, text[l.start:l.end], {x0 + l.shift, y}, color)
 		for m in area.spell_marks[:area.spell_n] {
 			if m[1] <= l.start ||
 			   m[0] >= l.end ||
