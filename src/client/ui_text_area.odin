@@ -7,6 +7,7 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:platform"
+import "client:render"
 
 // A text area is the box that messages are written in: a text box over several
 // lines. Its text wraps the way the chat wraps messages (wrap_line), it grows
@@ -210,18 +211,6 @@ text_area_spell :: proc(ui: ^UI, area: ^Text_Area, text: string, focused: bool, 
 @(private = "file")
 spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int) -> bool {
 	return focused && area.typed_at >= 0 && m[0] <= caret && caret <= m[1]
-}
-
-// squiggle draws a wavy line from x `a` to `b`, along the bottom of a line of
-// text `lh` tall that ends at `bottom`.
-@(private = "file")
-squiggle :: proc(ctx: ^mu.Context, a, b, bottom, lh: i32, color: mu.Color) {
-	t := max(lh / 16, 1) // thickness, and how far it goes up and down
-	w := 2 * t // the width of each step
-	y := bottom - 2 * t
-	for x, up := a, false; x < b; x, up = x + w, !up {
-		mu.draw_rect(ctx, {x, y if up else y + t, min(w, b - x), t}, color)
-	}
 }
 
 // area_word is the word at the place `at` in `text`, as its start and end: a
@@ -641,7 +630,11 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			}
 			a := area_x(ctx, font, text, l, max(m[0], l.start))
 			b := area_x(ctx, font, text, l, min(m[1], l.end))
-			squiggle(ctx, x0 + a, x0 + b, y + lh, lh, theme.error)
+			render.draw_squiggle(
+				ctx,
+				{x0 + a, y + lh - render.SQUIGGLE_HEIGHT, b - a, render.SQUIGGLE_HEIGHT},
+				theme.error,
+			)
 		}
 		if focused && i == caret {
 			x := min(area_x(ctx, font, text, l, s.selection[0]), width)
