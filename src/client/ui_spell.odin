@@ -417,7 +417,7 @@ spell_settings :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
-	   checkbox(ctx, "Check spelling while writing messages", &ui.settings.spell_check) {
+	   checkbox(ctx, "Enable spell checking for message composer", &ui.settings.spell_check) {
 		save_settings(ui)
 		spell_settings_changed(ui)
 	}
@@ -427,7 +427,7 @@ spell_settings :: proc(ui: ^UI) {
 		with_text_color(
 			ctx,
 			theme.warning,
-			"  Spell checking needs Hunspell, which isn't installed. Install your system's Hunspell library (libhunspell) and the dictionaries for your languages (hunspell-en-us, hunspell-de-de, ...), then restart yap.",
+			"Spell checking needs Hunspell, which isn't installed. Install your system's Hunspell library (libhunspell) and the dictionaries for your languages (hunspell-en-us, hunspell-de-de, ...), then restart yap.",
 			wrap_text,
 		)
 		return
@@ -442,13 +442,13 @@ spell_settings :: proc(ui: ^UI) {
 spell_words_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	sp := &ui.spell
-	section_label(ui, "Your words")
+	section_label(ui, "Custom dictionary")
 	words := &ui.settings.spell_words
 	if len(words) == 0 {
 		mu.layout_row(ctx, {-1})
-		dim_note(
-			ctx,
-			"  None yet. Right-click an underlined word in a message and pick \"Add to dictionary\".",
+		section_label(
+			ui,
+			"None yet. Right-click an underlined word in a message and pick \"Add to dictionary\".",
 		)
 		return
 	}
@@ -478,34 +478,24 @@ spell_words_settings :: proc(ui: ^UI) {
 spell_language_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	sp := &ui.spell
-	section_label(ui, "Languages")
 	// Where they come from, and how several are checked.
 	when ODIN_OS == .Windows {
-		WHERE :: "the languages that Windows has installed"
+		WHERE :: "the windows spell checker"
 	} else when ODIN_OS == .Darwin {
-		WHERE :: "the languages that macOS has"
+		WHERE :: "the macOS spell checker"
 	} else {
-		WHERE :: "the Hunspell dictionaries installed on the system (in /usr/share/hunspell and the like)"
+		WHERE :: "Hunspell"
 	}
-	mu.layout_row(ctx, {-1})
-	dim_note(
-		ctx,
-		"  These are " +
-		WHERE +
-		". A word is taken as right when any of the checked languages knows it.",
-	)
+
+	section_label(ui, "Languages (using " + WHERE + ")")
+
 	if len(sp.languages) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.warning,
-			"  No languages were found to check against.",
-			wrap_text,
-		)
+		with_text_color(ctx, theme.warning, "No languages were found.", wrap_text)
 	}
 	when ODIN_OS == .Windows {
 		mu.layout_row(ctx, {200})
-		if .SUBMIT in stable_button(ctx, "windows languages", "Windows language settings") {
+		if .SUBMIT in stable_button(ctx, "windows languages", "Open Windows language settings") {
 			platform.open_language_settings()
 		}
 	}
