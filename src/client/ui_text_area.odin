@@ -71,6 +71,10 @@ Text_Area :: struct {
 	footer:        i32,
 	// A press in the footer, which the caret ignores until it is released.
 	footer_press:  bool,
+	// A press that started on the text: only that one moves the caret and
+	// selects while it is held. One that started elsewhere (on a menu over the
+	// box) doesn't, even when the box gets the focus while it is held.
+	text_press:    bool,
 	// The last press on the text, to tell a double click: when and where.
 	press_tick:    time.Tick,
 	press_pos:     mu.Vec2,
@@ -341,8 +345,10 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	tr := text_area_text_rect(r, area)
 	if .LEFT in ctx.mouse_pressed_bits {
 		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)
+		area.text_press = ctx.hover_id == id && mu.mouse_over(ctx, tr)
 	} else if .LEFT not_in ctx.mouse_down_bits {
 		area.footer_press = false
+		area.text_press = false
 		area.word_held = false
 	}
 	if ctx.hover_id == id && mu.mouse_over(ctx, tr) {
@@ -492,10 +498,14 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 			// Pressing or dragging puts the caret where the pointer is: on the
 			// line it is over, or the first or last line if it is past them. Not
-			// on the scrollbar, though.
+			// on the scrollbar, though, and only for a press on the text.
 			on_bar :=
 				.LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
-			if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar && !area.footer_press {
+			if .LEFT in ctx.mouse_down_bits &&
+			   area.text_press &&
+			   !area.dragging &&
+			   !on_bar &&
+			   !area.footer_press {
 				at := area_offset_at(ctx, font, text, lines, r, top, area.scroll, ctx.mouse_pos)
 				if .LEFT in ctx.mouse_pressed_bits {
 					now := time.tick_now()

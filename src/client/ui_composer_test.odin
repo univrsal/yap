@@ -137,6 +137,37 @@ test_composer_footer_keeps_caret :: proc(t: ^testing.T) {
 	testing.expect_value(t, ctx.textbox_state.selection, [2]int{0, 0})
 }
 
+// A press that started somewhere else (on a menu over the box, say) doesn't
+// move the caret or select, not even when the box gets the focus back while
+// it is still held (as after picking a spelling suggestion).
+@(test)
+test_composer_press_elsewhere_keeps_caret :: proc(t: ^testing.T) {
+	ct := composer_test_start("hello world")
+	defer composer_test_end(ct)
+	ctx := &ct.ui.ctx
+	composer_test_frame(ct)
+	mu.set_focus(ctx, ct.box)
+	composer_test_frame(ct)
+	ctx.textbox_state.selection = {4, 4}
+	away := mu.Vec2{ct.rect.x + 20, ct.rect.y + ct.rect.h + 40}
+	mu.input_mouse_move(ctx, away.x, away.y)
+	composer_test_frame(ct)
+	mu.input_mouse_down(ctx, away.x, away.y, .LEFT)
+	composer_test_frame(ct)
+	// The focus comes back while the button is still down, and the pointer
+	// moves over the text.
+	mu.set_focus(ctx, ct.box)
+	ctx.textbox_state.selection = {4, 4}
+	over := mu.Vec2{ct.rect.x + 80, ct.rect.y + 6}
+	mu.input_mouse_move(ctx, over.x, over.y)
+	composer_test_frame(ct)
+	composer_test_frame(ct)
+	testing.expect_value(t, ctx.textbox_state.selection, [2]int{4, 4})
+	mu.input_mouse_up(ctx, over.x, over.y, .LEFT)
+	composer_test_frame(ct)
+	testing.expect_value(t, ctx.textbox_state.selection, [2]int{4, 4})
+}
+
 // While Shift+Enter makes the box grow, the frame each new line is typed in
 // neither scrolls nor shows a scrollbar, though the box only grows in the next
 // one. Past the most lines it grows to, the scrollbar shows.
