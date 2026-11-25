@@ -350,6 +350,8 @@ UI :: struct {
 	cursor_shown:        Cursor,
 	// Text selected in the chat or the log (ui_select.odin).
 	select:              Selection,
+	// Spell checking in the composer (ui_spell.odin).
+	spell:               UI_Spell,
 	// The image paste that is being read, if any (see ui_paste.odin), and where the
 	// next one goes.
 	paste:               ^Paste_Job,

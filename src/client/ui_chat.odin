@@ -401,6 +401,7 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	saved := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved
+	c.area.spell = true
 	return text_area(ui, c.buf, c.len, c.area)
 }
 

@@ -464,6 +464,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	known_servers_destroy(ui)
 	install_destroy(ui)
 	ui_chat_destroy(ui)
+	ui_spell_destroy(ui)
 	ui_select_destroy(ui)
 	conn.view_destroy(ui.view)
 }

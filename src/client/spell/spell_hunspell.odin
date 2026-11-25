@@ -24,13 +24,13 @@ Hunhandle :: distinct rawptr
 
 @(private = "file")
 Symbols :: struct {
-	__handle:                 dynlib.Library,
-	Hunspell_create:          proc "c" (affpath, dpath: cstring) -> Hunhandle,
-	Hunspell_destroy:         proc "c" (h: Hunhandle),
-	Hunspell_spell:           proc "c" (h: Hunhandle, word: cstring) -> c.int,
+	__handle:                  dynlib.Library,
+	Hunspell_create:           proc "c" (affpath, dpath: cstring) -> Hunhandle,
+	Hunspell_destroy:          proc "c" (h: Hunhandle),
+	Hunspell_spell:            proc "c" (h: Hunhandle, word: cstring) -> c.int,
 	Hunspell_get_dic_encoding: proc "c" (h: Hunhandle) -> cstring,
-	Hunspell_suggest:         proc "c" (h: Hunhandle, list: ^[^]cstring, word: cstring) -> c.int,
-	Hunspell_free_list:       proc "c" (h: Hunhandle, list: ^[^]cstring, n: c.int),
+	Hunspell_suggest:          proc "c" (h: Hunhandle, list: ^[^]cstring, word: cstring) -> c.int,
+	Hunspell_free_list:        proc "c" (h: Hunhandle, list: ^[^]cstring, n: c.int),
 }
 
 @(private = "file")
@@ -188,8 +188,14 @@ backend_open :: proc(tag: string, dirs: []string) -> (h: Handle, ok: bool) {
 		log.warnf("spell: no dictionary for %s", tag)
 		return nil, false
 	}
-	aff := strings.clone_to_cstring(strings.concatenate({base, ".aff"}, context.temp_allocator), context.temp_allocator)
-	dic := strings.clone_to_cstring(strings.concatenate({base, ".dic"}, context.temp_allocator), context.temp_allocator)
+	aff := strings.clone_to_cstring(
+		strings.concatenate({base, ".aff"}, context.temp_allocator),
+		context.temp_allocator,
+	)
+	dic := strings.clone_to_cstring(
+		strings.concatenate({base, ".dic"}, context.temp_allocator),
+		context.temp_allocator,
+	)
 	hh := g_sym.Hunspell_create(aff, dic)
 	if hh == nil {
 		log.warnf("spell: Hunspell couldn't read %s", base)
@@ -287,7 +293,16 @@ decode :: proc(encoding: Encoding, s: string, allocator := context.allocator) ->
 LATIN9 := [?]struct {
 	b: u8,
 	r: rune,
-}{{0xA4, '€'}, {0xA6, 'Š'}, {0xA8, 'š'}, {0xB4, 'Ž'}, {0xB8, 'ž'}, {0xBC, 'Œ'}, {0xBD, 'œ'}, {0xBE, 'Ÿ'}}
+} {
+	{0xA4, '€'},
+	{0xA6, 'Š'},
+	{0xA8, 'š'},
+	{0xB4, 'Ž'},
+	{0xB8, 'ž'},
+	{0xBC, 'Œ'},
+	{0xBD, 'œ'},
+	{0xBE, 'Ÿ'},
+}
 
 @(private = "file")
 latin_byte :: proc(encoding: Encoding, r: rune) -> (u8, bool) {

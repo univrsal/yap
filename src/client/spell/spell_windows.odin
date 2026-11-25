@@ -30,7 +30,7 @@ S_FALSE :: win.HRESULT(1)
 @(private = "file")
 ISpellCheckerFactory :: struct #raw_union {
 	#subtype IUnknown: win.IUnknown,
-	using Vtbl:        ^ISpellCheckerFactory_Vtbl,
+	using Vtbl: ^ISpellCheckerFactory_Vtbl,
 }
 
 @(private = "file")
@@ -56,7 +56,7 @@ ISpellCheckerFactory_Vtbl :: struct {
 @(private = "file")
 ISpellChecker :: struct #raw_union {
 	#subtype IUnknown: win.IUnknown,
-	using Vtbl:        ^ISpellChecker_Vtbl,
+	using Vtbl: ^ISpellChecker_Vtbl,
 }
 
 @(private = "file")
@@ -78,7 +78,7 @@ ISpellChecker_Vtbl :: struct {
 @(private = "file")
 IEnumSpellingError :: struct #raw_union {
 	#subtype IUnknown: win.IUnknown,
-	using Vtbl:        ^IEnumSpellingError_Vtbl,
+	using Vtbl: ^IEnumSpellingError_Vtbl,
 }
 
 @(private = "file")

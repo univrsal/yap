@@ -26,6 +26,7 @@ composer_test_start :: proc(text: string) -> ^Composer_Test {
 	ct := new(Composer_Test)
 	ct.ui = new(UI)
 	ct.ui.view = &ct.ui.no_view
+	ct.ui.spell.opened = true // and nothing to check against, not the system's checker
 	mu.init(&ct.ui.ctx)
 	ct.ui.ctx.text_width = proc(font: mu.Font, s: string) -> i32 {return i32(len(s)) * 8}
 	ct.ui.ctx.text_height = proc(font: mu.Font) -> i32 {return 16}

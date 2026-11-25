@@ -16,6 +16,7 @@ test_composer_preview_fits :: proc(t: ^testing.T) {
 		defer free(ui)
 		defer ui_select_destroy(ui)
 		ui.view = &ui.no_view
+		ui.spell.opened = true // and nothing to check against, not the system's checker
 		mu.init(&ui.ctx)
 		ui.ctx.text_width = proc(font: mu.Font, s: string) -> i32 {return i32(len(s)) * 8}
 		ui.ctx.text_height = proc(font: mu.Font) -> i32 {return 16}

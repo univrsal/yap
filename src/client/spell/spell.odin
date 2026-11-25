@@ -261,9 +261,8 @@ next_word :: proc(text: string, at: int) -> (start, end: int, ok: bool) {
 			i = end
 			continue
 		}
-		if chunk_start, chunk_end := chunk_around(text, start); is_address(
-			text[chunk_start:chunk_end],
-		) {
+		if chunk_start, chunk_end := chunk_around(text, start);
+		   is_address(text[chunk_start:chunk_end]) {
 			i = chunk_end
 			continue
 		}
@@ -282,7 +281,11 @@ is_word_rune :: proc(r: rune) -> bool {
 
 @(private)
 is_mark :: proc(r: rune) -> bool {
-	return unicode.is_nonspacing_mark(r) || unicode.is_spacing_mark(r) || unicode.is_enclosing_mark(r)
+	return(
+		unicode.is_nonspacing_mark(r) ||
+		unicode.is_spacing_mark(r) ||
+		unicode.is_enclosing_mark(r) \
+	)
 }
 
 @(private)

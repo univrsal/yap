@@ -1,5 +1,6 @@
 package client
 
+import "core:hash"
 import "core:strings"
 import textedit "core:text/edit"
 import "core:time"
@@ -34,6 +35,9 @@ import "client:platform"
 
 // The most lines a text area grows to. Beyond that it scrolls.
 TEXT_AREA_MAX_LINES :: 10
+
+// The most misspelled words a text area underlines.
+TEXT_AREA_MAX_MARKS :: 64
 
 // How soon after a press another one near it makes a double click.
 TEXT_AREA_DOUBLE_CLICK :: 500 * time.Millisecond
@@ -73,6 +77,18 @@ Text_Area :: struct {
 	// which dragging selects whole words from.
 	word_held:    bool,
 	word:         [2]int,
+	// Set by its owner: whether its words are spell checked (ui_spell.odin).
+	spell:        bool,
+	// The misspelled words, as worked out for the text with the hash
+	// `spell_hash` under the speller's generation `spell_gen`.
+	spell_hash:   u64,
+	spell_gen:    u32,
+	spell_n:      int,
+	spell_marks:  [TEXT_AREA_MAX_MARKS][2]int,
+	// Where the caret was when the text last changed, while it stays there
+	// (-1: it has moved on). The word there is still being typed and isn't
+	// underlined yet.
+	typed_at:     int,
 	// In a web build, the page's own text field that stands in for it.
 	field:        Field_Sync,
 	// What Ctrl+Z and Ctrl+Y go through (ui_text_history.odin). Not in a web
@@ -166,6 +182,46 @@ area_vertical :: proc(
 	}
 	l := lines[i]
 	return offset_at(ctx, font, text, l.start, l.stop, x)
+}
+
+// text_area_spell works out which words of `text` are misspelled when the text
+// or the speller changed, and keeps track of the word being typed.
+@(private = "file")
+text_area_spell :: proc(ui: ^UI, area: ^Text_Area, text: string, focused: bool, caret: int) {
+	sp := ui_speller(ui) if area.spell else nil
+	if sp == nil {
+		area.spell_n, area.spell_hash, area.typed_at = 0, 0, -1
+		return
+	}
+	h := hash.fnv64a(transmute([]u8)text)
+	if h != area.spell_hash || ui.spell.generation != area.spell_gen {
+		if h != area.spell_hash {
+			area.typed_at = caret if focused else -1
+		}
+		area.spell_hash, area.spell_gen = h, ui.spell.generation
+		area.spell_n = spell_marks(sp, text, area.spell_marks[:])
+	} else if caret != area.typed_at {
+		area.typed_at = -1
+	}
+}
+
+// spell_mark_typing is whether the misspelled word `m` is the one being typed,
+// which isn't underlined until the caret leaves it.
+@(private = "file")
+spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int) -> bool {
+	return focused && area.typed_at >= 0 && m[0] <= caret && caret <= m[1]
+}
+
+// squiggle draws a wavy line from x `a` to `b`, along the bottom of a line of
+// text `lh` tall that ends at `bottom`.
+@(private = "file")
+squiggle :: proc(ctx: ^mu.Context, a, b, bottom, lh: i32, color: mu.Color) {
+	t := max(lh / 16, 1) // thickness, and how far it goes up and down
+	w := 2 * t // the width of each step
+	y := bottom - 2 * t
+	for x, up := a, false; x < b; x, up = x + w, !up {
+		mu.draw_rect(ctx, {x, y if up else y + t, min(w, b - x), t}, color)
+	}
 }
 
 // area_word is the word at the place `at` in `text`, as its start and end: a
@@ -550,6 +606,8 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		area.dragging = false
 	}
 
+	text_area_spell(ui, area, text, focused, s.selection[0])
+
 	mu.draw_control_frame(ctx, id, r, .BASE, {})
 	mu.push_clip_rect(ctx, tr)
 	defer mu.pop_clip_rect(ctx)
@@ -575,6 +633,16 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			mu.draw_rect(ctx, {x0 + a, y, b - a, lh}, ctx.style.colors[.SELECTION_BG])
 		}
 		mu.draw_text(ctx, font, text[l.start:l.end], {x0, y}, color)
+		for m in area.spell_marks[:area.spell_n] {
+			if m[1] <= l.start ||
+			   m[0] >= l.end ||
+			   spell_mark_typing(area, m, focused, s.selection[0]) {
+				continue
+			}
+			a := area_x(ctx, font, text, l, max(m[0], l.start))
+			b := area_x(ctx, font, text, l, min(m[1], l.end))
+			squiggle(ctx, x0 + a, x0 + b, y + lh, lh, theme.error)
+		}
 		if focused && i == caret {
 			x := min(area_x(ctx, font, text, l, s.selection[0]), width)
 			mu.draw_rect(ctx, {x0 + x, y, 1, lh}, color)
