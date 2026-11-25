@@ -140,7 +140,7 @@ unifont_glyph_width :: proc(u: ^Unifont, r: rune, scale: f32) -> i32 {
 // scale, if it is not there already. It fails once the atlas is full (it is
 // then emptied before the next frame).
 unifont_cache :: proc(u: ^Unifont, a: ^Glyph_Atlas, r: rune) -> (g: Atlas_Glyph, ok: bool) {
-	if g, ok = glyph_atlas_find(a, r); ok {
+	if g, ok = glyph_atlas_find(a, atlas_key(r)); ok {
 		return
 	}
 	if unifont_width(u, r) == 0 {
@@ -150,7 +150,7 @@ unifont_cache :: proc(u: ^Unifont, a: ^Glyph_Atlas, r: rune) -> (g: Atlas_Glyph,
 	w := unifont_glyph_width(u, r, a.scale)
 	top := -i32(math.round(UNIFONT_ASCENT * f32(h) / UNIFONT_SIZE))
 	pixels: []u8
-	g, pixels, ok = glyph_atlas_add(a, r, w, h, 0, top)
+	g, pixels, ok = glyph_atlas_add(a, atlas_key(r), w, h, 0, top)
 	if !ok {
 		return
 	}

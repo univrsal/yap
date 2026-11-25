@@ -368,12 +368,29 @@ chat_font :: proc(style: Font_Style) -> mu.Font {
 
 // font_with_style returns `font` (the UI's or the chat's) in another face.
 font_with_style :: proc(font: mu.Font, style: Font_Style) -> mu.Font {
-	return mu.Font(uintptr(font) & 0xf | uintptr(style) << 4)
+	return mu.Font(uintptr(font) &~ uintptr(0xf0) | uintptr(style) << 4)
 }
 
 // font_style returns the face that a handle refers to.
 font_style :: proc(font: mu.Font) -> Font_Style {
-	return Font_Style((uintptr(font) >> 4) % len(Font_Style))
+	return Font_Style((uintptr(font) >> 4 & 0xf) % len(Font_Style))
+}
+
+// A font handle with LOGICAL_ORDER lays text out in the order it was typed
+// rather than in visual order (font_layout's `logical`), which is what the
+// composer and text boxes measure and draw with, so that their caret, which
+// is placed by the width of the text before it, stays with the characters.
+@(private = "file")
+LOGICAL_ORDER :: uintptr(1) << 8
+
+// logical_order returns `font` laying text out in logical order.
+logical_order :: proc(font: mu.Font) -> mu.Font {
+	return mu.Font(uintptr(font) | LOGICAL_ORDER)
+}
+
+// font_logical returns whether a font lays text out in logical order.
+font_logical :: proc(font: mu.Font) -> bool {
+	return uintptr(font) & LOGICAL_ORDER != 0
 }
 
 Font_Slot :: struct {
@@ -641,7 +658,7 @@ ui_font_em :: proc(font: mu.Font) -> f32 {
 
 // microui text metrics, in logical pixels.
 ui_text_width :: proc(font: mu.Font, text: string) -> i32 {
-	return i32(math.ceil(font_text_width(&slot_of(g_fonts, font).font, text, font_style(font))))
+	return i32(math.ceil(font_text_width(&slot_of(g_fonts, font).font, text, font_style(font), font_logical(font))))
 }
 
 ui_text_height :: proc(font: mu.Font) -> i32 {
@@ -665,6 +682,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	// size by less than a logical pixel at the right and bottom edges.
 	view_w, view_h := f32(fb_w) / scale, f32(fb_h) / scale
 	r.scale = scale
+	shaping_frame(&r.system.shaping)
 	if !gpu_begin(&r.gpu, fb_w, fb_h, view_w, view_h, clear) {
 		return // minimized, or the device is lost
 	}
@@ -745,7 +763,8 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				slot_prepare(r, slot, scale)
 			}
 			style := font_style(c.font)
-			font_cache_glyphs(&slot.font, c.str, style)
+			logical := font_logical(c.font)
+			font_cache_glyphs(&slot.font, c.str, style, logical)
 			upload_atlas(r, &slot.font.fallback, &slot.fallback_texture)
 			upload_atlas(r, &slot.font.emoji, &slot.emoji_texture)
 			if style != .Regular {
@@ -799,6 +818,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
 				style,
+				logical,
 			)
 		case ^mu.Command_Rect:
 			w := rect_white(r)

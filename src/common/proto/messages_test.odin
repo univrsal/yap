@@ -281,6 +281,8 @@ test_retired_kinds_rejected :: proc(t: ^testing.T) {
 test_sanitize_text :: proc(t: ^testing.T) {
 	buf: [MAX_CHAT_SIZE]u8
 	testing.expect_value(t, sanitize_text("  a\tb\r\nc\x00‮  ", buf[:]), "a b  c")
+	// A name keeps no joiners or direction marks.
+	testing.expect_value(t, sanitize_text("ad‍min‎", buf[:]), "admin")
 	long := strings.repeat("é", MAX_CHAT_SIZE, context.temp_allocator)
 	got := sanitize_text(long, buf[:])
 	// Cut at a character boundary: é is 2 bytes and the limit is odd.
@@ -301,6 +303,10 @@ test_sanitize_message :: proc(t: ^testing.T) {
 		{"a\n\n\n\n\n\nb", "a\n\n\nb"},
 		{"a\n \n\t\n \n\nb", "a\n\n\nb"},
 		{"a\x00b\u202ec\x7f", "abc"},
+		// The joiners and direction marks stay; the isolates go.
+		{"می‌خواهم", "می‌خواهم"},
+		{"a‍b‎c‏d؜e", "a‍b‎c‏d؜e"},
+		{"a⁦b⁩c​d", "abcd"},
 		{" \n\t\r\n", ""},
 	}
 	for c in cases {

@@ -34,7 +34,11 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 			Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false, false},
 		)
 	}
+	// In the order it was typed, as in a text area (ui_text_area.odin).
+	saved_font := ctx.style.font
+	ctx.style.font = render.logical_order(saved_font)
 	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
+	ctx.style.font = saved_font
 	nav_control(ctx, id, r, textlen^)
 	if ctx.hover_id == id {
 		ui.select.over_text = true // shows an I-beam over it (draw_frame)

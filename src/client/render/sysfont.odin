@@ -39,6 +39,7 @@ System_Font :: struct {
 	info:      stbtt.fontinfo,
 	per_em:    f32, // font units to ems
 	used:      int, // characters drawn from it so far
+	gsub:      bool, // whether it has OpenType rules for joining and reordering letters
 }
 
 // What a character comes from: one of System_Fonts.fonts, or none.
@@ -63,6 +64,8 @@ System_Fonts :: struct {
 	emoji_enabled: bool,
 	emoji:         System_Emoji,
 	emoji_found:   map[rune]int,
+	// Shaping text with these fonts and the faces (shape_native.odin).
+	shaping:       Shaping,
 }
 
 // A font file that the system offers for a character.
@@ -73,6 +76,8 @@ Font_File :: struct {
 }
 
 system_fonts_destroy :: proc(s: ^System_Fonts) {
+	// First, while the fonts it shapes with are still mapped.
+	shaping_destroy(&s.shaping)
 	for &f in s.fonts {
 		if f.data != nil {
 			unmap_font_file(f.data)
@@ -111,6 +116,8 @@ system_fonts_enable :: proc(s: ^System_Fonts, enabled: bool) -> bool {
 	}
 	s.enabled = enabled
 	s.generation += 1
+	// Strings were shaped with the other fonts.
+	shaping_clear(&s.shaping)
 	return true
 }
 
@@ -142,36 +149,60 @@ system_glyph :: proc(s: ^System_Fonts, r: rune) -> (g: System_Glyph, ok: bool) {
 }
 
 // system_glyph_find asks the system which fonts have a character and takes
-// the first that really draws it.
+// the first that really draws it. For a script whose letters join or
+// reorder, a font with OpenType's rules for that (a GSUB table) is taken
+// first: some of macOS's fonts have only Apple's own kind (AAT), which
+// kb_text_shape doesn't apply, so their letters would stay apart.
 @(private = "file")
 system_glyph_find :: proc(s: ^System_Fonts, r: rune) -> System_Glyph {
 	candidates := make([dynamic]Font_File, context.temp_allocator)
 	system_font_candidates(s, r, &candidates)
-	for c in candidates {
-		i := system_font_open(s, c)
-		if i < 0 {
+	for pass in 0 ..< 2 {
+		if pass == 0 && !needs_rules(r) {
 			continue
 		}
-		f := &s.fonts[i]
-		if stbtt.FindGlyphIndex(&f.info, r) == 0 {
-			continue
-		}
-		// Some fonts map characters to glyphs without outlines: an emoji
-		// font's pictures, which stb_truetype can't draw, or a placeholder.
-		// Those are left to the next font or to Unifont. Spaces are blank
-		// anyway.
-		if !unicode.is_space(r) {
-			x0, y0, x1, y1: i32
-			stbtt.GetCodepointBitmapBox(&f.info, r, 1, 1, &x0, &y0, &x1, &y1)
-			if x1 <= x0 || y1 <= y0 {
+		for c in candidates {
+			i := system_font_open(s, c)
+			if i < 0 {
 				continue
 			}
+			f := &s.fonts[i]
+			if pass == 0 && !f.gsub {
+				continue
+			}
+			if stbtt.FindGlyphIndex(&f.info, r) == 0 {
+				continue
+			}
+			// Some fonts map characters to glyphs without outlines: an emoji
+			// font's pictures, which stb_truetype can't draw, or a
+			// placeholder. Those are left to the next font or to Unifont.
+			// Spaces are blank anyway.
+			if !unicode.is_space(r) {
+				x0, y0, x1, y1: i32
+				stbtt.GetCodepointBitmapBox(&f.info, r, 1, 1, &x0, &y0, &x1, &y1)
+				if x1 <= x0 || y1 <= y0 {
+					continue
+				}
+			}
+			advance, lsb: i32
+			stbtt.GetCodepointHMetrics(&f.info, r, &advance, &lsb)
+			return {font = i32(i), advance = f32(advance) * f.per_em}
 		}
-		advance, lsb: i32
-		stbtt.GetCodepointHMetrics(&f.info, r, &advance, &lsb)
-		return {font = i32(i), advance = f32(advance) * f.per_em}
 	}
 	return {font = -1}
+}
+
+// needs_rules returns whether a character is of a script whose letters join
+// or are reordered (Arabic and its neighbors, the Indic scripts, Tibetan,
+// Myanmar, Khmer, Mongolian and others), so that its font needs OpenType
+// rules for it.
+@(private = "file")
+needs_rules :: proc(r: rune) -> bool {
+	switch r {
+	case 0x0600 ..= 0x08ff, 0x0900 ..= 0x0dff, 0x0f00 ..= 0x109f, 0x1780 ..= 0x18af, 0xa800 ..= 0xabff:
+		return true
+	}
+	return false
 }
 
 // system_fonts_in_use returns the names of the system's fonts that text was
@@ -200,7 +231,7 @@ system_glyph_cache :: proc(
 	g: Atlas_Glyph,
 	ok: bool,
 ) {
-	if g, ok = glyph_atlas_find(a, r); ok {
+	if g, ok = glyph_atlas_find(a, atlas_key(r)); ok {
 		return
 	}
 	sg, has := system_glyph(s, r)
@@ -213,7 +244,7 @@ system_glyph_cache :: proc(
 	stbtt.GetCodepointBitmapBox(&f.info, r, k, k, &x0, &y0, &x1, &y1)
 	w, h := max(x1 - x0, 0), max(y1 - y0, 0)
 	pixels: []u8
-	g, pixels, ok = glyph_atlas_add(a, r, w, h, x0, y0)
+	g, pixels, ok = glyph_atlas_add(a, atlas_key(r), w, h, x0, y0)
 	if !ok || pixels == nil {
 		return
 	}

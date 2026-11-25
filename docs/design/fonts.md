@@ -315,6 +315,50 @@ affects the download and the binary.
    `sanitize.odin` on the server. Emoji sequences and skin tones (and
    offering them in the picker) come with this step.
 
+   *As built* (for text that is shown; the composer and sequences are
+   steps 4 and 5): kb_text_shape v2.21 is in `deps/thirdparty`, compiled
+   by `build.sh`/`build.bat` behind `src/client/shape/yap_shape.c`, which
+   keeps its structs on the C side and gives Odin flat runs of glyphs
+   (fonts by number; runs split at a change of direction, script or font;
+   glyphs of a right-to-left run already in visual order). It uses the
+   direct API, so each character keeps the font `find_glyph` picks (a mark
+   or joiner goes with the character before it), and segments with
+   `kbts_BreakAddCodepoint`: `kbts_BreakEntireStringUtf32` returned stray
+   entries between the real ones. `render/shape_native.odin` shapes only
+   strings that need it (`needs_shaping`: RTL, joining and Indic scripts,
+   combining marks, joiners; not Latin, Greek, Cyrillic, CJK or emoji),
+   puts the runs of the line in visual order (two levels, plus numbers
+   after RTL text going with it), caches each shaped string while frames
+   use it, and rasterizes shaped glyphs into the fallback atlas by font and
+   glyph index. Characters without a shaping font (Unifont, emoji) keep
+   their old drawing, in the reordered place. Rich text's pieces are each
+   shaped and ordered on their own, and RTL lines stay left-aligned.
+
+   The composer and text boxes lay text out in logical order (a flag in
+   the font handle): left-to-right runs are shaped, right-to-left ones
+   drawn letter by letter as typed, so the caret, placed by the width of
+   the text before it, stays right. Selecting text that is shown in visual
+   order still highlights by logical widths.
+
+   Messages keep U+200C/200D and U+200E/200F/061C (`sanitize_message`);
+   names and other single lines keep none, so that a name can't pass for
+   another; the embeddings, overrides and isolates go everywhere.
+
+   macOS draws Arabic with Geeza Pro, whose rules are AAT only, and its
+   fallback list's next font with OpenType rules is Noto Nastaliq Urdu.
+   For scripts that join, a font with a `GSUB` table is now taken first,
+   and on macOS SF Arabic (then Tahoma) is offered right after CoreText's
+   choice. The web client doesn't shape (kb_text_shape isn't built with
+   emscripten yet).
+4. **Editing in visual order**: the composer and text boxes lay text out
+   like the rest (shaped right-to-left runs, in visual order), with the
+   caret placed and moved by grapheme in visual order, hit-testing and
+   selection over runs, and the same for selecting shown text.
+5. **Emoji sequences**: keep U+200D, skin tones, flags and tag sequences
+   in emoji, shape them with the system's emoji font (its ligatures), key
+   the color atlas by glyph, and offer skin tones in the picker. The sheet
+   draws a sequence as its parts.
+
 ## Not covered
 
 Nothing here has been prototyped. Not checked: whether Windows 11's Segoe

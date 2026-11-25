@@ -13,14 +13,14 @@ test_glyph_atlas_shelves :: proc(t: ^testing.T) {
 
 	// Glyphs of about one height share a shelf, left to right; a much
 	// shorter one starts its own.
-	g1, _, ok1 := glyph_atlas_add(&a, 'a', 10, 16, 0, -12)
-	g2, _, ok2 := glyph_atlas_add(&a, 'b', 12, 15, 0, -12)
-	g3, _, ok3 := glyph_atlas_add(&a, '.', 3, 3, 0, -3)
+	g1, _, ok1 := glyph_atlas_add(&a, atlas_key('a'), 10, 16, 0, -12)
+	g2, _, ok2 := glyph_atlas_add(&a, atlas_key('b'), 12, 15, 0, -12)
+	g3, _, ok3 := glyph_atlas_add(&a, atlas_key('.'), 3, 3, 0, -3)
 	testing.expect(t, ok1 && ok2 && ok3)
 	testing.expect_value(t, g2.y, g1.y)
 	testing.expect(t, g2.x >= g1.x + g1.w + 1)
 	testing.expect(t, g3.y != g1.y)
-	found, _ := glyph_atlas_find(&a, 'b')
+	found, _ := glyph_atlas_find(&a, atlas_key('b'))
 	testing.expect_value(t, found, g2)
 
 	// The white block is there once there are pixels.
@@ -30,13 +30,13 @@ test_glyph_atlas_shelves :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.pixels[wy * int(a.side) + wx], 255)
 
 	// A blank glyph takes no room but is known.
-	space, pixels, ok := glyph_atlas_add(&a, ' ', 0, 0, 0, 0)
+	space, pixels, ok := glyph_atlas_add(&a, atlas_key(' '), 0, 0, 0, 0)
 	testing.expect(t, ok && pixels == nil && space.w == 0)
 
 	// Filling it up: no two glyphs overlap, and then it is full.
 	n := 0
 	for r := rune(0x4e00); ; r += 1 {
-		g, _, added := glyph_atlas_add(&a, r, 17, 17, 0, -14)
+		g, _, added := glyph_atlas_add(&a, atlas_key(r), 17, 17, 0, -14)
 		if !added {
 			break
 		}
@@ -45,7 +45,7 @@ test_glyph_atlas_shelves :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, a.full)
 	testing.expect(t, n > 2500)
-	_, _, ok = glyph_atlas_add(&a, 'z', 1, 1, 0, 0)
+	_, _, ok = glyph_atlas_add(&a, atlas_key('z'), 1, 1, 0, 0)
 	testing.expect(t, !ok)
 
 	glyph_atlas_reset(&a, 2)

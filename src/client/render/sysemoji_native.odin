@@ -86,7 +86,7 @@ system_emoji_cache :: proc(
 	g: Atlas_Glyph,
 	ok: bool,
 ) {
-	if g, ok = glyph_atlas_find(a, r); ok {
+	if g, ok = glyph_atlas_find(a, atlas_key(r)); ok {
 		return
 	}
 	glyph, has := system_emoji_glyph(s, r)
@@ -94,7 +94,7 @@ system_emoji_cache :: proc(
 		return
 	}
 	pixels: []u8
-	g, pixels, ok = glyph_atlas_add(a, r, side, side, 0, 0)
+	g, pixels, ok = glyph_atlas_add(a, atlas_key(r), side, side, 0, 0)
 	if !ok || pixels == nil {
 		return
 	}

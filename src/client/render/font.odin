@@ -294,7 +294,7 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 }
 
 // The kind of source a character's glyph is drawn from.
-@(private = "file")
+@(private)
 Glyph_Source :: enum {
 	Face, // the index is into the face's arrays
 	System, // one of the system's fonts (sysfont.odin); the index is the character itself
@@ -308,7 +308,7 @@ Glyph_Source :: enum {
 // `style`. `face` is the face the glyph comes from, if it comes from one.
 // Invalid UTF-8 arrives here as utf8.RUNE_ERROR, so it is shown as the
 // fallback too.
-@(private = "file")
+@(private)
 find_glyph :: proc(
 	f: ^Font,
 	style: Font_Style,
@@ -352,31 +352,41 @@ find_glyph :: proc(
 	return int(fc.fallback), .Face, face
 }
 
-font_text_width :: proc(f: ^Font, text: string, style := Font_Style.Regular) -> f32 {
-	return font_text_width_unzoomed(f, text, style) * f.zoom
-}
-
-@(private = "file")
-font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f32 {
+// font_text_width returns how wide `text` is in `style` (logical pixels).
+// Text that needs shaping (shape_native.odin) is measured shaped, in visual
+// order, or with `logical` in the order of its characters as the composer
+// shows it.
+font_text_width :: proc(f: ^Font, text: string, style := Font_Style.Regular, logical := false) -> f32 {
+	if needs_shaping(f, text) {
+		return shaped_text(f, style, text, logical).width * f.zoom
+	}
 	w: f32
 	for r in text {
-		i, source, face := find_glyph(f, style, r)
-		switch source {
-		case .Face:
-			w += f.faces[face].advance[i]
-		case .Unifont:
-			w += f32(f.uni.width[i])
-		case .System:
-			g, _ := system_glyph(f.sys, rune(i))
-			w += g.advance * f.em
-		case .Emoji:
-			w += EMOJI_ADVANCE
-		case .Placeholder:
-			w += custom_emoji_advance(i)
-		case .None:
-		}
+		w += rune_advance(f, style, r)
 	}
-	return w
+	return w * f.zoom
+}
+
+// rune_advance is how far a character moves the pen when it isn't shaped
+// (logical pixels, unzoomed).
+@(private)
+rune_advance :: proc(f: ^Font, style: Font_Style, r: rune) -> f32 {
+	i, source, face := find_glyph(f, style, r)
+	switch source {
+	case .Face:
+		return f.faces[face].advance[i]
+	case .Unifont:
+		return f32(f.uni.width[i])
+	case .System:
+		g, _ := system_glyph(f.sys, r)
+		return g.advance * f.em
+	case .Emoji:
+		return EMOJI_ADVANCE
+	case .Placeholder:
+		return custom_emoji_advance(i)
+	case .None:
+	}
+	return 0
 }
 
 // How much space one of the server's emoji takes up in a line and how big it
@@ -390,26 +400,46 @@ custom_emoji_advance :: proc(span: int) -> f32 {
 	return f32(span * CUSTOM_EMOJI_SIZE + (CUSTOM_EMOJI_ADVANCE - CUSTOM_EMOJI_SIZE))
 }
 
-// font_cache_glyphs puts the fallback glyphs that `text` needs into their
-// atlas before font_layout. The renderer uploads whatever changed in between.
-font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
-	for r in text {
-		#partial switch _, source, _ := find_glyph(f, style, r); source {
-		case .System:
-			system_glyph_cache(f.sys, &f.fallback, r, f.em)
-		case .Unifont:
-			unifont_cache(&f.uni, &f.fallback, r)
-		case .Emoji:
-			if _, ok := system_emoji_glyph(f.sys, r); ok {
-				system_emoji_cache(f.sys, &f.emoji, r, emoji_side(f.scale), EMOJI_FILL)
+// font_cache_glyphs puts the fallback glyphs, shaped glyphs and color emoji
+// that `text` needs into their atlases before font_layout. The renderer
+// uploads whatever changed in between.
+font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular, logical := false) {
+	if needs_shaping(f, text) {
+		for g in shaped_text(f, style, text, logical).glyphs {
+			if g.kind == .Glyph {
+				shaped_glyph_cache(f, g.font, g.id)
+			} else {
+				cache_rune(f, style, g.r)
 			}
+		}
+		return
+	}
+	for r in text {
+		cache_rune(f, style, r)
+	}
+}
+
+@(private = "file")
+cache_rune :: proc(f: ^Font, style: Font_Style, r: rune) {
+	#partial switch _, source, _ := find_glyph(f, style, r); source {
+	case .System:
+		system_glyph_cache(f.sys, &f.fallback, r, f.em)
+	case .Unifont:
+		unifont_cache(&f.uni, &f.fallback, r)
+	case .Emoji:
+		if _, ok := system_emoji_glyph(f.sys, r); ok {
+			system_emoji_cache(f.sys, &f.emoji, r, emoji_side(f.scale), EMOJI_FILL)
 		}
 	}
 }
 
 // font_faces_used returns the faces that glyphs are taken from when drawing
-// `text` in `style`, so the renderer can have their atlases ready.
+// `text` in `style`, so the renderer can have their atlases ready. (Shaped
+// glyphs are in the fallback atlas, whichever font they are from.)
 font_faces_used :: proc(f: ^Font, text: string, style: Font_Style) -> (used: bit_set[Font_Style]) {
+	if needs_shaping(f, text) {
+		return {.Regular}
+	}
 	for r in text {
 		if _, source, face := find_glyph(f, style, r); source == .Face {
 			used += {face}
@@ -421,7 +451,7 @@ font_faces_used :: proc(f: ^Font, text: string, style: Font_Style) -> (used: bit
 Glyph_Quad :: struct {
 	x0, y0, x1, y1: f32, // logical pixels
 	u0, v0, u1, v1: f32,
-	fallback:       bool, // from the fallback atlas (Unifont's and the system's glyphs) rather than a face's
+	fallback:       bool, // from the fallback atlas (Unifont's, the system's and shaped glyphs) rather than a face's
 	emoji:          bool, // from the emoji sheet, in color; none of the others
 	color:          bool, // from the font's atlas of the system's color emoji; none of the others
 	face:           Font_Style, // which face's atlas the glyph is from, if it is a face glyph
@@ -429,7 +459,9 @@ Glyph_Quad :: struct {
 
 // font_layout calls `emit` for every visible glyph of `text` in `style`,
 // with the top of its line box at `y` (all logical pixels). Glyph edges are
-// snapped to physical pixels, which keeps small text crisp.
+// snapped to physical pixels, which keeps small text crisp. Text that needs
+// shaping is shaped, and put in visual order unless `logical`
+// (font_text_width).
 font_layout :: proc(
 	f: ^Font,
 	text: string,
@@ -437,9 +469,10 @@ font_layout :: proc(
 	data: rawptr,
 	emit: proc(data: rawptr, q: Glyph_Quad),
 	style := Font_Style.Regular,
+	logical := false,
 ) {
 	if f.zoom == 1 {
-		font_layout_unzoomed(f, text, style, x, y, data, emit)
+		font_layout_unzoomed(f, text, style, logical, x, y, data, emit)
 		return
 	}
 	// Lay out in the zoomed font's own space, then blow the glyphs up from
@@ -454,6 +487,7 @@ font_layout :: proc(
 		f,
 		text,
 		style,
+		logical,
 		x / f.zoom,
 		y / f.zoom,
 		&z,
@@ -471,6 +505,7 @@ font_layout_unzoomed :: proc(
 	f: ^Font,
 	text: string,
 	style: Font_Style,
+	logical: bool,
 	x, y: f32,
 	data: rawptr,
 	emit: proc(data: rawptr, q: Glyph_Quad),
@@ -483,113 +518,150 @@ font_layout_unzoomed :: proc(
 	// a scale of 1.5, such as while a window is resized), and the letters
 	// would shuffle.
 	origin := math.round(x * s)
+	if needs_shaping(f, text) {
+		for g in shaped_text(f, style, text, logical).glyphs {
+			if g.kind == .Char {
+				layout_rune(f, style, g.r, g.x, origin, baseline, y, data, emit)
+				continue
+			}
+			a := &f.fallback
+			ag, ok := shaped_glyph_cache(f, g.font, g.id)
+			if !ok || a.scale != s || ag.w == 0 || ag.h == 0 {
+				continue
+			}
+			px := origin + math.round((g.x + g.dx) * s) + f32(ag.xoff)
+			py := baseline - math.round(g.dy * s) + f32(ag.yoff)
+			emit_atlas_glyph(a, ag, px, py, s, data, emit)
+		}
+		return
+	}
 	// The offset from the start of the text, in logical pixels.
 	pen: f32
 	for r in text {
-		i, source, face := find_glyph(f, style, r)
-		switch source {
-		case .None:
-		case .Placeholder:
-			pen += custom_emoji_advance(i)
-		case .Unifont, .System:
-			advance: f32
-			g: Atlas_Glyph
-			ok: bool
-			if source == .Unifont {
-				advance = f32(f.uni.width[i])
-				g, ok = unifont_cache(&f.uni, &f.fallback, r)
-			} else {
-				sg, _ := system_glyph(f.sys, r)
-				advance = sg.advance * f.em
-				g, ok = system_glyph_cache(f.sys, &f.fallback, r, f.em)
-			}
-			a := &f.fallback
-			if ok && a.scale == s {
-				if g.w > 0 && g.h > 0 {
-					px := origin + math.round(pen * s) + f32(g.xoff)
-					py := baseline + f32(g.yoff)
-					side := f32(a.side)
-					emit(
-						data,
-						Glyph_Quad {
-							x0 = px / s,
-							y0 = py / s,
-							x1 = (px + f32(g.w)) / s,
-							y1 = (py + f32(g.h)) / s,
-							u0 = f32(g.x) / side,
-							v0 = f32(g.y) / side,
-							u1 = f32(g.x + g.w) / side,
-							v1 = f32(g.y + g.h) / side,
-							fallback = true,
-						},
-					)
-				}
-			} else {
-				// The atlas is full, so this frame uses the fallback in the
-				// space the glyph would have had.
-				emit_glyph(
-					f,
-					.Regular,
-					int(f.faces[.Regular].fallback),
-					pen,
-					origin,
-					baseline,
-					data,
-					emit,
-				)
-			}
-			pen += advance
-		case .Emoji:
-			// Place it on whole physical pixels like the text next to it.
-			px := origin + math.round(pen * s) + math.round((EMOJI_ADVANCE - EMOJI_SIZE) / 2 * s)
-			py := math.round((y + (LINE_HEIGHT - EMOJI_SIZE) / 2) * s)
-			side := math.round(EMOJI_SIZE * s)
-			// The system's picture where there is one (sysemoji_native.odin),
-			// drawn at this size; the sheet's otherwise, or while the atlas
-			// is full.
-			if _, has := system_emoji_glyph(f.sys, r); has {
-				a := &f.emoji
-				g, ok := system_emoji_cache(f.sys, a, r, i32(side), EMOJI_FILL)
-				if ok && a.scale == s && f32(g.w) == side {
-					emit(
-						data,
-						Glyph_Quad {
-							x0 = px / s,
-							y0 = py / s,
-							x1 = (px + side) / s,
-							y1 = (py + side) / s,
-							u0 = f32(g.x) / f32(a.side),
-							v0 = f32(g.y) / f32(a.side),
-							u1 = f32(g.x + g.w) / f32(a.side),
-							v1 = f32(g.y + g.h) / f32(a.side),
-							color = true,
-						},
-					)
-					pen += EMOJI_ADVANCE
-					continue
-				}
-			}
-			u0, v0, u1, v1 := emoji_uv(i)
-			emit(
-				data,
-				Glyph_Quad {
-					x0 = px / s,
-					y0 = py / s,
-					x1 = (px + side) / s,
-					y1 = (py + side) / s,
-					u0 = u0,
-					v0 = v0,
-					u1 = u1,
-					v1 = v1,
-					emoji = true,
-				},
-			)
-			pen += EMOJI_ADVANCE
-		case .Face:
-			emit_glyph(f, face, i, pen, origin, baseline, data, emit)
-			pen += f.faces[face].advance[i]
-		}
+		pen += layout_rune(f, style, r, pen, origin, baseline, y, data, emit)
 	}
+}
+
+// layout_rune emits a character's glyph `pen` logical pixels from `origin`
+// (where the text starts, in physical pixels) on `baseline` (physical
+// pixels) in a line box whose top is `y` (logical), and returns how far it
+// moves the pen.
+@(private = "file")
+layout_rune :: proc(
+	f: ^Font,
+	style: Font_Style,
+	r: rune,
+	pen, origin, baseline, y: f32,
+	data: rawptr,
+	emit: proc(data: rawptr, q: Glyph_Quad),
+) -> f32 {
+	s := f.scale
+	i, source, face := find_glyph(f, style, r)
+	switch source {
+	case .None:
+	case .Placeholder:
+		return custom_emoji_advance(i)
+	case .Unifont, .System:
+		advance: f32
+		g: Atlas_Glyph
+		ok: bool
+		if source == .Unifont {
+			advance = f32(f.uni.width[i])
+			g, ok = unifont_cache(&f.uni, &f.fallback, r)
+		} else {
+			sg, _ := system_glyph(f.sys, r)
+			advance = sg.advance * f.em
+			g, ok = system_glyph_cache(f.sys, &f.fallback, r, f.em)
+		}
+		a := &f.fallback
+		if ok && a.scale == s {
+			if g.w > 0 && g.h > 0 {
+				px := origin + math.round(pen * s) + f32(g.xoff)
+				emit_atlas_glyph(a, g, px, baseline + f32(g.yoff), s, data, emit)
+			}
+		} else {
+			// The atlas is full, so this frame uses the fallback in the
+			// space the glyph would have had.
+			emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, origin, baseline, data, emit)
+		}
+		return advance
+	case .Emoji:
+		// Place it on whole physical pixels like the text next to it.
+		px := origin + math.round(pen * s) + math.round((EMOJI_ADVANCE - EMOJI_SIZE) / 2 * s)
+		py := math.round((y + (LINE_HEIGHT - EMOJI_SIZE) / 2) * s)
+		side := math.round(EMOJI_SIZE * s)
+		// The system's picture where there is one (sysemoji_native.odin),
+		// drawn at this size; the sheet's otherwise, or while the atlas
+		// is full.
+		if _, has := system_emoji_glyph(f.sys, r); has {
+			a := &f.emoji
+			g, ok := system_emoji_cache(f.sys, a, r, i32(side), EMOJI_FILL)
+			if ok && a.scale == s && f32(g.w) == side {
+				emit(
+					data,
+					Glyph_Quad {
+						x0 = px / s,
+						y0 = py / s,
+						x1 = (px + side) / s,
+						y1 = (py + side) / s,
+						u0 = f32(g.x) / f32(a.side),
+						v0 = f32(g.y) / f32(a.side),
+						u1 = f32(g.x + g.w) / f32(a.side),
+						v1 = f32(g.y + g.h) / f32(a.side),
+						color = true,
+					},
+				)
+				return EMOJI_ADVANCE
+			}
+		}
+		u0, v0, u1, v1 := emoji_uv(i)
+		emit(
+			data,
+			Glyph_Quad {
+				x0 = px / s,
+				y0 = py / s,
+				x1 = (px + side) / s,
+				y1 = (py + side) / s,
+				u0 = u0,
+				v0 = v0,
+				u1 = u1,
+				v1 = v1,
+				emoji = true,
+			},
+		)
+		return EMOJI_ADVANCE
+	case .Face:
+		emit_glyph(f, face, i, pen, origin, baseline, data, emit)
+		return f.faces[face].advance[i]
+	}
+	return 0
+}
+
+// emit_atlas_glyph emits a glyph of the fallback atlas with its top left at
+// px, py (physical pixels).
+@(private = "file")
+emit_atlas_glyph :: proc(
+	a: ^Glyph_Atlas,
+	g: Atlas_Glyph,
+	px, py, s: f32,
+	data: rawptr,
+	emit: proc(data: rawptr, q: Glyph_Quad),
+) {
+	side := f32(a.side)
+	emit(
+		data,
+		Glyph_Quad {
+			x0 = px / s,
+			y0 = py / s,
+			x1 = (px + f32(g.w)) / s,
+			y1 = (py + f32(g.h)) / s,
+			u0 = f32(g.x) / side,
+			v0 = f32(g.y) / side,
+			u1 = f32(g.x + g.w) / side,
+			v1 = f32(g.y + g.h) / side,
+			fallback = true,
+		},
+	)
 }
 
 // emit_glyph emits one of a face's glyphs `pen` logical pixels from `origin`

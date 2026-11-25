@@ -54,7 +54,7 @@ Glyph_Atlas :: struct {
 	// byte). Set before the first glyph_atlas_reset; kept by resets.
 	rgba:               bool,
 	scale:              f32, // physical pixels per logical pixel of the font
-	glyphs:             map[rune]Atlas_Glyph,
+	glyphs:             map[u32]Atlas_Glyph, // by atlas_key or shaped_key
 	pixels:             []u8, // side * side texels (glyph_atlas_bytes each); nil until needed
 	side:               i32,
 	shelves:            [dynamic]Shelf,
@@ -93,19 +93,19 @@ glyph_atlas_reset :: proc(a: ^Glyph_Atlas, scale: f32) {
 	a.dirty_y0, a.dirty_y1 = a.side, 0
 }
 
-// glyph_atlas_find returns a character's glyph, if it is in the atlas.
-glyph_atlas_find :: proc(a: ^Glyph_Atlas, r: rune) -> (g: Atlas_Glyph, ok: bool) {
-	return a.glyphs[r]
+// glyph_atlas_find returns a glyph, if it is in the atlas.
+glyph_atlas_find :: proc(a: ^Glyph_Atlas, key: u32) -> (g: Atlas_Glyph, ok: bool) {
+	return a.glyphs[key]
 }
 
 // glyph_atlas_add makes room for a glyph of w x h pixels and returns the
 // pixels to draw it into (rows `side` texels apart, glyph_atlas_bytes each).
 // Once there is no room, it fails
 // and the atlas is flagged to be emptied before the next frame. The glyph is
-// found by `r` afterwards.
+// found by `key` afterwards.
 glyph_atlas_add :: proc(
 	a: ^Glyph_Atlas,
-	r: rune,
+	key: u32,
 	w, h, xoff, yoff: i32,
 ) -> (
 	g: Atlas_Glyph,
@@ -117,8 +117,8 @@ glyph_atlas_add :: proc(
 	}
 	if w <= 0 || h <= 0 {
 		// Blank (a space): nothing to draw, but known.
-		a.glyphs[r] = {xoff = xoff, yoff = yoff}
-		return a.glyphs[r], nil, true
+		a.glyphs[key] = {xoff = xoff, yoff = yoff}
+		return a.glyphs[key], nil, true
 	}
 	glyph_atlas_pixels(a)
 	x, y, placed := place(a, w, h)
@@ -127,7 +127,7 @@ glyph_atlas_add :: proc(
 		return
 	}
 	g = {x, y, w, h, xoff, yoff}
-	a.glyphs[r] = g
+	a.glyphs[key] = g
 	a.dirty_y0 = min(a.dirty_y0, y)
 	a.dirty_y1 = max(a.dirty_y1, y + h)
 	return g, a.pixels[(int(y) * int(a.side) + int(x)) * glyph_atlas_bytes(a):], true
@@ -201,4 +201,19 @@ glyph_atlas_white :: proc(a: ^Glyph_Atlas) -> (uv: [2]f32, ok: bool) {
 // glyph_atlas_bytes is how many bytes a texel of the atlas takes.
 glyph_atlas_bytes :: proc(a: ^Glyph_Atlas) -> int {
 	return 4 if a.rgba else 1
+}
+
+// atlas_key is how a character's glyph is found in an atlas: by the
+// character, as each character has one glyph (Unifont's, a system font's or
+// an emoji's).
+atlas_key :: proc(r: rune) -> u32 {
+	return u32(r)
+}
+
+// shaped_key is how a glyph of shaped text is found: by its font (a
+// shaping font's number, shape_native.odin) and its index in the font, which
+// may be a form that no character stands for (a ligature, or an Arabic
+// letter's initial form).
+shaped_key :: proc(font, glyph: u16) -> u32 {
+	return 0x8000_0000 | u32(font) << 16 | u32(glyph)
 }

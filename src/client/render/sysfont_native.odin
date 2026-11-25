@@ -66,6 +66,7 @@ system_font_init :: proc(f: ^System_Font, data: []u8) -> bool {
 		return false
 	}
 	f.per_em = stbtt.ScaleForMappingEmToPixels(&f.info, 1)
+	f.gsub = has_table(data, f.info.fontstart, "GSUB")
 	if f.ps_name == "" {
 		f.ps_name = strings.clone(font_name(&f.info, 6))
 	}
@@ -104,4 +105,25 @@ font_name :: proc(info: ^stbtt.fontinfo, id: i32) -> string {
 		return strings.clone(string(([^]u8)(s)[:n]), context.temp_allocator)
 	}
 	return ""
+}
+
+// has_table returns whether the font that starts at `start` in a file has a
+// table `tag`.
+@(private = "file")
+has_table :: proc(data: []u8, start: i32, tag: string) -> bool {
+	at := int(start)
+	if at < 0 || at + 12 > len(data) {
+		return false
+	}
+	count := int(data[at + 4]) << 8 | int(data[at + 5])
+	for i in 0 ..< count {
+		rec := at + 12 + 16 * i
+		if rec + 4 > len(data) {
+			return false
+		}
+		if string(data[rec:][:4]) == tag {
+			return true
+		}
+	}
+	return false
 }

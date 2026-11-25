@@ -295,7 +295,7 @@ text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^T
 	if area.field.live && area.field.lines > 0 {
 		n = area.field.lines // as the page wraps it
 	} else if area.width > 0 {
-		n = len(area_lines(ctx, font, text, area.width))
+		n = len(area_lines(ctx, render.logical_order(font), text, area.width))
 	}
 	return(
 		text_area_single(ctx, font) +
@@ -355,7 +355,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		ui.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
 
-	font := ctx.style.font
+	// In the order it was typed, until editing in visual order is done
+	// (render/shape_native.odin).
+	font := render.logical_order(ctx.style.font)
 	lh := ctx.text_height(font)
 	single := text_area_single(ctx, font)
 	top := (single - lh) / 2 // from the box's top to its first line's top

@@ -106,7 +106,26 @@ system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_Fi
 			}
 		}
 	}
+	// macOS draws Arabic with Geeza Pro, whose rules for joining letters are
+	// Apple's own (AAT), which kb_text_shape doesn't apply, and the next in
+	// its list with OpenType rules is Noto Nastaliq Urdu, a calligraphic
+	// style for Urdu. The system's interface font for Arabic, SF Arabic, has
+	// OpenType rules, so it goes first among those (sysfont.odin takes a
+	// font with rules first), then Tahoma.
+	switch r {
+	case 0x0600 ..= 0x08ff, 0xfb50 ..= 0xfdff, 0xfe70 ..= 0xfeff:
+		for path in MAC_ARABIC {
+			append(out, Font_File{path = path})
+		}
+	}
 	append(out, ..l.cascade[:])
+}
+
+// macOS's fonts for Arabic with OpenType rules, best first.
+@(private = "file")
+MAC_ARABIC := [?]string {
+	"/System/Library/Fonts/SFArabic.ttf",
+	"/System/Library/Fonts/Supplemental/Tahoma.ttf",
 }
 
 // lookup_init makes the base font and reads its cascade list.

@@ -39,6 +39,16 @@ cl /nologo /MT /O1 /c %TRAY%\yap_tray.c /Fo:%TRAY%\yap_tray.obj || exit /b 1
 lib /nologo /out:%TRAY%\yap_tray.lib %TRAY%\yap_tray.obj || exit /b 1
 del %TRAY%\yap_tray.obj
 
+rem Text shaping (src\client\shape) over kb_text_shape, whose single header is in
+rem deps\thirdparty. It is a big file, so it is only compiled when the library
+rem isn't there; delete yap_shape.lib after changing yap_shape.c or the header.
+set SHAPE=src\client\shape
+if not exist %SHAPE%\yap_shape.lib (
+	cl /nologo /MT /O2 /c %SHAPE%\yap_shape.c /Fo:%SHAPE%\yap_shape.obj || exit /b 1
+	lib /nologo /out:%SHAPE%\yap_shape.lib %SHAPE%\yap_shape.obj || exit /b 1
+	del %SHAPE%\yap_shape.obj
+)
+
 set DIALOGS=src\client\dialogs
 cl /nologo /MT /O1 /c %DIALOGS%\yap_dialogs.c /Fo:%DIALOGS%\yap_dialogs.obj || exit /b 1
 lib /nologo /out:%DIALOGS%\yap_dialogs.lib %DIALOGS%\yap_dialogs.obj || exit /b 1
