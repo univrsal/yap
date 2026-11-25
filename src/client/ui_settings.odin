@@ -129,8 +129,9 @@ settings_page :: proc(ui: ^UI) {
 	}
 
 	// The rail's settings button, the inbox or a server closes the settings.
+	// Centered, like the other screens' titles (session_header).
 	title_row(ui, {-1})
-	mu.label(ctx, "Settings")
+	mu.draw_control_text(ctx, "Settings", mu.layout_next(ctx), .TEXT, {.ALIGN_CENTER})
 	if server != "" {
 		mu.layout_row(ctx, {110, -1} if narrow else {140, 260})
 		if .SUBMIT in tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {
