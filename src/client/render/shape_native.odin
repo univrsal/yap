@@ -21,10 +21,7 @@ import "core:unicode/utf8"
 // with), and runs of one font, script and direction are shaped by
 // kb_text_shape (client:shape). The runs are then put in visual order
 // (Unicode's bidirectional algorithm, rule L2, with the two levels that a
-// run's direction and the line's give), unless the text is laid out in
-// logical order, as the composer does until it can edit in visual order:
-// there, right-to-left runs are drawn letter by letter as before, in the
-// order they were typed, so that its caret stays where the characters are.
+// run's direction and the line's give).
 //
 // Characters drawn the old way (Unifont's, emoji, the server's emoji, the
 // replacement character) are kept as they are and take their usual room, in
@@ -82,6 +79,7 @@ shaping_clear :: proc(sh: ^Shaping) {
 	for key, v in sh.cache {
 		delete(key)
 		delete(v.glyphs)
+		delete(v.joined)
 	}
 	clear(&sh.cache)
 }
@@ -103,6 +101,7 @@ shaping_frame :: proc(sh: ^Shaping) {
 		k, v := delete_key(&sh.cache, key)
 		delete(k)
 		delete(v.glyphs)
+		delete(v.joined)
 	}
 }
 
@@ -163,26 +162,26 @@ complex_rune :: proc(r: rune) -> bool {
 // now. Glyphs and widths are the same for every font of the renderer, but
 // the characters' fonts are picked by `f`'s faces (which are the same in
 // all of them too).
-shaped_text :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -> Shaped {
+shaped_text :: proc(f: ^Font, style: Font_Style, text: string) -> Shaped {
 	sh := &f.sys.shaping
-	key_buf := make([]u8, len(text) + 2, context.temp_allocator)
-	key_buf[0], key_buf[1] = u8(style), u8(logical)
-	copy(key_buf[2:], text)
+	key_buf := make([]u8, len(text) + 1, context.temp_allocator)
+	key_buf[0] = u8(style)
+	copy(key_buf[1:], text)
 	key := string(key_buf)
 	if v, found := sh.cache[key]; found {
 		v.used = sh.frame
 		sh.cache[key] = v
 		return v
 	}
-	glyphs, width := shape_string(f, style, text, logical)
-	v := Shaped{glyphs, width, sh.frame}
+	glyphs, width, rtl, joined := shape_string(f, style, text)
+	v := Shaped{glyphs = glyphs, width = width, rtl = rtl, used = sh.frame, joined = joined}
 	sh.cache[strings.clone(key)] = v
 	return v
 }
 
 // shape_string shapes `text` (see above). The glyphs are allocated.
 @(private = "file")
-shape_string :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -> ([]Shaped_Glyph, f32) {
+shape_string :: proc(f: ^Font, style: Font_Style, text: string) -> ([]Shaped_Glyph, f32, bool, []bool) {
 	sh := &f.sys.shaping
 	clear(&sh.runes)
 	clear(&sh.font_of)
@@ -216,6 +215,7 @@ shape_string :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -
 		resize(&sh.runs, 16)
 	}
 	glyph_count, run_count, rtl: i32
+	starts := make([]u8, len(sh.runes), context.temp_allocator)
 	for {
 		result := shape.shape(
 			raw_data(sh.runes),
@@ -228,6 +228,7 @@ shape_string :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -
 			i32(len(sh.runs)),
 			&run_count,
 			&rtl,
+			raw_data(starts),
 		)
 		if result == shape.TOO_SMALL {
 			resize(&sh.glyphs, max(len(sh.glyphs), int(glyph_count)))
@@ -240,29 +241,50 @@ shape_string :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -
 		break
 	}
 	runs := sh.runs[:run_count]
-	order := run_order(runs, sh.runes[:], rtl != 0, logical)
+	levels := char_levels(runs, sh.runes[:], rtl != 0)
+
+	// The pieces that are reordered: a right-to-left run as a whole (its
+	// glyphs are already in visual order), and a left-to-right run cut where
+	// its characters' levels change.
+	Piece :: struct {
+		first, count: int, // glyphs
+		level:        int,
+		rtl:          bool,
+	}
+	pieces := make([dynamic]Piece, context.temp_allocator)
+	for run in runs {
+		glyphs := sh.glyphs[run.first_glyph:][:run.glyph_count]
+		if run.rtl != 0 || len(glyphs) == 0 {
+			append(&pieces, Piece{int(run.first_glyph), int(run.glyph_count), levels[run.first], run.rtl != 0})
+			continue
+		}
+		start := 0
+		for k in 1 ..= len(glyphs) {
+			if k < len(glyphs) && levels[glyphs[k].cluster] == levels[glyphs[start].cluster] {
+				continue
+			}
+			append(&pieces, Piece{int(run.first_glyph) + start, k - start, levels[glyphs[start].cluster], false})
+			start = k
+		}
+	}
+	piece_levels := make([]int, len(pieces), context.temp_allocator)
+	for p, i in pieces {
+		piece_levels[i] = p.level
+	}
 
 	out := make([dynamic]Shaped_Glyph, 0, len(sh.runes))
 	pen: f32
-	for ri in order {
-		run := runs[ri]
-		if logical && run.rtl != 0 {
-			// Letter by letter, in the order they were typed.
-			for i in run.first ..< run.first + run.count {
-				r := sh.runes[i]
-				append(&out, Shaped_Glyph{kind = .Char, r = r, at = int(i), x = pen})
-				pen += rune_advance(f, style, r)
-			}
-			continue
-		}
-		for g in sh.glyphs[run.first_glyph:][:run.glyph_count] {
+	for pi in visual_order(piece_levels) {
+		piece := pieces[pi]
+		for g in sh.glyphs[piece.first:][:piece.count] {
 			sf, known := sh.fonts[g.font]
 			if !known || g.id == 0 {
 				// Drawn the old way: a character without a shaping font, or
 				// one its font has no glyph for after all.
 				r := sh.runes[g.cluster]
-				append(&out, Shaped_Glyph{kind = .Char, r = r, at = int(g.cluster), x = pen})
-				pen += rune_advance(f, style, r)
+				w := rune_advance(f, style, r)
+				append(&out, Shaped_Glyph{kind = .Char, r = r, at = int(g.cluster), x = pen, w = w, rtl = piece.rtl})
+				pen += w
 				continue
 			}
 			k := sf.per_em * f.em
@@ -276,51 +298,98 @@ shape_string :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -
 					x = pen,
 					dx = f32(g.x_offset) * k,
 					dy = f32(g.y_offset) * k,
+					w = f32(g.advance) * k,
+					rtl = piece.rtl,
 				},
 			)
 			pen += f32(g.advance) * k
 		}
 	}
-	return out[:], pen
+	joined := make([]bool, len(sh.runes))
+	if glyph_count > 0 || len(sh.runes) == 0 {
+		for s, i in starts {
+			joined[i] = s == 0
+		}
+	}
+	return out[:], pen, rtl != 0, joined
 }
 
-// run_order returns the order to lay the runs out in: their visual order,
-// or as they are with `logical`. A run is at level 0 (left to right) or 1
-// (right to left) in a left-to-right line, and at 2 or 1 in a right-to-left
-// one. A left-to-right run of numbers (without letters) that follows
-// right-to-left text in a left-to-right line is at level 2: it goes with
-// that text, on its left, as Unicode's numbers after Hebrew or Arabic do.
-// From the highest level down to 1, every stretch of runs at that level or
-// above is reversed (rule L2). In the temp allocator.
+// char_levels returns each character's embedding level (Unicode's
+// bidirectional algorithm), from its run's direction: in a left-to-right
+// line, 0 for left-to-right text and 1 for right-to-left text; in a
+// right-to-left line, 2 and 1. kb_text_shape gives directions, not levels,
+// so numbers are worked out here: in a left-to-right line, numbers that
+// follow right-to-left text go with it (level 2, on its left), as do the
+// spaces and punctuation before them, while those after the last digit
+// belong to the line again unless more right-to-left text follows them. In
+// a right-to-left line, the spaces and punctuation at the ends of a
+// left-to-right run belong to the line when right-to-left text or the end
+// of the line is on that side. In the temp allocator.
 @(private = "file")
-run_order :: proc(runs: []shape.Run, runes: []rune, rtl: bool, logical: bool) -> []int {
-	order := make([]int, len(runs), context.temp_allocator)
-	for &o, i in order {
-		o = i
+char_levels :: proc(runs: []shape.Run, runes: []rune, rtl: bool) -> []int {
+	levels := make([]int, len(runes), context.temp_allocator)
+	// Where a run's letters and digits (its strong characters) begin and end.
+	strong :: proc(r: rune) -> bool {
+		return unicode.is_letter(r) || unicode.is_number(r)
 	}
-	if logical {
-		return order
-	}
-	levels := make([]int, len(runs), context.temp_allocator)
-	after_rtl := false // whether the last run with letters was right to left
-	for run, i in runs {
-		letters, numbers := false, false
-		for r in runes[run.first:][:run.count] {
-			numbers ||= unicode.is_number(r)
-			if unicode.is_letter(r) {
-				letters = true
-				break
+	after_rtl := rtl // whether the last letters were right to left (the line's start counts as its direction)
+	for run, ri in runs {
+		chars := runes[run.first:][:run.count]
+		next_rtl := rtl if ri + 1 == len(runs) else runs[ri + 1].rtl != 0
+		prev_rtl := rtl if ri == 0 else runs[ri - 1].rtl != 0
+		letters := false
+		first, last := -1, -1
+		for r, i in chars {
+			letters ||= unicode.is_letter(r)
+			if strong(r) {
+				if first < 0 {
+					first = i
+				}
+				last = i
 			}
 		}
-		switch {
-		case run.rtl != 0:
-			levels[i] = 1
-		case rtl || (numbers && !letters && after_rtl):
-			levels[i] = 2
+		for i in 0 ..< len(chars) {
+			level := &levels[int(run.first) + i]
+			switch {
+			case run.rtl != 0:
+				level^ = 1
+			case !rtl && (letters || !after_rtl || first < 0):
+				level^ = 0
+			case !rtl:
+				// Numbers after right-to-left text, in a left-to-right line.
+				switch {
+				case i < first:
+					level^ = 1
+				case i <= last:
+					level^ = 2
+				case:
+					level^ = 1 if next_rtl else 0
+				}
+			case first < 0:
+				level^ = 1
+			case i < first:
+				level^ = 1 if prev_rtl else 2
+			case i > last:
+				level^ = 1 if next_rtl else 2
+			case:
+				level^ = 2
+			}
 		}
 		if letters {
 			after_rtl = run.rtl != 0
 		}
+	}
+	return levels
+}
+
+// visual_order returns the order to lay out pieces at `levels` in: from the
+// highest level down to 1, every stretch of pieces at that level or above is
+// reversed (rule L2). In the temp allocator.
+@(private = "file")
+visual_order :: proc(levels: []int) -> []int {
+	order := make([]int, len(levels), context.temp_allocator)
+	for &o, i in order {
+		o = i
 	}
 	for lv := 2; lv >= 1; lv -= 1 {
 		i := 0

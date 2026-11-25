@@ -17,7 +17,7 @@ needs_shaping :: proc(f: ^Font, text: string) -> bool {
 	return false
 }
 
-shaped_text :: proc(f: ^Font, style: Font_Style, text: string, logical: bool) -> Shaped {
+shaped_text :: proc(f: ^Font, style: Font_Style, text: string) -> Shaped {
 	return {}
 }
 

@@ -52,6 +52,7 @@ foreign lib {
 	shutdown :: proc() ---
 	// shape shapes a line of `count` codepoints, each with the number of its
 	// font (a number that isn't a font's makes glyphs 0 for those codepoints,
-	// one each, for the caller to draw itself).
-	shape :: proc(codepoints: [^]rune, font_of: [^]u16, count: c.int, glyphs: [^]Glyph, glyph_capacity: c.int, glyph_count: ^c.int, runs: [^]Run, run_capacity: c.int, run_count: ^c.int, paragraph_rtl: ^c.int) -> c.int ---
+	// one each, for the caller to draw itself). grapheme_start gets a byte per
+	// codepoint: 1 where a grapheme (a cluster the caret steps over) starts.
+	shape :: proc(codepoints: [^]rune, font_of: [^]u16, count: c.int, glyphs: [^]Glyph, glyph_capacity: c.int, glyph_count: ^c.int, runs: [^]Run, run_capacity: c.int, run_count: ^c.int, paragraph_rtl: ^c.int, grapheme_start: [^]u8) -> c.int ---
 }

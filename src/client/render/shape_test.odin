@@ -34,7 +34,7 @@ test_needs_shaping :: proc(t: ^testing.T) {
 	for text in ([]string{"Hello, world!", "Привет, Ελληνικά", "中文 日本語 한국어", "😀 ❤️ ★ → ½"}) {
 		testing.expectf(t, !needs_shaping(&f, text), "%q needs no shaping", text)
 	}
-	for text in ([]string{"שלום", "مرحبا", "नमस्ते", "ไทย", "é", "a‍b"}) {
+	for text in ([]string{"שלום", "مرحبا", "नमस्ते", "ไทย", "e\u0301", "a\u200db"}) {
 		testing.expectf(t, needs_shaping(&f, text), "%q needs shaping", text)
 	}
 	// Not without the system's fonts' state (a font of its own, as in tests).
@@ -57,7 +57,7 @@ test_shaping_order :: proc(t: ^testing.T) {
 	// A left-to-right line with a Hebrew word: the word's first letter (4)
 	// is right of its last (7), and the word sits between "abc" and "def".
 	text := "abc שלום def"
-	sh := shaped_text(&f, .Regular, text, false)
+	sh := shaped_text(&f, .Regular, text)
 	testing.expect(t, x_of(sh, 4) > x_of(sh, 7))
 	testing.expect(t, x_of(sh, 7) > x_of(sh, 2))
 	testing.expect(t, x_of(sh, 9) > x_of(sh, 4))
@@ -65,30 +65,26 @@ test_shaping_order :: proc(t: ^testing.T) {
 
 	// Numbers after a Hebrew word go with it, on its left, and still read
 	// left to right.
-	sh = shaped_text(&f, .Regular, "abc שלום 123", false)
+	sh = shaped_text(&f, .Regular, "abc שלום 123")
 	testing.expect(t, x_of(sh, 9) < x_of(sh, 4))
 	testing.expect(t, x_of(sh, 9) > x_of(sh, 2))
 	testing.expect(t, x_of(sh, 10) > x_of(sh, 9))
+	// Punctuation after those numbers, at the end of the line, belongs to
+	// the line: the closing quote is at the far right, not with "123".
+	sh = shaped_text(&f, .Regular, `"abc שלום 123"`)
+	testing.expect(t, x_of(sh, 13) > x_of(sh, 5))
+	testing.expect(t, x_of(sh, 10) < x_of(sh, 5))
+	testing.expect(t, x_of(sh, 12) < x_of(sh, 5))
+
 	// But not after a Latin word.
-	sh = shaped_text(&f, .Regular, "שלום abc 123", false)
+	sh = shaped_text(&f, .Regular, "שלום abc 123")
 	testing.expect(t, x_of(sh, 9) > x_of(sh, 7))
 
 	// A right-to-left line: "abc" at the end is on the left, before the
 	// Hebrew, which reads from the right.
-	sh = shaped_text(&f, .Regular, "שלום abc", false)
+	sh = shaped_text(&f, .Regular, "שלום abc")
 	testing.expect(t, x_of(sh, 5) < x_of(sh, 3))
 	testing.expect(t, x_of(sh, 0) > x_of(sh, 3))
-
-	// In logical order (the composer), everything goes left to right as it
-	// was typed.
-	sh = shaped_text(&f, .Regular, text, true)
-	for i in 1 ..< 12 {
-		testing.expect(t, x_of(sh, i) > x_of(sh, i - 1))
-	}
-	testing.expect_value(t, font_text_width(&f, text, .Regular, true), sh.width)
-
-	// The same width whatever the order.
-	testing.expect(t, abs(shaped_text(&f, .Regular, text, true).width - shaped_text(&f, .Regular, text, false).width) < 0.01)
 }
 
 // Arabic letters join: the same letter has another form in the middle of a
@@ -107,8 +103,8 @@ test_shaping_joins :: proc(t: ^testing.T) {
 		return
 	}
 	log.infof("ب is from %s", s.fonts[arabic.font].name)
-	alone := shaped_text(&f, .Regular, "ب", false)
-	word := shaped_text(&f, .Regular, "ببب", false)
+	alone := shaped_text(&f, .Regular, "ب")
+	word := shaped_text(&f, .Regular, "ببب")
 	testing.expect(t, len(alone.glyphs) >= 1)
 	testing.expect_value(t, alone.glyphs[0].kind, Shaped_Kind.Glyph)
 	// The letters' forms in the word (a font may draw a letter as more than
@@ -163,9 +159,34 @@ test_shaping_marks :: proc(t: ^testing.T) {
 
 	// e with a combining acute: Roboto has both and composes or places them;
 	// either way the pair is no wider than e and é side by side would be.
-	sh := shaped_text(&f, .Regular, "é", false)
+	sh := shaped_text(&f, .Regular, "e\u0301")
 	testing.expect(t, len(sh.glyphs) >= 1)
 	testing.expect(t, sh.width <= font_text_width(&f, "e") * 1.5)
 	// A joiner takes no room.
-	testing.expect(t, abs(shaped_text(&f, .Regular, "a‍b", false).width - font_text_width(&f, "ab")) < 0.5)
+	testing.expect(t, abs(shaped_text(&f, .Regular, "a\u200db").width - font_text_width(&f, "ab")) < 0.5)
+}
+
+// The caret steps over a cluster whole: a mark continues its letter's
+// grapheme, a letter after a letter starts a new one.
+@(test)
+test_shaping_graphemes :: proc(t: ^testing.T) {
+	s: System_Fonts
+	defer system_fonts_destroy(&s)
+	f: Font
+	shaping_font(t, &f, &s)
+	defer font_destroy(&f)
+
+	sh := shaped_text(&f, .Regular, "e\xcc\x81x")
+	testing.expect_value(t, len(sh.joined), 3)
+	if len(sh.joined) == 3 {
+		testing.expect(t, !sh.joined[0])
+		testing.expect(t, sh.joined[1])
+		testing.expect(t, !sh.joined[2])
+	}
+	// A Devanagari conjunct (ka, virama, ssa) is one grapheme.
+	conj := shaped_text(&f, .Regular, "क्ष")
+	testing.expect_value(t, len(conj.joined), 3)
+	if len(conj.joined) == 3 {
+		testing.expect(t, !conj.joined[0] && conj.joined[1] && conj.joined[2])
+	}
 }

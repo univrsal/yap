@@ -338,7 +338,7 @@ affects the download and the binary.
    the font handle): left-to-right runs are shaped, right-to-left ones
    drawn letter by letter as typed, so the caret, placed by the width of
    the text before it, stays right. Selecting text that is shown in visual
-   order still highlights by logical widths.
+   order still highlights by logical widths. (Both replaced in step 4.)
 
    Messages keep U+200C/200D and U+200E/200F/061C (`sanitize_message`);
    names and other single lines keep none, so that a name can't pass for
@@ -354,10 +354,102 @@ affects the download and the binary.
    like the rest (shaped right-to-left runs, in visual order), with the
    caret placed and moved by grapheme in visual order, hit-testing and
    selection over runs, and the same for selecting shown text.
+
+   *As built:* the logical-order mode of step 3 is gone; the composer,
+   text boxes and messages are all laid out the same way. For a line that
+   is shaped, `render.text_spans` gives each character's left and right
+   edge and direction (characters of one cluster share its glyphs' width),
+   and `ui_bidi.odin` works from those. Each place in a line has one spot
+   its caret is drawn at: the line's start and end at its edges (start on
+   the left of a left-to-right line, end on its right, mirrored for a
+   right-to-left one), any other place at the trailing edge of the
+   character before it. A click lands on the place drawn nearest to it,
+   a selection is the stretches its characters cover, and Left and Right
+   go to the place drawn next on that side (on to the next or previous
+   line at a line's end; through the text with Ctrl and to drop a
+   selection). The text area (`area_x`, `area_hit`, `area_ranges`), the
+   spell checker's underlines, the text boxes (`text_box_raw`, microui's
+   text box with these, and without them for a password box) and selecting
+   messages (`select_line`, run by run as rich text is drawn) use them;
+   lines that aren't shaped keep the old prefix widths.
+
+   Checked in the app with "abc שלום 123": the first version placed the
+   caret at a line's end after "3" and clicks at the far right before "1",
+   and Right bounced inside the Hebrew word, because clicks and carets
+   followed different rules; the single rule above came out of that. The
+   same test showed `123"` moving with the Hebrew word: levels are now
+   worked out per character (`char_levels`), so numbers after RTL text go
+   with it but punctuation after the last digit belongs to the line again.
+   What is left is listed under "Caret: what's left" below.
 5. **Emoji sequences**: keep U+200D, skin tones, flags and tag sequences
    in emoji, shape them with the system's emoji font (its ligatures), key
    the color atlas by glyph, and offer skin tones in the picker. The sheet
    draws a sequence as its parts.
+
+## Caret: what's left
+
+What remains of editing right-to-left and shaped text after step 4,
+roughly in the order it would be noticed. 1 and 2 are small and come up
+in everyday editing, so they go first; 3 is its own change; 4 and 5 can
+wait until someone needs them.
+
+1. **Moving by cluster.** Left and Right step one character at a time,
+   but a cluster (a Devanagari conjunct such as क्ष, three characters;
+   a letter with combining marks; Thai with its tone marks) is drawn as
+   one glyph, and `text_spans` divides its width among its characters, so
+   the caret stops at made-up places inside it. It should step over the
+   whole cluster. kb_text_shape's segmentation marks where graphemes start
+   (`KBTS_BREAK_FLAG_GRAPHEME`): `yap_shape.c` can return those breaks with
+   the runs, `Char_Span` can mark the characters a grapheme starts at,
+   `bidi_step` and the caret places can skip the others, and a click can
+   land only at grapheme boundaries. Backspace keeps deleting one
+   character at a time inside a cluster, as other editors do.
+   Done when: Right over "क्ष" takes one press, a click inside it lands
+   before or after it, and Shift+Right selects it whole.
+
+   *Done:* `ys_shape` fills a `grapheme_start` array from the break flags,
+   `Shaped.joined` and `Char_Span.joined` mark the characters that continue
+   the grapheme before them, and `caret_stops` leaves out the places in
+   front of those, which `bidi_step` and `bidi_offset_at` both go by.
+   (`yap_shape.lib` has to be rebuilt after pulling this: delete it.)
+
+2. **Ctrl+Left/Right by word along the screen.** Word jumps still follow
+   the text (`textedit` `.Word_Left`/`.Word_Right`), so inside Hebrew or
+   Arabic Ctrl+Right moves the caret to the left. In a shaped line they
+   should go to the next word boundary on that side of the screen: of the
+   caret places (`caret_stops`), those at the start or end of a word
+   (`area_word`'s classes), nearest in that direction, and on to the next
+   line at the end, as the plain arrows do. The same in text boxes.
+   Done when: Ctrl+Right in "abc שלום עולם 123" goes "abc" → the word
+   right of it on the screen → … → the line's right end, never backwards.
+
+3. **Right-aligning right-to-left lines.** A line whose first strong
+   character is right to left (`Char_Span.line_rtl`, `Shaped.rtl`) is
+   still drawn from the left edge, in messages and in the composer. It
+   should be drawn against the right edge of its column. That is layout
+   rather than caret work: the timeline's and the text area's line
+   drawing (and `select_line`'s `pos`) shift such a line by the room left
+   over; the caret, clicks and selection follow, as they are relative to
+   the line's start. Text boxes may stay left-aligned. To decide: whether
+   a whole message aligns by its first line or each line by its own.
+   Done when: a Hebrew message and a Hebrew line in the composer sit at
+   the right, and clicking and selecting in them still land right.
+
+4. **A two-sided caret at direction changes.** Where the direction
+   changes, one place in the text can be shown in two spots: the place
+   before ש in "abc שלום 123" is shown after "abc ", where Latin typed
+   there goes, though Hebrew typed there goes to the far right of the
+   word. Editors such as Chrome keep a side with the caret (its affinity)
+   and let the arrows switch it. This adds state to the caret (the place
+   and the side) in the text area and text boxes; to do only if the
+   single spot turns out to confuse in practice.
+
+5. **The web client.** It neither shapes nor reorders (`shape_web.odin`);
+   its composer is the page's own field, which the browser handles, but
+   messages show right-to-left text in typing order. kb_text_shape would
+   need to be compiled with emscripten (`web/build.sh`, as
+   `stb_truetype.c` is) and bound like `wstbtt`; then everything above
+   applies there too, with Unifont as the only font for most scripts.
 
 ## Not covered
 

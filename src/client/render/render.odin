@@ -2,6 +2,7 @@ package render
 
 import glfw "client:wglfw"
 import "core:math"
+import "core:unicode/utf8"
 import mu "vendor:microui"
 
 // Draws microui's command list. Rects and text are quads from the font atlas
@@ -376,23 +377,6 @@ font_style :: proc(font: mu.Font) -> Font_Style {
 	return Font_Style((uintptr(font) >> 4 & 0xf) % len(Font_Style))
 }
 
-// A font handle with LOGICAL_ORDER lays text out in the order it was typed
-// rather than in visual order (font_layout's `logical`), which is what the
-// composer and text boxes measure and draw with, so that their caret, which
-// is placed by the width of the text before it, stays with the characters.
-@(private = "file")
-LOGICAL_ORDER :: uintptr(1) << 8
-
-// logical_order returns `font` laying text out in logical order.
-logical_order :: proc(font: mu.Font) -> mu.Font {
-	return mu.Font(uintptr(font) | LOGICAL_ORDER)
-}
-
-// font_logical returns whether a font lays text out in logical order.
-font_logical :: proc(font: mu.Font) -> bool {
-	return uintptr(font) & LOGICAL_ORDER != 0
-}
-
 Font_Slot :: struct {
 	font:            Font,
 	textures:        [Font_Style]Gpu_Texture, // the faces' atlases; 0 until drawn
@@ -658,7 +642,7 @@ ui_font_em :: proc(font: mu.Font) -> f32 {
 
 // microui text metrics, in logical pixels.
 ui_text_width :: proc(font: mu.Font, text: string) -> i32 {
-	return i32(math.ceil(font_text_width(&slot_of(g_fonts, font).font, text, font_style(font), font_logical(font))))
+	return i32(math.ceil(font_text_width(&slot_of(g_fonts, font).font, text, font_style(font))))
 }
 
 ui_text_height :: proc(font: mu.Font) -> i32 {
@@ -763,8 +747,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				slot_prepare(r, slot, scale)
 			}
 			style := font_style(c.font)
-			logical := font_logical(c.font)
-			font_cache_glyphs(&slot.font, c.str, style, logical)
+			font_cache_glyphs(&slot.font, c.str, style)
 			upload_atlas(r, &slot.font.fallback, &slot.fallback_texture)
 			upload_atlas(r, &slot.font.emoji, &slot.emoji_texture)
 			if style != .Regular {
@@ -818,7 +801,6 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
 				style,
-				logical,
 			)
 		case ^mu.Command_Rect:
 			w := rect_white(r)
@@ -1354,4 +1336,94 @@ set_clip :: proc(r: ^Renderer, rect: mu.Rect) {
 	y0 := o.y + math.round(f32(rect.y) * s)
 	y1 := o.y + math.round(f32(rect.y + rect.h) * s)
 	gpu_clip(&r.gpu, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
+}
+
+// A character of a line of text as it is laid out: where it is in the text
+// and where it is drawn. In a line with right-to-left text the characters
+// aren't drawn in the order of the text, so this is what a caret, a click
+// or a selection in such a line goes by (ui_bidi.odin).
+Char_Span :: struct {
+	at:     int, // the character's byte offset in the text
+	x0, x1: f32, // its left and right edges, from the line's start (logical pixels)
+	rtl:    bool, // in a right-to-left run: its leading edge is x1
+	line_rtl: bool, // the line is right to left, so its left end is where its text ends
+	joined: bool, // it continues the grapheme before it: the caret doesn't stop in front of it
+}
+
+// text_is_shaped returns whether `text` is shaped (and put in visual order)
+// when drawn in `font`, so that its characters aren't where the widths of
+// the text before them say.
+text_is_shaped :: proc(font: mu.Font, text: string) -> bool {
+	if g_fonts == nil {
+		return false
+	}
+	return needs_shaping(&slot_of(g_fonts, font).font, text)
+}
+
+// text_spans returns where each character of a shaped `text` is drawn in
+// `font`, one span per character in the order of the text. The characters
+// that the font draws as one glyph (a cluster: a ligature, a letter with its
+// marks) share that glyph's width. In the temp allocator.
+text_spans :: proc(font: mu.Font, text: string) -> []Char_Span {
+	slot := slot_of(g_fonts, font)
+	f := &slot.font
+	sh := shaped_text(f, font_style(font), text)
+	n := utf8.rune_count(text)
+	spans := make([]Char_Span, n, context.temp_allocator)
+	i := 0
+	for _, at in text {
+		spans[i].at = at
+		spans[i].line_rtl = sh.rtl
+		spans[i].joined = i < len(sh.joined) && sh.joined[i]
+		i += 1
+	}
+	// Each cluster's extent, by its first character.
+	Cluster :: struct {
+		x0, x1: f32,
+		rtl:    bool,
+		seen:   bool,
+	}
+	clusters := make([]Cluster, n + 1, context.temp_allocator)
+	for g in sh.glyphs {
+		if g.at < 0 || g.at >= n {
+			continue
+		}
+		c := &clusters[g.at]
+		x0, x1 := g.x * f.zoom, (g.x + g.w) * f.zoom
+		if !c.seen {
+			c^ = {x0, x1, g.rtl, true}
+		} else {
+			c.x0, c.x1 = min(c.x0, x0), max(c.x1, x1)
+		}
+	}
+	// A cluster covers its first character and those after it up to the
+	// next cluster's, which share its width, in its direction.
+	start := 0
+	for start < n {
+		end := start + 1
+		for end < n && !clusters[end].seen {
+			end += 1
+		}
+		c := clusters[start]
+		if !c.seen {
+			// Characters before the first glyph (removed by the shaper).
+			for k in start ..< end {
+				spans[k].x0, spans[k].x1 = 0, 0
+			}
+			start = end
+			continue
+		}
+		step := (c.x1 - c.x0) / f32(end - start)
+		for k in start ..< end {
+			j := f32(k - start)
+			if c.rtl {
+				spans[k].x0, spans[k].x1 = c.x1 - (j + 1) * step, c.x1 - j * step
+			} else {
+				spans[k].x0, spans[k].x1 = c.x0 + j * step, c.x0 + (j + 1) * step
+			}
+			spans[k].rtl = c.rtl
+		}
+		start = end
+	}
+	return spans
 }

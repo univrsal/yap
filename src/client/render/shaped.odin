@@ -16,11 +16,15 @@ Shaped_Glyph :: struct {
 	at:     int, // the index of the (first) character it is drawn for
 	x:      f32, // the pen position from the start of the text (logical pixels, unzoomed)
 	dx, dy: f32, // the glyph's offset from there, y up (.Glyph)
+	w:      f32, // how far it moves the pen
+	rtl:    bool, // in a right-to-left run
 }
 
 Shaped :: struct {
 	glyphs: []Shaped_Glyph, // in the order they are drawn
 	width:  f32, // logical pixels, unzoomed
+	rtl:    bool, // the line is right to left (its first strong character is)
 	used:   u64, // the frame it was last used in
+	joined: []bool, // per character: it continues the grapheme before it (the caret doesn't stop between)
 }
 

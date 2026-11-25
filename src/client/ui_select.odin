@@ -167,7 +167,12 @@ select_line :: proc(
 		// Beside this line: another cell of its row takes it.
 	} else if mouse.y >= pos.y {
 		if mouse.y < pos.y + h {
-			s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x, rich)}
+			if spans, shaped := line_spans(ctx, font, text, start, end, rich); shaped {
+				// Right-to-left text: by where its characters are (ui_bidi.odin).
+				s.hit = {item, bidi_offset_at(spans, start, end, f32(mouse.x - pos.x))}
+			} else {
+				s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x, rich)}
+			}
 			width := span_width(ctx, font, text, start, end, rich)
 			if mouse.x >= pos.x &&
 			   mouse.x < pos.x + width &&
@@ -189,6 +194,15 @@ select_line :: proc(
 	}
 	a, b := max(lo, start), min(hi, end)
 	if a >= b {
+		return
+	}
+	if spans, shaped := line_spans(ctx, font, text, start, end, rich); shaped {
+		// Right-to-left text: the stretches its selected characters are
+		// drawn over (ui_bidi.odin).
+		for r in bidi_ranges(spans, a, b) {
+			x0, x1 := pos.x + round_px(r[0]), pos.x + round_px(r[1])
+			mu.draw_rect(ctx, {x0, pos.y, x1 - x0, h}, theme.selection)
+		}
 		return
 	}
 	// Both edges are measured from the start of the line. Widths are whole

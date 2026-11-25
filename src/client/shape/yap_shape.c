@@ -52,6 +52,7 @@ static kbts_glyph_storage storage;
 // The direction and script of each codepoint of the last line, kept between
 // calls so they needn't be allocated every time.
 static unsigned char *direction_of;
+static unsigned char *grapheme_of; // 1 where a codepoint starts a grapheme
 static kbts_script *script_of;
 static int capacity;
 
@@ -109,8 +110,10 @@ void ys_shutdown(void)
 	kbts_FreeAllGlyphs(&storage);
 	memset(&storage, 0, sizeof(storage));
 	free(direction_of);
+	free(grapheme_of);
 	free(script_of);
 	direction_of = 0;
+	grapheme_of = 0;
 	script_of = 0;
 	capacity = 0;
 }
@@ -145,12 +148,14 @@ static ys_config *config_for(ys_font *f, kbts_script script)
 	return c;
 }
 
-// segment fills direction_of and script_of for `count` codepoints, and
+// segment fills direction_of, script_of and grapheme_of for `count` codepoints, and
 // returns the line's (paragraph's) direction. A codepoint without a break of
 // its own has the direction and script of the one before.
 static kbts_direction segment(const int *codepoints, int count)
 {
 	memset(direction_of, 0, (size_t)count);
+	memset(grapheme_of, 0, (size_t)count);
+	grapheme_of[0] = 1;
 	for (int i = 0; i < count; i++) {
 		script_of[i] = KBTS_SCRIPT_DONT_KNOW;
 	}
@@ -170,6 +175,9 @@ static kbts_direction segment(const int *codepoints, int count)
 				if (b.Flags & KBTS_BREAK_FLAG_PARAGRAPH_DIRECTION) {
 					paragraph = b.Direction;
 				}
+			}
+			if (b.Flags & KBTS_BREAK_FLAG_GRAPHEME) {
+				grapheme_of[b.Position] = 1;
 			}
 			if (b.Flags & KBTS_BREAK_FLAG_SCRIPT) {
 				script_of[b.Position] = b.Script;
@@ -193,7 +201,7 @@ static kbts_direction segment(const int *codepoints, int count)
 
 int ys_shape(const int *codepoints, const unsigned short *font_of, int count, ys_glyph *glyphs,
              int glyph_capacity, int *glyph_count, ys_run *runs, int run_capacity, int *run_count,
-             int *paragraph_rtl)
+             int *paragraph_rtl, unsigned char *grapheme_start)
 {
 	*glyph_count = 0;
 	*run_count = 0;
@@ -211,12 +219,17 @@ int ys_shape(const int *codepoints, const unsigned short *font_of, int count, ys
 		if (s) {
 			script_of = s;
 		}
-		if (!d || !s) {
+		unsigned char *g = realloc(grapheme_of, (size_t)n);
+		if (g) {
+			grapheme_of = g;
+		}
+		if (!d || !s || !g) {
 			return YS_ERROR;
 		}
 		capacity = n;
 	}
 	*paragraph_rtl = segment(codepoints, count) == KBTS_DIRECTION_RTL;
+	memcpy(grapheme_start, grapheme_of, (size_t)count);
 
 	int glyphs_out = 0, runs_out = 0;
 	int too_small = 0;

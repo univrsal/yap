@@ -354,11 +354,10 @@ find_glyph :: proc(
 
 // font_text_width returns how wide `text` is in `style` (logical pixels).
 // Text that needs shaping (shape_native.odin) is measured shaped, in visual
-// order, or with `logical` in the order of its characters as the composer
-// shows it.
-font_text_width :: proc(f: ^Font, text: string, style := Font_Style.Regular, logical := false) -> f32 {
+// order, the way it is drawn.
+font_text_width :: proc(f: ^Font, text: string, style := Font_Style.Regular) -> f32 {
 	if needs_shaping(f, text) {
-		return shaped_text(f, style, text, logical).width * f.zoom
+		return shaped_text(f, style, text).width * f.zoom
 	}
 	w: f32
 	for r in text {
@@ -403,9 +402,9 @@ custom_emoji_advance :: proc(span: int) -> f32 {
 // font_cache_glyphs puts the fallback glyphs, shaped glyphs and color emoji
 // that `text` needs into their atlases before font_layout. The renderer
 // uploads whatever changed in between.
-font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular, logical := false) {
+font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
 	if needs_shaping(f, text) {
-		for g in shaped_text(f, style, text, logical).glyphs {
+		for g in shaped_text(f, style, text).glyphs {
 			if g.kind == .Glyph {
 				shaped_glyph_cache(f, g.font, g.id)
 			} else {
@@ -460,8 +459,7 @@ Glyph_Quad :: struct {
 // font_layout calls `emit` for every visible glyph of `text` in `style`,
 // with the top of its line box at `y` (all logical pixels). Glyph edges are
 // snapped to physical pixels, which keeps small text crisp. Text that needs
-// shaping is shaped, and put in visual order unless `logical`
-// (font_text_width).
+// shaping is shaped and put in visual order (shape_native.odin).
 font_layout :: proc(
 	f: ^Font,
 	text: string,
@@ -469,10 +467,9 @@ font_layout :: proc(
 	data: rawptr,
 	emit: proc(data: rawptr, q: Glyph_Quad),
 	style := Font_Style.Regular,
-	logical := false,
 ) {
 	if f.zoom == 1 {
-		font_layout_unzoomed(f, text, style, logical, x, y, data, emit)
+		font_layout_unzoomed(f, text, style, x, y, data, emit)
 		return
 	}
 	// Lay out in the zoomed font's own space, then blow the glyphs up from
@@ -487,7 +484,6 @@ font_layout :: proc(
 		f,
 		text,
 		style,
-		logical,
 		x / f.zoom,
 		y / f.zoom,
 		&z,
@@ -505,7 +501,6 @@ font_layout_unzoomed :: proc(
 	f: ^Font,
 	text: string,
 	style: Font_Style,
-	logical: bool,
 	x, y: f32,
 	data: rawptr,
 	emit: proc(data: rawptr, q: Glyph_Quad),
@@ -519,7 +514,7 @@ font_layout_unzoomed :: proc(
 	// would shuffle.
 	origin := math.round(x * s)
 	if needs_shaping(f, text) {
-		for g in shaped_text(f, style, text, logical).glyphs {
+		for g in shaped_text(f, style, text).glyphs {
 			if g.kind == .Char {
 				layout_rune(f, style, g.r, g.x, origin, baseline, y, data, emit)
 				continue

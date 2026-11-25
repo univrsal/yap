@@ -189,7 +189,7 @@ rich_plain :: proc(text: string) -> Rich {
 }
 
 // rich_run is which of the runs text[i] is in (the last run for a position past the end).
-@(private = "file")
+@(private)
 rich_run :: proc(r: ^Rich, i: int) -> int {
 	lo, hi := 0, len(r.runs)
 	for lo < hi {

@@ -35,9 +35,11 @@ void ys_shutdown(void);
 // ys_shape shapes a line of `count` codepoints, each with the number of its
 // font (a number that isn't a font's makes glyphs 0 for those codepoints,
 // one each, for the caller to draw itself). paragraph_rtl is set to whether
-// the line's first strong direction is right to left.
+// the line's first strong direction is right to left. grapheme_start gets
+// `count` bytes, 1 for each codepoint that starts a grapheme (a cluster the
+// caret steps over whole).
 int ys_shape(const int *codepoints, const unsigned short *font_of, int count, ys_glyph *glyphs,
              int glyph_capacity, int *glyph_count, ys_run *runs, int run_capacity, int *run_count,
-             int *paragraph_rtl);
+             int *paragraph_rtl, unsigned char *grapheme_start);
 
 #endif
