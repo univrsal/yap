@@ -1,7 +1,9 @@
 package client
 
 import "base:intrinsics"
+import "client:render"
 import glfw "client:wglfw"
+import "core:math"
 import NS "core:sys/darwin/Foundation"
 import vglfw "vendor:glfw"
 
@@ -22,6 +24,11 @@ ZOOM_BUTTON :: 2
 // Room left between the zoom button and the first row, in points.
 @(private = "file")
 TITLEBAR_GAP :: 8
+
+// Room left between the buttons and the slanted edge of the rail's extension
+// (titlebar_buttons), in points.
+@(private = "file")
+SLANT_GAP :: 3
 
 // titlebar_merge lets the UI take the title bar's place, or gives it back.
 // Called once the window has its Metal layer, and when the setting changes.
@@ -105,8 +112,55 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 	}
 }
 
-// The buttons are the system's here, and so are the window's edges.
-titlebar_buttons :: proc(ui: ^UI, w: i32) {}
+// The buttons are the system's here, and so are the window's edges. They are
+// wider than the rail, so the rail reaches out under them along the strip,
+// and slants back to its own width at the strip's bottom: the edge goes from
+// the strip's top, right of the buttons, down to where the rail's edge meets
+// the strip's bottom, keeping SLANT_GAP clear of the zoom button. Drawn in the
+// main window, over its background and under the rest.
+titlebar_buttons :: proc(ui: ^UI, w: i32) {
+	if ui.titlebar_left <= 0 || ui.titlebar_height <= 0 {
+		return
+	}
+	win := vglfw.GetCocoaWindow(ui.window)
+	if win == nil {
+		return
+	}
+	zoom := intrinsics.objc_send(
+		^NS.View,
+		win,
+		"standardWindowButton:",
+		NS.UInteger(ZOOM_BUTTON),
+	)
+	if zoom == nil {
+		return
+	}
+	// The button in the window's coordinates, which start at the bottom.
+	bounds := intrinsics.objc_send(NS.Rect, zoom, "bounds")
+	frame := intrinsics.objc_send(NS.Rect, zoom, "convertRect:toView:", bounds, rawptr(nil))
+	scale := ui.input_scale
+	// The button as a circle, grown by the gap, in logical pixels from the top.
+	cx := f32(NS.MidX(frame)) * scale
+	cy := f32(win->frame().size.height - NS.MidY(frame)) * scale
+	radius := (f32(frame.size.width) / 2 + SLANT_GAP) * scale
+	rail := f32(rail_width(ui))
+	bottom := f32(ui.titlebar_height)
+	// How far the circle is above the bottom, and right of the rail's edge.
+	a, b := bottom - cy, cx - rail
+	if b + radius <= 0 {
+		return // the rail clears the buttons by itself
+	}
+	// The slant (across per down) of the edge through (rail, bottom) that
+	// touches the circle on its right: as steep as it can be.
+	MAX_SLANT :: 3
+	k := f32(MAX_SLANT)
+	if a > radius {
+		k = (a * b + radius * math.sqrt(a * a + b * b - radius * radius)) / (a * a - radius * radius)
+		k = clamp(k, 0, MAX_SLANT)
+	}
+	width := i32(math.ceil(k * bottom))
+	render.draw_slant(&ui.ctx, {i32(rail), 0, width, ui.titlebar_height}, theme.rail)
+}
 
 titlebar_init :: proc(merged: bool) {}
 
