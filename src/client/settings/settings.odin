@@ -192,6 +192,9 @@ Settings :: struct {
 	// the user's own ("custom:<file>", kept in the config folder's "sounds"
 	// folder). Events that play their default sound aren't stored.
 	sounds:                  map[string]string,
+	// The user's own words, which the spell checker takes as right
+	// (ui_spell.odin), in the order they were added.
+	spell_words:             [dynamic]string,
 }
 
 // Window_Place is the window's place when it isn't maximized or minimized,
@@ -373,6 +376,10 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(name)
 	}
 	delete(s.sounds)
+	for w in s.spell_words {
+		delete(w)
+	}
+	delete(s.spell_words)
 	s^ = {}
 }
 

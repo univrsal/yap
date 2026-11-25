@@ -66,3 +66,29 @@ test_code_ranges :: proc(t: ^testing.T) {
 		testing.expectf(t, slice.equal(got, c.code), "%q: %v, not %v", c.text, got, c.code)
 	}
 }
+
+@(test)
+test_spell_replace :: proc(t: ^testing.T) {
+	ui := new(UI)
+	defer free(ui)
+	buf: [32]u8
+	n := 0
+	c := Composer {
+		buf = buf[:],
+		len = &n,
+	}
+	n = copy(buf[:], "Teh hosue is red")
+	spell_replace(ui, c, {4, 9}, "house")
+	testing.expect_value(t, string(buf[:n]), "Teh house is red")
+	spell_replace(ui, c, {0, 3}, "The")
+	testing.expect_value(t, string(buf[:n]), "The house is red")
+	// Longer and shorter, in the middle.
+	spell_replace(ui, c, {13, 16}, "reddish")
+	testing.expect_value(t, string(buf[:n]), "The house is reddish")
+	spell_replace(ui, c, {4, 9}, "hut")
+	testing.expect_value(t, string(buf[:n]), "The hut is reddish")
+	testing.expect(t, ui.focus_composer && ui.focus_composer_at == 7)
+	// What doesn't fit is left alone.
+	spell_replace(ui, c, {0, 3}, "Thhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhe")
+	testing.expect_value(t, string(buf[:n]), "The hut is reddish")
+}

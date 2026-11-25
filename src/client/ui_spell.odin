@@ -1,6 +1,8 @@
 package client
 
+import "core:fmt"
 import "core:strings"
+import mu "vendor:microui"
 
 import "client:platform"
 import "client:spell"
@@ -10,7 +12,12 @@ import "client:spell"
 // (text_area_spell). Code isn't checked: `inline code` and ``` blocks.
 //
 // The languages are the one the system is set to and English, of those that
-// the checker has. It is opened when first needed.
+// the checker has. It is opened when first needed. The user's own words are
+// kept in the settings (spell_words).
+//
+// Right-clicking an underlined word opens a menu (spell_menu) with what it may
+// have been meant to be, which replaces it, and a way to add it to the user's
+// own words.
 
 // What the UI keeps for spell checking.
 UI_Spell :: struct {
@@ -19,7 +26,23 @@ UI_Spell :: struct {
 	// Counts up when the languages or the user's words change, so text areas
 	// know to check their text again.
 	generation: u32,
+	menu:       Spell_Menu,
 }
+
+// The menu for a misspelled word in a composer.
+@(private = "file")
+Spell_Menu :: struct {
+	requested:   bool, // open the menu this frame
+	// The composer the word is in: the page's (0, on `page`) or a thread's.
+	page:        Page,
+	thread:      int,
+	word:        [2]int, // where the word is in the composer's text
+	text:        string, // the word (owned)
+	suggestions: []string, // (owned)
+}
+
+@(private = "file")
+SPELL_MENU :: "spell menu"
 
 // ui_speller is the UI's speller, opened with the default languages the first
 // time. Nil when nothing can be checked here (the web, or no checker).
@@ -36,6 +59,7 @@ ui_speller :: proc(ui: ^UI) -> ^spell.Speller {
 				platform.locale_name(),
 			)
 			spell.speller_set_languages(&sp.speller, tags)
+			spell.speller_set_personal(&sp.speller, ui.settings.spell_words[:])
 		}
 		if !spell.speller_active(&sp.speller) {
 			return nil
@@ -45,6 +69,7 @@ ui_speller :: proc(ui: ^UI) -> ^spell.Speller {
 }
 
 ui_spell_destroy :: proc(ui: ^UI) {
+	spell_menu_forget(&ui.spell.menu)
 	spell.speller_destroy(&ui.spell.speller)
 	ui.spell = {}
 }
@@ -205,4 +230,127 @@ spell_marks :: proc(sp: ^spell.Speller, text: string, marks: [][2]int) -> int {
 		n += 1
 	}
 	return n
+}
+
+// spell_menu_open opens the menu for the misspelled word at `word` in the
+// composer `c`, which was right-clicked.
+spell_menu_open :: proc(ui: ^UI, c: Composer, word: [2]int) {
+	sp := ui_speller(ui)
+	if sp == nil || word[1] > c.len^ {
+		return
+	}
+	m := &ui.spell.menu
+	spell_menu_forget(m)
+	text := string(c.buf[word[0]:word[1]])
+	m^ = {
+		requested   = true,
+		page        = ui.page,
+		thread      = c.thread,
+		word        = word,
+		text        = strings.clone(text),
+		suggestions = spell.suggest(sp, text),
+	}
+}
+
+@(private = "file")
+spell_menu_forget :: proc(m: ^Spell_Menu) {
+	delete(m.text)
+	for s in m.suggestions {
+		delete(s)
+	}
+	delete(m.suggestions)
+	m^ = {}
+}
+
+// spell_menu shows the menu while it is open and does what is picked in it.
+// Called where the page's other menus are (message_menu).
+spell_menu :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	m := &ui.spell.menu
+	if m.requested {
+		m.requested = false
+		mu.open_popup(ctx, SPELL_MENU)
+	}
+	if cnt := mu.get_container(ctx, SPELL_MENU, {.CLOSED}); cnt != nil && cnt.open {
+		w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
+		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
+		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
+	}
+	if !begin_popup(ui, SPELL_MENU) {
+		return
+	}
+	defer mu.end_popup(ctx)
+	close :: proc(ctx: ^mu.Context) {
+		mu.get_current_container(ctx).open = false
+	}
+
+	// The word has to be where it was: the composer may be gone, or its text
+	// may have changed since.
+	c, ok := spell_menu_composer(ui)
+	if !ok || m.word[1] > c.len^ || string(c.buf[m.word[0]:m.word[1]]) != m.text {
+		close(ctx)
+		return
+	}
+
+	width := i32(160)
+	for s in m.suggestions {
+		width = max(width, ctx.text_width(ctx.style.font, s) + 4 * ctx.style.padding)
+	}
+	mu.layout_row(ctx, {width})
+	if len(m.suggestions) == 0 {
+		dim_label(ctx, "No suggestions")
+	}
+	for s, i in m.suggestions {
+		if .SUBMIT in stable_button(ctx, fmt.tprintf("suggestion %d", i), s) {
+			spell_replace(ui, c, m.word, s)
+			close(ctx)
+			return
+		}
+	}
+	if .SUBMIT in stable_button(ctx, "add", "Add to dictionary") {
+		spell_add_word(ui, m.text)
+		close(ctx)
+	}
+}
+
+// spell_menu_composer is the composer the menu's word is in, if it is still there.
+@(private = "file")
+spell_menu_composer :: proc(ui: ^UI) -> (Composer, bool) {
+	m := &ui.spell.menu
+	if m.thread > 0 {
+		if m.thread > len(ui.threads) || ui.threads[m.thread - 1].key == {} {
+			return {}, false
+		}
+	} else if ui.page != m.page {
+		return {}, false
+	}
+	c := composer_of(ui, m.thread)
+	return c, c.buf != nil && c.len != nil
+}
+
+// spell_replace puts `with` in the place of the word at `word` in the
+// composer `c`, and the caret after it, when it fits.
+spell_replace :: proc(ui: ^UI, c: Composer, word: [2]int, with: string) {
+	n := c.len^ - (word[1] - word[0]) + len(with)
+	if n > len(c.buf) {
+		return
+	}
+	copy(c.buf[word[0] + len(with):], c.buf[word[1]:c.len^])
+	copy(c.buf[word[0]:], with)
+	c.len^ = n
+	focus_composer(ui, c, word[0] + len(with))
+}
+
+// spell_add_word adds `word` to the user's own words, which the spell checker
+// takes as right from now on.
+spell_add_word :: proc(ui: ^UI, word: string) {
+	for w in ui.settings.spell_words {
+		if w == word {
+			return
+		}
+	}
+	append(&ui.settings.spell_words, strings.clone(word))
+	ui.settings_dirty = true
+	spell.speller_set_personal(&ui.spell.speller, ui.settings.spell_words[:])
+	ui.spell.generation += 1
 }

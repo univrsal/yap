@@ -45,56 +45,60 @@ TEXT_AREA_DOUBLE_CLICK :: 500 * time.Millisecond
 
 // What a text area keeps between frames.
 Text_Area :: struct {
-	width:        i32, // the text's width in the last frame, for working out the height
-	scroll:       i32, // pixels of the text above the box's top
+	width:         i32, // the text's width in the last frame, for working out the height
+	scroll:        i32, // pixels of the text above the box's top
 	// Up and Down keep to the column they started in: where they left the
 	// caret, and the x position they were aiming for.
-	vert_at:      int,
-	vert_x:       i32,
+	vert_at:       int,
+	vert_x:        i32,
 	// The selection and length in the last frame. When either changes, the
 	// box scrolls to the caret.
-	last_sel:     [2]int,
-	last_len:     int,
+	last_sel:      [2]int,
+	last_len:      int,
 	// Its scrollbar, when there is more text than it shows: where it was in
 	// the last frame (zero: none), and while its thumb is dragged, how far
 	// down the thumb it was grabbed.
-	bar:          mu.Rect,
-	dragging:     bool,
-	drag_at:      i32,
+	bar:           mu.Rect,
+	dragging:      bool,
+	drag_at:       i32,
 	// Whether the message is shown as it will look instead (the composer's
 	// eye, preview_button).
-	preview:      bool,
-	had_focus:    bool, // in the last frame
+	preview:       bool,
+	had_focus:     bool, // in the last frame
 	// Set by its owner before it is measured and laid out: how many lines tall
 	// it is at least (0 or 1 for one), and how tall the strip at its bottom is.
-	min_lines:    int,
-	footer:       i32,
+	min_lines:     int,
+	footer:        i32,
 	// A press in the footer, which the caret ignores until it is released.
-	footer_press: bool,
+	footer_press:  bool,
 	// The last press on the text, to tell a double click: when and where.
-	press_tick:   time.Tick,
-	press_pos:    mu.Vec2,
+	press_tick:    time.Tick,
+	press_pos:     mu.Vec2,
 	// While the press that made a double click is held: the word it selected,
 	// which dragging selects whole words from.
-	word_held:    bool,
-	word:         [2]int,
+	word_held:     bool,
+	word:          [2]int,
 	// Set by its owner: whether its words are spell checked (ui_spell.odin).
-	spell:        bool,
+	spell:         bool,
 	// The misspelled words, as worked out for the text with the hash
 	// `spell_hash` under the speller's generation `spell_gen`.
-	spell_hash:   u64,
-	spell_gen:    u32,
-	spell_n:      int,
-	spell_marks:  [TEXT_AREA_MAX_MARKS][2]int,
+	spell_hash:    u64,
+	spell_gen:     u32,
+	spell_n:       int,
+	spell_marks:   [TEXT_AREA_MAX_MARKS][2]int,
+	// A misspelled word was right-clicked in this frame: which one. Its owner
+	// opens the menu for it (spell_menu_open).
+	spell_clicked: bool,
+	spell_word:    [2]int,
 	// Where the caret was when the text last changed, while it stays there
 	// (-1: it has moved on). The word there is still being typed and isn't
 	// underlined yet.
-	typed_at:     int,
+	typed_at:      int,
 	// In a web build, the page's own text field that stands in for it.
-	field:        Field_Sync,
+	field:         Field_Sync,
 	// What Ctrl+Z and Ctrl+Y go through (ui_text_history.odin). Not in a web
 	// build, where the page's field has its own.
-	history:      Text_History,
+	history:       Text_History,
 }
 
 // What a text area keeps about the page's text field that stands in for it in
@@ -183,6 +187,25 @@ area_vertical :: proc(
 	}
 	l := lines[i]
 	return offset_at(ctx, font, text, l.start, l.stop, x)
+}
+
+// area_offset_at is the place in `text` under the point `p`: on the line it is
+// over, or the first or last line if it is past them. `top` is from the box's
+// top (r) to its first line's top, before scrolling by `scroll`.
+@(private = "file")
+area_offset_at :: proc(
+	ctx: ^mu.Context,
+	font: mu.Font,
+	text: string,
+	lines: []Area_Line,
+	r: mu.Rect,
+	top, scroll: i32,
+	p: mu.Vec2,
+) -> int {
+	lh := ctx.text_height(font)
+	i := clamp((p.y - r.y - top + scroll) / lh, 0, i32(len(lines) - 1))
+	l := lines[i]
+	return offset_at(ctx, font, text, l.start, l.stop, p.x - r.x - ctx.style.padding)
 }
 
 // text_area_spell works out which words of `text` are misspelled when the text
@@ -473,20 +496,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			on_bar :=
 				.LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
 			if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar && !area.footer_press {
-				i := clamp(
-					(ctx.mouse_pos.y - r.y - top + area.scroll) / lh,
-					0,
-					i32(len(lines) - 1),
-				)
-				pl := lines[i]
-				at := offset_at(
-					ctx,
-					font,
-					text,
-					pl.start,
-					pl.stop,
-					ctx.mouse_pos.x - r.x - ctx.style.padding,
-				)
+				at := area_offset_at(ctx, font, text, lines, r, top, area.scroll, ctx.mouse_pos)
 				if .LEFT in ctx.mouse_pressed_bits {
 					now := time.tick_now()
 					d := ctx.mouse_pos - area.press_pos
@@ -596,6 +606,20 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	}
 
 	text_area_spell(ui, area, text, focused, s.selection[0])
+	// Right-clicking a misspelled word: its owner opens the menu for it.
+	area.spell_clicked = false
+	if area.spell_n > 0 &&
+	   .RIGHT in ctx.mouse_pressed_bits &&
+	   mu.mouse_over(ctx, tr) &&
+	   !(area.bar.w > 0 && mu.mouse_over(ctx, area.bar)) {
+		at := area_offset_at(ctx, font, text, lines, r, top, area.scroll, ctx.mouse_pos)
+		for m in area.spell_marks[:area.spell_n] {
+			if m[0] <= at && at <= m[1] {
+				area.spell_clicked, area.spell_word = true, m
+				break
+			}
+		}
+	}
 
 	mu.draw_control_frame(ctx, id, r, .BASE, {})
 	mu.push_clip_rect(ctx, tr)
