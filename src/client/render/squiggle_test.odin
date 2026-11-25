@@ -1,3 +1,4 @@
+#+build !wasi
 package render
 
 import "core:math"
