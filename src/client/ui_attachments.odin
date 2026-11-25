@@ -755,16 +755,53 @@ file_preview :: proc(
 			command(ui, conn.Attach_Preview_Command{conv = conv, msg = m.id, index = i})
 		}
 	}
+	key := Image_Key {
+		kind = .Picture,
+		id   = u64(f.blob),
+	}
+	save := conn.Attach_Save_Command {
+		conv  = conv,
+		msg   = m.id,
+		index = i,
+	}
+	// A picture in the text has no row with a Save button under it: one shows
+	// in its corner while the pointer is on it.
+	button, hovering := mu.Rect{}, false
+	if in_text && f.blob != 0 {
+		if pw, ph, known := image_size(ui, key); known {
+			fw, fh := conn.fit_box(pw, ph, int(area.w), int(area.h))
+			shape := mu.Rect{area.x, area.y, i32(fw), i32(fh)}
+			size := icon_button_w(ctx)
+			if mu.mouse_over(ctx, shape) && shape.w > 2 * size && shape.h > 2 * size {
+				hovering = true
+				button = {
+					shape.x + shape.w - size - ctx.style.spacing,
+					shape.y + ctx.style.spacing,
+					size,
+					size,
+				}
+			}
+		}
+	}
 	if image_fitted(
 		ui,
-		Image_Key{kind = .Picture, id = u64(f.blob)},
+		key,
 		img.state if here else .Wanted,
 		img.jpeg if here else nil,
 		area,
 		f.name,
+		cover = button,
 	) {
 		// The viewer's Save: the file itself, under its name.
-		command(ui, conn.Attach_Save_Command{conv = conv, msg = m.id, index = i})
+		command(ui, save)
+	}
+	if hovering {
+		render.draw_rounded(ctx, button, {0, 0, 0, 160}, render.CONTROL_RADIUS)
+		mu.layout_set_next(ctx, button, false)
+		hint := fmt.tprintf("Save %s to the downloads folder", f.name)
+		if .SUBMIT in icon_button(ui, "save picture", .Download, hint, {255, 255, 255, 255}) {
+			command(ui, save)
+		}
 	}
 }
 

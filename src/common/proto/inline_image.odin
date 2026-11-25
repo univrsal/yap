@@ -74,3 +74,28 @@ inline_images_plain :: proc(text: string) -> string {
 	strings.write_string(&b, text[at:])
 	return strings.to_string(b)
 }
+
+// unlinked_span widens text[start:end], a picture, to the markdown link that
+// wraps it, [picture](address): a picture shown in the text needs no link
+// around it. Where nothing wraps it, the span is returned as it is.
+unlinked_span :: proc(text: string, start, end: int) -> (from, to: int) {
+	from, to = start, end
+	if start < 1 || text[start - 1] != '[' || !strings.has_prefix(text[end:], "](") {
+		return
+	}
+	depth := 1
+	for i := end + 2; i < len(text); i += 1 {
+		switch text[i] {
+		case '\n':
+			return
+		case '(':
+			depth += 1
+		case ')':
+			depth -= 1
+			if depth == 0 {
+				return start - 1, i + 1
+			}
+		}
+	}
+	return
+}
