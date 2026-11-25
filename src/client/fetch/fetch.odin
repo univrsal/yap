@@ -9,7 +9,7 @@ import "core:time"
 // Downloads for the client itself (the spell checker's dictionaries,
 // ui_spell_download.odin), over the same requests as the scripts'
 // (script/http_native.odin): tinyrequests (yap_requests.c, built next to the
-// scripts) over WinHTTP, CFNetwork, or a libcurl found when the client runs.
+// scripts) over WinHTTP, NSURLSession, or a libcurl found when the client runs.
 // Each download has a client of its own with its own size limit, and is
 // polled; nothing waits and no thread is made.
 
@@ -32,7 +32,7 @@ when !#exists(REQUESTS_LIB) {
 when ODIN_OS == .Windows {
 	foreign import requests {REQUESTS_LIB, "system:winhttp.lib"}
 } else when ODIN_OS == .Darwin {
-	foreign import requests {REQUESTS_LIB, "system:CoreFoundation.framework", "system:CFNetwork.framework"}
+	foreign import requests {REQUESTS_LIB, "system:Foundation.framework"}
 } else {
 	foreign import requests {REQUESTS_LIB, "system:dl"}
 }

@@ -66,6 +66,19 @@ INSIDE_BORDER_ICON :: mu.Icon(UI_ICON_BASE - 2)
 // that rect casts (draw_shadow).
 SHADOW_ICON :: mu.Icon(UI_ICON_BASE - 3)
 
+// An icon command with this id fills the triangle in the top left half of its
+// rect, from its top edge down to its bottom left corner (draw_slant).
+SLANT_ICON :: mu.Icon(UI_ICON_BASE - 5)
+
+// draw_slant fills the top left half of `rect`: its top edge, its left edge,
+// and a slanted edge from the top right corner down to the bottom left one,
+// smooth at any scale (microui only has rects).
+draw_slant :: proc(ctx: ^mu.Context, rect: mu.Rect, color: mu.Color) {
+	if rect.w > 0 && rect.h > 0 {
+		mu.draw_icon(ctx, SLANT_ICON, rect, color)
+	}
+}
+
 // draw_shadow draws the shadow under a window `rect` (see SHADOW_BLUR).
 // Draw it before the window.
 draw_shadow :: proc(ctx: ^mu.Context, rect: mu.Rect, color: mu.Color) {
@@ -826,6 +839,10 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				push_squiggle(r, rect, c.color)
 				continue
 			}
+			if c.id == SLANT_ICON {
+				push_slant(r, rect, c.color)
+				continue
+			}
 			if shape, corners, radius, ok := rounded_of(c.id); ok {
 				push_rounded(r, rect, c.color, shape, corners, radius)
 				continue
@@ -987,6 +1004,46 @@ push_border_px :: proc(r: ^Renderer, box: [4]f32, color: mu.Color, inside := fal
 	push_quad(r, [4]f32{x0, y1 - t, x1, y1} / s, uv, color)
 	push_quad(r, [4]f32{x0, y0 + t, x0 + t, y1 - t} / s, uv, color)
 	push_quad(r, [4]f32{x1 - t, y0 + t, x1, y1 - t} / s, uv, color)
+}
+
+// push_slant draws a triangle (draw_slant) one row of physical pixels at a
+// time: solid up to the slanted edge, and the pixels the edge crosses as
+// transparent as they are uncovered, like a squiggle's.
+@(private = "file")
+push_slant :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color) {
+	s := r.scale
+	w := rect_white(r)
+	uv := [4]f32{w.x, w.y, w.x, w.y}
+	x0, x1 := math.round(f32(rect.x) * s), math.round(f32(rect.x + rect.w) * s)
+	y0, y1 := math.round(f32(rect.y) * s), math.round(f32(rect.y + rect.h) * s)
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	// Where the slanted edge is at a height y.
+	edge :: proc(x0, x1, y0, y1, y: f32) -> f32 {
+		return x1 - (x1 - x0) * (y - y0) / (y1 - y0)
+	}
+	SUB :: 4 // rows sampled in a pixel, for how much of it the edge leaves covered
+	for y := y0; y < y1; y += 1 {
+		right, left := edge(x0, x1, y0, y1, y), edge(x0, x1, y0, y1, y + 1)
+		solid := math.floor(left)
+		if solid > x0 {
+			push_quad(r, [4]f32{x0, y, solid, y + 1} / s, uv, color)
+		}
+		for x := max(solid, x0); x < math.ceil(right); x += 1 {
+			cover: f32
+			for i in 0 ..< SUB {
+				cover += clamp(edge(x0, x1, y0, y1, y + (f32(i) + 0.5) / SUB) - x, 0, 1)
+			}
+			cover /= SUB
+			if cover <= 0.01 {
+				continue
+			}
+			c := color
+			c.a = u8(f32(color.a) * min(cover, 1) + 0.5)
+			push_quad(r, [4]f32{x, y, x + 1, y + 1} / s, uv, c)
+		}
+	}
 }
 
 // push_squiggle draws a squiggle (see squiggle.odin).

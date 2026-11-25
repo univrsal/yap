@@ -105,13 +105,14 @@ if c_lib_stale $script lua deps/thirdparty/lua/lua.h deps/thirdparty/lua/lstrlib
 fi
 
 # tinyrequests, for the HTTP requests of scripts (src/client/script): WinHTTP
-# on Windows, CFNetwork on macOS (linked by src/client/script/http_native.odin),
+# on Windows, NSURLSession on macOS (Foundation, linked by src/client/script/http_native.odin),
 # and on the rest a libcurl that is loaded at run time (dlopen), so there is
 # nothing to compile against. The web build uses the browser's fetch instead.
 if c_lib_stale $script requests deps/thirdparty/tinyrequests/tinyrequests.h; then
-	# dlopen is POSIX/BSD rather than C99. macOS has CFNetwork instead, and needs no help.
+	# dlopen is POSIX/BSD rather than C99. macOS has NSURLSession instead, which
+	# is Objective-C.
 	case "$(uname -s)" in
-	Darwin) requests_flags= ;;
+	Darwin) requests_flags="-x objective-c" ;;
 	*) requests_flags="-D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE" ;;
 	esac
 	c_lib_build $script requests -std=c99 -Os $requests_flags -Ideps/thirdparty/tinyrequests

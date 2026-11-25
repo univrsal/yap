@@ -26,7 +26,7 @@ when !#exists(LIB) {
 when ODIN_OS == .Windows {
 	foreign import lib {LIB, "system:ole32.lib", "system:shell32.lib", "system:shlwapi.lib", "system:uuid.lib", "system:user32.lib"}
 } else when ODIN_OS == .Darwin {
-	foreign import lib {LIB, "system:Cocoa.framework"}
+	foreign import lib {LIB, "system:Cocoa.framework", "system:UniformTypeIdentifiers.framework"}
 } else {
 	foreign import lib {LIB}
 }

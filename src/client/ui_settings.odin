@@ -109,28 +109,41 @@ settings_page :: proc(ui: ^UI) {
 		ui.settings_server = .Account
 	}
 
+	// The rail's settings button, the inbox or a server closes the settings.
+	// Centered, like the other screens' titles (session_header).
+	title_row(ui, {-1})
+	mu.draw_control_text(ctx, "Settings", mu.layout_next(ctx), .TEXT, {.ALIGN_CENTER})
+
 	// In a narrow window the list and the picked category take turns, as a
-	// server's channels and chat do: the category is shown under its name
-	// with a way back to the list.
+	// server's channels and chat do: the category is shown under a header of
+	// its own at the top of its surface, with the way back to the list, like a
+	// conversation's (conversation_header).
 	if narrow && !ui.settings_list {
-		title_row(ui, {40, -1})
-		if .SUBMIT in icon_button(ui, "to settings list", .Back, "Settings") {
-			ui.settings_list = true
-		}
-		if ui.settings_tab == .Server {
-			mu.label(ctx, SERVER_CATEGORY_NAMES[ui.settings_server])
-		} else {
-			mu.label(ctx, CLIENT_CATEGORY_NAMES[ui.settings_client])
-		}
 		mu.layout_row(ctx, {-1}, -1)
-		_ = content_surface(ui)
+		surface := content_surface(ui)
+		mu.layout_begin_column(ctx)
+		header_pad(ui)
+		{
+			layout := mu.get_layout(ctx)
+			layout.indent += CONV_HEADER_PAD
+			defer layout.indent -= CONV_HEADER_PAD
+			mu.layout_row(ctx, {40, -1})
+			if .SUBMIT in icon_button(ui, "to settings list", .Back, "Settings") {
+				ui.settings_list = true
+			}
+			if ui.settings_tab == .Server {
+				mu.label(ctx, SERVER_CATEGORY_NAMES[ui.settings_server])
+			} else {
+				mu.label(ctx, CLIENT_CATEGORY_NAMES[ui.settings_client])
+			}
+		}
+		header_line_below(ui)
+		mu.layout_row(ctx, {-1}, -1)
 		settings_body(ui)
+		mu.layout_end_column(ctx)
+		conversation_lines(ui, surface, false)
 		return
 	}
-
-	// The rail's settings button, the inbox or a server closes the settings.
-	title_row(ui, {-1})
-	mu.label(ctx, "Settings")
 	if server != "" {
 		mu.layout_row(ctx, {110, -1} if narrow else {140, 260})
 		if .SUBMIT in tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {

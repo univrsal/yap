@@ -298,6 +298,25 @@ td_status td_message_box(const char *title, const char *text, td_buttons buttons
 #elif defined(__APPLE__)
 
 #import <Cocoa/Cocoa.h>
+/* allowedFileTypes is deprecated from macOS 12; allowedContentTypes (with
+   UTType, which needs UniformTypeIdentifiers.framework linked) exists from 11. */
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+#define TD_MACOS_CONTENT_TYPES 1
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#endif
+
+static void td_macos_set_extensions(NSSavePanel *panel, NSArray *extensions) {
+#ifdef TD_MACOS_CONTENT_TYPES
+    NSMutableArray *types = [NSMutableArray array];
+    for (NSString *extension in extensions) {
+        UTType *type = [UTType typeWithFilenameExtension:extension];
+        if (type) [types addObject:type];
+    }
+    if ([types count]) [panel setAllowedContentTypes:types];
+#else
+    [panel setAllowedFileTypes:extensions];
+#endif
+}
 
 static td_status td_macos_file_dialog(const td_dialog_options *options, int mode, td_path_list *result) {
     NSAutoreleasePool *pool; NSOpenPanel *open_panel; NSSavePanel *save_panel; NSInteger response; NSArray *urls; NSUInteger index;
@@ -316,14 +335,14 @@ static td_status td_macos_file_dialog(const td_dialog_options *options, int mode
     if (mode == 3) {
         save_panel = [NSSavePanel savePanel];
         if (options && options->title) [save_panel setTitle:[NSString stringWithUTF8String:options->title]];
-        if ([extensions count]) [save_panel setAllowedFileTypes:extensions];
+        if ([extensions count]) td_macos_set_extensions(save_panel, extensions);
         response = [save_panel runModal];
         if (response == NSModalResponseOK) td_append_path(result, [[[save_panel URL] path] UTF8String]);
     } else {
         open_panel = [NSOpenPanel openPanel];
         [open_panel setCanChooseFiles:mode != 2]; [open_panel setCanChooseDirectories:mode == 2]; [open_panel setAllowsMultipleSelection:mode == 1];
         if (options && options->title) [open_panel setTitle:[NSString stringWithUTF8String:options->title]];
-        if ([extensions count]) [open_panel setAllowedFileTypes:extensions];
+        if ([extensions count]) td_macos_set_extensions(open_panel, extensions);
         response = [open_panel runModal];
         if (response == NSModalResponseOK) { urls = [open_panel URLs]; for (index = 0; index < [urls count]; ++index) td_append_path(result, [[urls objectAtIndex:index] path].UTF8String); }
     }

@@ -226,15 +226,18 @@ step, never inside a host call.
   `Expect`; timeout 10 s, at most 30. Requests still out when a script goes are
   cancelled. Local and private addresses are allowed, since checking an address is easy
   to get wrong (DNS) and the permission is the guard.
-- **Native**: `deps/thirdparty/tinyrequests` (WinHTTP, CFNetwork, or a libcurl loaded
+- **Native**: `deps/thirdparty/tinyrequests` (WinHTTP, NSURLSession, or a libcurl loaded
   with `dlopen`), polled from the step; it makes no thread and nothing waits. The
   library is **altered** (marked in its header): `tr_config.max_response_size`,
   enforced in `tr__append_bytes`, the one function all backends collect an answer
   with, and, for libcurl, only http/https also after a redirect and at most 5
-  redirects. It also fixes a bug in its WinHTTP URL parser, which read a URL with a
+  redirects; on macOS its backend is NSURLSession in place of CFNetwork's CFHTTPStream
+  (deprecated since macOS 10.11, and a warning on every build), with the same limits:
+  http/https only, also after a redirect, at most 5 redirects, the size cap, no cache
+  or cookies. It also fixes a bug in its WinHTTP URL parser, which read a URL with a
   port (`http://host:8080/`) as port 0 and a host one character short, so on Windows
   every such request failed with "name not resolved" (found by the tests on a Windows
-  runner, since they all use a port), and makes CFNetwork's deadline a timeout like the
+  runner, since they all use a port), and makes the macOS deadline a timeout like the
   others' instead of a generic failure. A request also has a deadline of its own in
   `yap_requests.c`, a second after the library's, because WinHTTP does not apply its
   timeout to this kind of request; whichever comes first ends it with `timed out`.
@@ -297,9 +300,9 @@ starts** (answers, a 404, redirects, a POST with headers, an oversized answer, a
 redirect to `file://`, a refused connection, a timeout), and without a client. Every
 example script is loaded from its file and exercised, and a test loads every Lua block
 in `docs/Scripting.md` and runs its quick start. `node tools/test_web_http.mjs` tests
-`web/http.js` against a server of its own, and `tools/tinyrequests_apple` runs
-tinyrequests' CFNetwork code on Linux against a stand-in for CoreFoundation with a
-scripted stream (both in CI).
+`web/http.js` against a server of its own (in CI). (`tools/tinyrequests_apple`, which
+ran the old CFNetwork backend on Linux against a stand-in for CoreFoundation, went
+with that backend.)
 
 The headless client was run against a live server for events, commands, `on_send`,
 settings, a restart, a changed script, and web requests.
@@ -330,13 +333,14 @@ Lessons that cost something, for the next change here:
 - **The Scripts page has only been compiled**, not seen: layout, the approval step, the
   add form and the text boxes need a look on a display. (Two bugs were found by using
   it: shared checkbox ids, and "all servers" unticking back.)
-- **WinHTTP and CFNetwork** are exercised by the CI runners for Windows and macOS (the
-  tests make real requests); CFNetwork was also run by hand on an Intel Mac (macOS 26),
-  where the whole test suite passes (WinHTTP has not been run by hand). The size cap
-  relies on the function the backends share, and the redirect restriction exists only
-  for libcurl (the other two speak only http and https). The first runs on them found
-  bugs in the library, all fixed and marked in its header: a URL parser on Windows;
-  on macOS, headers not captured, an error overwritten, and, the worst, a read that
+- **WinHTTP and NSURLSession** are exercised by the CI runners for Windows and macOS (the
+  tests make real requests); NSURLSession was also run by hand on an M2 Mac (macOS 27),
+  where the script and fetch tests pass (WinHTTP has not been run by hand). The size cap
+  relies on the function the backends share, and the redirect restriction exists
+  for libcurl and NSURLSession (WinHTTP speaks only http and https). The first
+  runs on WinHTTP and on macOS's earlier backend, CFNetwork, found bugs in the library,
+  all fixed and marked in its header: a URL parser on Windows; on macOS (gone with
+  CFNetwork), headers not captured, an error overwritten, and, the worst, a read that
   **blocks until a byte arrives** (`CFReadStreamRead`), which froze the polling thread
   (the UI) for as long as a server took to answer and kept every timeout from firing.
   More may be there.

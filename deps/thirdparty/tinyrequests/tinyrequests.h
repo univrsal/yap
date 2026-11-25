@@ -8,19 +8,14 @@
  *     collected whole (tr__append_bytes).
  *   - libcurl backend: only http and https, also after a redirect, and at most 5
  *     redirects (CURLOPT_PROTOCOLS, CURLOPT_REDIR_PROTOCOLS, CURLOPT_MAXREDIRS).
- *   - CFNetwork backend: a request that passes its deadline is TR_ERROR_TIMEOUT, as
- *     in the other backends, instead of TR_ERROR_BACKEND (two places).
- *   - CFNetwork backend, tr__apple_read_available: CFReadStreamRead blocks until a byte
- *     arrives, which stopped the polling thread for as long as a server took to
- *     answer and kept every timeout from firing; it is only called when
- *     CFReadStreamHasBytesAvailable says there is one, and the end of the stream
- *     and its errors are taken from CFReadStreamGetStatus.
- *   - CFNetwork backend, tr__apple_read_available: the response headers are
- *     captured when the whole answer is read there (they were only captured by the
- *     stream's callbacks, which may not have run, leaving the headers empty); the
- *     loop notices that reading ended the request (the stream's callbacks can fail
- *     it, as when the answer is too large) instead of overwriting its error with
- *     "read failed"; and tr__apple_set_error keeps the first error.
+ *   - macOS backend: NSURLSession (Foundation) in place of CFNetwork's CFHTTPStream,
+ *     which is deprecated since macOS 10.11; this file has to be compiled as
+ *     Objective-C there, without ARC. The session's delegate collects the answer on
+ *     the session's own queue, and tr_client_poll / tr_request_perform take it over
+ *     when it is complete. It reads only http and https addresses (NSURLSession also
+ *     reads file: and data:), follows at most 5 redirects, to http and https only,
+ *     stops at max_response_size, keeps no cache or cookies, and a request that
+ *     passes its deadline is TR_ERROR_TIMEOUT, as in the other backends.
  *   - WinHTTP backend, tr__url_parse: a URL with a port ("http://host:8080/") was
  *     read with the port starting at the colon, so the port was 0 and the host
  *     lost its last character ("host" -> "hos", "127.0.0.1" -> "127.0.0.", which
@@ -30,7 +25,7 @@
  *   - Synchronous HTTP(S) requests
  *   - Poll-driven async HTTP(S) requests with no library-managed threads
  *   - Native WinHTTP backend on Windows
- *   - Native CFNetwork/CoreFoundation backend on macOS
+ *   - Native NSURLSession (Foundation) backend on macOS
  *   - Runtime-loaded libcurl backend on Linux and BSD
  *   - Custom allocator hooks
  *   - Owned response body and response headers
@@ -224,8 +219,24 @@ void tr_response_cleanup(tr_response *response);
 #pragma comment(lib, "winhttp.lib")
 #endif
 #elif defined(__APPLE__)
-#include <CoreFoundation/CoreFoundation.h>
-#include <CFNetwork/CFNetwork.h>
+/* yap: NSURLSession, so this has to be compiled as Objective-C (without ARC) */
+#if !defined(__OBJC__) || __has_feature(objc_arc)
+#error "tinyrequests on macOS has to be compiled as Objective-C, without ARC (-x objective-c)"
+#endif
+#import <Foundation/Foundation.h>
+@interface TinyRequestsAppleDelegate : NSObject <NSURLSessionDataDelegate> {
+@public
+    NSMutableData *body;
+    NSHTTPURLResponse *response;
+    NSError *error;
+    int failure; /* a TR_ERROR_* of the delegate's own (too large, a bad redirect), or 0 */
+    const char *failure_text;
+    size_t max_size;
+    int redirects;
+    int done;
+    dispatch_semaphore_t finished;
+}
+@end
 #else
 #include <dlfcn.h>
 #endif
@@ -262,18 +273,9 @@ struct tr_async {
     int added_to_multi;
     int finished;
 #elif defined(__APPLE__)
-    CFReadStreamRef stream;
-    CFHTTPMessageRef request_message;
-    CFURLRef url_ref;
-    CFRunLoopRef run_loop;
-    char *method_copy;
-    char *url_copy;
-    unsigned char *body_copy;
-    size_t body_size;
-    int scheduled;
-    int opened;
-    int have_status_code;
-    int stop_called;
+    NSURLSession *session;
+    NSURLSessionDataTask *task;
+    TinyRequestsAppleDelegate *delegate;
     CFAbsoluteTime deadline;
     int has_deadline;
 #else
@@ -726,40 +728,99 @@ static void tr__curl_destroy_async(tr_async *async_request) {
     tr__free(client, async_request);
 }
 #elif defined(__APPLE__)
-static CFStringRef tr__cfstring_from_utf8(tr_client *client, const char *text) {
-    (void) client;
-    if (!text) {
-        return NULL;
+/*
+ * yap: NSURLSession, in place of CFHTTPStream (deprecated since macOS 10.11). The
+ * session calls its delegate on a queue of its own; the delegate only collects the
+ * answer, under its lock, and the polling thread takes it over once the transfer is
+ * over, so the library's allocator is only ever called from that thread.
+ */
+@implementation TinyRequestsAppleDelegate
+- (void)dealloc {
+    [body release];
+    [response release];
+    [error release];
+    if (finished) {
+        dispatch_release(finished);
     }
-    return CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+    [super dealloc];
 }
 
-static int tr__cfstring_copy_utf8(tr_client *client, CFStringRef string_ref, char **out_text) {
-    CFIndex length;
-    CFIndex max_size;
-    char *buffer;
-    if (!string_ref || !out_text) {
-        return TR_ERROR_INVALID_ARGUMENT;
+- (void)fail:(int)code text:(const char *)text {
+    if (!failure) {
+        failure = code;
+        failure_text = text;
     }
-    length = CFStringGetLength(string_ref);
-    max_size = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
-    buffer = (char *) tr__alloc(client, (size_t) max_size);
-    if (!buffer) {
-        return TR_ERROR_NOMEM;
-    }
-    if (!CFStringGetCString(string_ref, buffer, max_size, kCFStringEncodingUTF8)) {
-        tr__free(client, buffer);
-        return TR_ERROR_BACKEND;
-    }
-    *out_text = buffer;
-    return TR_OK;
 }
 
-static void tr__cf_release(CFTypeRef object_ref) {
-    if (object_ref) {
-        CFRelease(object_ref);
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)new_response completionHandler:(void (^)(NSURLSessionResponseDisposition))completion_handler {
+    int allow = 1;
+    (void) session;
+    (void) task;
+    @synchronized (self) {
+        [response release];
+        response = [new_response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *) [new_response retain] : nil;
+        /* a response that says it is too large is not fetched at all */
+        if (max_size && [new_response expectedContentLength] > 0 && (unsigned long long) [new_response expectedContentLength] > max_size) {
+            [self fail:TR_ERROR_NOMEM text:"response allocation failed"];
+            allow = 0;
+        }
+    }
+    completion_handler(allow ? NSURLSessionResponseAllow : NSURLSessionResponseCancel);
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
+    int cancel = 0;
+    (void) session;
+    @synchronized (self) {
+        if (failure) {
+            return;
+        }
+        if (max_size && [body length] + [data length] > max_size) {
+            [self fail:TR_ERROR_NOMEM text:"response allocation failed"];
+            cancel = 1;
+        } else {
+            [body appendData:data];
+        }
+    }
+    if (cancel) {
+        [task cancel];
     }
 }
+
+/* only to http and https, and at most 5 times, as with libcurl */
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)redirect_response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completion_handler {
+    NSString *scheme = [[[request URL] scheme] lowercaseString];
+    int follow = 1;
+    (void) session;
+    (void) redirect_response;
+    @synchronized (self) {
+        if (!scheme || (![scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"])) {
+            [self fail:TR_ERROR_BACKEND text:"redirected to an address that is not http or https"];
+            follow = 0;
+        } else if (++redirects > 5) {
+            [self fail:TR_ERROR_BACKEND text:"too many redirects"];
+            follow = 0;
+        }
+    }
+    if (follow) {
+        completion_handler(request);
+    } else {
+        completion_handler(nil);
+        [task cancel];
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)task_error {
+    (void) session;
+    (void) task;
+    @synchronized (self) {
+        [error release];
+        error = [task_error retain];
+        done = 1;
+    }
+    dispatch_semaphore_signal(finished);
+}
+@end
 
 static void tr__apple_set_error(tr_async *async_request, int code, const char *message) {
     if (async_request->status != TR_IN_PROGRESS) {
@@ -770,155 +831,13 @@ static void tr__apple_set_error(tr_async *async_request, int code, const char *m
     async_request->response.result_code = code;
     if (message && message[0]) {
         if (code == TR_ERROR_TIMEOUT) {
-            snprintf(async_request->response.error, sizeof(async_request->response.error), "%s: timeout", "cfnetwork");
+            snprintf(async_request->response.error, sizeof(async_request->response.error), "%s: timeout", "nsurlsession");
         } else if (code == TR_ERROR_BACKEND) {
-            snprintf(async_request->response.error, sizeof(async_request->response.error), "%s: %s", "cfnetwork", message);
+            snprintf(async_request->response.error, sizeof(async_request->response.error), "%s: %s", "nsurlsession", message);
         } else {
             snprintf(async_request->response.error, sizeof(async_request->response.error), "%s", message);
         }
     }
-}
-
-static int tr__apple_apply_headers(tr_client *client, CFHTTPMessageRef message, const tr_request *request) {
-    size_t i;
-    for (i = 0; i < request->header_count; ++i) {
-        CFStringRef name_ref = tr__cfstring_from_utf8(client, request->headers[i].name);
-        CFStringRef value_ref = tr__cfstring_from_utf8(client, request->headers[i].value);
-        if (!name_ref || !value_ref) {
-            tr__cf_release(name_ref);
-            tr__cf_release(value_ref);
-            return TR_ERROR_NOMEM;
-        }
-        CFHTTPMessageSetHeaderFieldValue(message, name_ref, value_ref);
-        tr__cf_release(name_ref);
-        tr__cf_release(value_ref);
-    }
-    return TR_OK;
-}
-
-static int tr__apple_apply_body(CFHTTPMessageRef message, const void *body, size_t body_size) {
-    CFDataRef body_ref;
-    if (!body || body_size == 0) {
-        return TR_OK;
-    }
-    body_ref = CFDataCreate(NULL, (const UInt8 *) body, (CFIndex) body_size);
-    if (!body_ref) {
-        return TR_ERROR_NOMEM;
-    }
-    CFHTTPMessageSetBody(message, body_ref);
-    CFRelease(body_ref);
-    return TR_OK;
-}
-
-static int tr__apple_build_request(tr_client *client, tr_async *async_request, const tr_request *request) {
-    CFStringRef method_ref = NULL;
-    CFStringRef url_ref_string = NULL;
-    int rc;
-
-    async_request->method_copy = tr__dup(client, request->method ? request->method : "GET");
-    async_request->url_copy = tr__dup(client, request->url);
-    async_request->body_size = request->body_size;
-    if (!async_request->method_copy || !async_request->url_copy) {
-        return TR_ERROR_NOMEM;
-    }
-    if (request->body_size > 0 && request->body) {
-        async_request->body_copy = (unsigned char *) tr__alloc(client, request->body_size);
-        if (!async_request->body_copy) {
-            return TR_ERROR_NOMEM;
-        }
-        memcpy(async_request->body_copy, request->body, request->body_size);
-    }
-
-    method_ref = tr__cfstring_from_utf8(client, async_request->method_copy);
-    url_ref_string = tr__cfstring_from_utf8(client, request->url);
-    if (!method_ref || !url_ref_string) {
-        tr__cf_release(method_ref);
-        tr__cf_release(url_ref_string);
-        return TR_ERROR_NOMEM;
-    }
-    async_request->url_ref = CFURLCreateWithString(NULL, url_ref_string, NULL);
-    tr__cf_release(url_ref_string);
-    if (!async_request->url_ref) {
-        tr__cf_release(method_ref);
-        return TR_ERROR_URL;
-    }
-
-    async_request->request_message = CFHTTPMessageCreateRequest(NULL, method_ref, async_request->url_ref, kCFHTTPVersion1_1);
-    tr__cf_release(method_ref);
-    if (!async_request->request_message) {
-        return TR_ERROR_BACKEND;
-    }
-    rc = tr__apple_apply_headers(client, async_request->request_message, request);
-    if (rc != TR_OK) {
-        return rc;
-    }
-    return tr__apple_apply_body(async_request->request_message, async_request->body_copy, async_request->body_size);
-}
-
-static void tr__apple_capture_status(tr_async *async_request) {
-    CFTypeRef property_ref;
-    if (!async_request->stream || async_request->have_status_code) {
-        return;
-    }
-    property_ref = CFReadStreamCopyProperty(async_request->stream, kCFStreamPropertyHTTPResponseHeader);
-    if (property_ref) {
-        if (CFGetTypeID(property_ref) == CFHTTPMessageGetTypeID()) {
-            async_request->response.status_code = (long) CFHTTPMessageGetResponseStatusCode((CFHTTPMessageRef) property_ref);
-            async_request->have_status_code = 1;
-        }
-        CFRelease(property_ref);
-    }
-}
-
-static void tr__apple_dictionary_apply_header(const void *key, const void *value, void *context) {
-    tr_async *async_request = (tr_async *) context;
-    char *name = NULL;
-    char *val = NULL;
-    int rc;
-    if (!key || !value) {
-        return;
-    }
-    if (CFGetTypeID((CFTypeRef) key) != CFStringGetTypeID() || CFGetTypeID((CFTypeRef) value) != CFStringGetTypeID()) {
-        return;
-    }
-    rc = tr__cfstring_copy_utf8(async_request->client, (CFStringRef) key, &name);
-    if (rc != TR_OK) {
-        async_request->result_code = rc;
-        return;
-    }
-    rc = tr__cfstring_copy_utf8(async_request->client, (CFStringRef) value, &val);
-    if (rc != TR_OK) {
-        tr__free(async_request->client, name);
-        async_request->result_code = rc;
-        return;
-    }
-    rc = tr__append_header(async_request->client, &async_request->response, name, strlen(name), val, strlen(val));
-    tr__free(async_request->client, name);
-    tr__free(async_request->client, val);
-    if (rc != TR_OK) {
-        async_request->result_code = rc;
-        return;
-    }
-}
-
-static void tr__apple_capture_headers(tr_async *async_request) {
-    CFTypeRef property_ref;
-    CFDictionaryRef headers_ref;
-    if (!async_request->stream || async_request->response.header_count > 0) {
-        return;
-    }
-    property_ref = CFReadStreamCopyProperty(async_request->stream, kCFStreamPropertyHTTPResponseHeader);
-    if (!property_ref) {
-        return;
-    }
-    if (CFGetTypeID(property_ref) == CFHTTPMessageGetTypeID()) {
-        headers_ref = CFHTTPMessageCopyAllHeaderFields((CFHTTPMessageRef) property_ref);
-        if (headers_ref) {
-            CFDictionaryApplyFunction(headers_ref, (CFDictionaryApplierFunction) tr__apple_dictionary_apply_header, async_request);
-            CFRelease(headers_ref);
-        }
-    }
-    CFRelease(property_ref);
 }
 
 static void tr__apple_finish_success(tr_async *async_request) {
@@ -930,149 +849,103 @@ static void tr__apple_finish_success(tr_async *async_request) {
     async_request->response.result_code = TR_OK;
 }
 
-static void tr__apple_close_stream(tr_async *async_request) {
-    if (async_request->stream && !async_request->stop_called) {
-        async_request->stop_called = 1;
-        CFReadStreamClose(async_request->stream);
+static void tr__apple_cancel(tr_async *async_request) {
+    if (async_request->task) {
+        @autoreleasepool {
+            [async_request->task cancel];
+        }
     }
 }
 
-/* yap: what a stream error says: the system's own text for a POSIX one ("Connection refused"). */
-static void tr__apple_stream_error_text(CFStreamError stream_error, char *text, size_t size) {
-    if (stream_error.domain == kCFStreamErrorDomainPOSIX && stream_error.error > 0) {
-        snprintf(text, size, "%s", strerror((int) stream_error.error));
-    } else {
-        snprintf(text, size, "connection failed (domain %ld, code %ld)", (long) stream_error.domain, (long) stream_error.error);
-    }
-}
-
-static void tr__apple_read_available(tr_async *async_request) {
-    UInt8 buffer[4096];
-    CFIndex bytes_read;
-    while (async_request->stream && async_request->status == TR_IN_PROGRESS) {
-        /*
-         * yap: CFReadStreamRead blocks until a byte arrives, so it is only called when
-         * there is one. This is called from the poll loop of whoever uses the library
-         * (the client's UI thread), and before, a slow server stopped that thread, and
-         * no timeout could fire. The end of the stream and its errors are read from the
-         * stream's status instead of from a read.
-         */
-        CFStreamStatus state = CFReadStreamGetStatus(async_request->stream);
-        if (state == kCFStreamStatusAtEnd) {
-            tr__apple_capture_status(async_request);
-            tr__apple_capture_headers(async_request);
-            tr__apple_finish_success(async_request);
-            tr__apple_close_stream(async_request);
-            return;
-        }
-        if (state == kCFStreamStatusError) {
-            CFStreamError stream_error = CFReadStreamGetError(async_request->stream);
-            if (stream_error.error == ETIMEDOUT) {
-                tr__apple_set_error(async_request, TR_ERROR_TIMEOUT, "timeout");
-            } else {
-                char message[96];
-                tr__apple_stream_error_text(stream_error, message, sizeof(message));
-                tr__apple_set_error(async_request, TR_ERROR_BACKEND, message);
-            }
-            tr__apple_close_stream(async_request);
-            return;
-        }
-        if ((state != kCFStreamStatusOpen && state != kCFStreamStatusReading) || !CFReadStreamHasBytesAvailable(async_request->stream)) {
-            return; /* not open yet, or nothing to read yet: the run loop says when */
-        }
-        bytes_read = CFReadStreamRead(async_request->stream, buffer, (CFIndex) sizeof(buffer));
-        if (bytes_read < 0 && async_request->status != TR_IN_PROGRESS) {
-            return; /* yap: reading ran the stream's callbacks, which ended the request, and closed the stream */
-        }
-        if (bytes_read > 0) {
-            if (tr__append_bytes(async_request->client, &async_request->response, buffer, (size_t) bytes_read) != TR_OK) {
-                tr__apple_set_error(async_request, TR_ERROR_NOMEM, "response allocation failed");
-                tr__apple_close_stream(async_request);
-                return;
-            }
+static int tr__apple_take_headers(tr_async *async_request, NSHTTPURLResponse *response) {
+    NSDictionary *fields = [response allHeaderFields];
+    for (id key in fields) {
+        id value = [fields objectForKey:key];
+        const char *name;
+        const char *text;
+        int rc;
+        if (![key isKindOfClass:[NSString class]] || ![value isKindOfClass:[NSString class]]) {
             continue;
         }
-        if (bytes_read == 0) {
-            tr__apple_capture_status(async_request);
-            tr__apple_capture_headers(async_request); /* yap: not captured otherwise when the answer is read here */
-            tr__apple_finish_success(async_request);
-            tr__apple_close_stream(async_request);
+        name = [(NSString *) key UTF8String];
+        text = [(NSString *) value UTF8String];
+        if (!name || !text) {
+            continue;
+        }
+        rc = tr__append_header(async_request->client, &async_request->response, name, strlen(name), text, strlen(text));
+        if (rc != TR_OK) {
+            return rc;
+        }
+    }
+    return TR_OK;
+}
+
+/* Takes over the answer once the transfer is over; until then, nothing. */
+static void tr__apple_collect(tr_async *async_request) {
+    TinyRequestsAppleDelegate *delegate = async_request->delegate;
+    int done;
+    int rc;
+    if (async_request->status != TR_IN_PROGRESS || !delegate) {
+        return;
+    }
+    @synchronized (delegate) {
+        done = delegate->done;
+    }
+    if (!done) {
+        return;
+    }
+    /* the delegate is called no more after the end, so it can be read without its lock */
+    @autoreleasepool {
+        if (delegate->failure) {
+            tr__apple_set_error(async_request, delegate->failure, delegate->failure_text);
             return;
         }
-        {
-            /* yap: say why */
-            CFStreamError read_error = CFReadStreamGetError(async_request->stream);
-            char message[96];
-            tr__apple_stream_error_text(read_error, message, sizeof(message));
-            tr__apple_set_error(async_request, TR_ERROR_BACKEND, message);
-        }
-        tr__apple_close_stream(async_request);
-        return;
-    }
-}
-
-static void tr__apple_stream_cb(CFReadStreamRef stream, CFStreamEventType type, void *info) {
-    tr_async *async_request = (tr_async *) info;
-    (void) stream;
-    if (!async_request) {
-        return;
-    }
-    switch (type) {
-        case kCFStreamEventOpenCompleted:
-            async_request->opened = 1;
-            tr__apple_capture_status(async_request);
-            tr__apple_capture_headers(async_request);
-            break;
-        case kCFStreamEventHasBytesAvailable:
-            tr__apple_capture_status(async_request);
-            tr__apple_capture_headers(async_request);
-            tr__apple_read_available(async_request);
-            break;
-        case kCFStreamEventEndEncountered:
-            tr__apple_capture_status(async_request);
-            tr__apple_capture_headers(async_request);
-            tr__apple_finish_success(async_request);
-            tr__apple_close_stream(async_request);
-            break;
-        case kCFStreamEventErrorOccurred:
-            {
-                CFStreamError stream_error = CFReadStreamGetError(async_request->stream);
-                if (stream_error.error == ETIMEDOUT) {
-                    tr__apple_set_error(async_request, TR_ERROR_TIMEOUT, "timeout");
-                } else {
-                    tr__apple_set_error(async_request, TR_ERROR_BACKEND, "stream error");
-                }
+        if (delegate->error) {
+            NSError *error = delegate->error;
+            if ([[error domain] isEqualToString:NSURLErrorDomain] && [error code] == NSURLErrorTimedOut) {
+                tr__apple_set_error(async_request, TR_ERROR_TIMEOUT, "timeout");
+            } else {
+                const char *text = [[error localizedDescription] UTF8String];
+                tr__apple_set_error(async_request, TR_ERROR_BACKEND, text && text[0] ? text : "request failed");
             }
-            tr__apple_close_stream(async_request);
-            break;
-    }
-}
-
-static void tr__apple_unschedule_async(tr_async *async_request) {
-    if (async_request->stream && async_request->scheduled && async_request->run_loop) {
-        CFReadStreamSetClient(async_request->stream, kCFStreamEventNone, NULL, NULL);
-        CFReadStreamUnscheduleFromRunLoop(async_request->stream, async_request->run_loop, kCFRunLoopDefaultMode);
-        async_request->scheduled = 0;
+            return;
+        }
+        if (!delegate->response) {
+            tr__apple_set_error(async_request, TR_ERROR_BACKEND, "no HTTP response");
+            return;
+        }
+        async_request->response.status_code = (long) [delegate->response statusCode];
+        rc = tr__apple_take_headers(async_request, delegate->response);
+        if (rc == TR_OK) {
+            rc = tr__append_bytes(async_request->client, &async_request->response, [delegate->body bytes], (size_t) [delegate->body length]);
+        }
+        if (rc != TR_OK) {
+            tr__apple_set_error(async_request, rc, rc == TR_ERROR_NOMEM ? "response allocation failed" : "response headers failed");
+            return;
+        }
+        tr__apple_finish_success(async_request);
     }
 }
 
 static void tr__apple_cleanup_async(tr_async *async_request) {
-    tr_client *client;
     if (!async_request) {
         return;
     }
-    client = async_request->client;
-    if (async_request->stream) {
-        tr__apple_unschedule_async(async_request);
-        tr__apple_close_stream(async_request);
+    @autoreleasepool {
+        if (async_request->task) {
+            [async_request->task cancel];
+            [async_request->task release];
+            async_request->task = nil;
+        }
+        if (async_request->session) {
+            /* the session keeps its delegate until it is done with it */
+            [async_request->session invalidateAndCancel];
+            [async_request->session release];
+            async_request->session = nil;
+        }
+        [async_request->delegate release];
+        async_request->delegate = nil;
     }
-    tr__cf_release(async_request->stream);
-    tr__cf_release(async_request->request_message);
-    tr__cf_release(async_request->url_ref);
-    tr__cf_release(async_request->run_loop);
-    tr__free(client, async_request->method_copy);
-    tr__free(client, async_request->url_copy);
-    tr__free(client, async_request->body_copy);
     tr_response_cleanup(&async_request->response);
 }
 
@@ -1085,37 +958,71 @@ static void tr__apple_destroy_async(tr_async *async_request) {
 }
 
 static int tr__apple_start_async(tr_client *client, tr_async *async_request, const tr_request *request) {
-    CFStreamClientContext context;
-    int rc;
-    memset(&context, 0, sizeof(context));
-    rc = tr__apple_build_request(client, async_request, request);
-    if (rc != TR_OK) {
-        return rc;
-    }
-    async_request->stream = CFReadStreamCreateForHTTPRequest(NULL, async_request->request_message);
-    if (!async_request->stream) {
-        return TR_ERROR_BACKEND;
-    }
-    CFReadStreamSetProperty(async_request->stream, kCFStreamPropertyHTTPShouldAutoredirect, kCFBooleanTrue);
-    async_request->run_loop = CFRunLoopGetCurrent();
-    if (async_request->run_loop) {
-        CFRetain(async_request->run_loop);
-    }
-    if (request->timeout_ms > 0) {
-        async_request->deadline = CFAbsoluteTimeGetCurrent() + ((CFAbsoluteTime) request->timeout_ms / 1000.0);
-        async_request->has_deadline = 1;
-    }
-    context.info = async_request;
-    if (!CFReadStreamSetClient(async_request->stream, kCFStreamEventOpenCompleted | kCFStreamEventHasBytesAvailable | kCFStreamEventEndEncountered | kCFStreamEventErrorOccurred, tr__apple_stream_cb, &context)) {
-        return TR_ERROR_BACKEND;
-    }
-    if (!async_request->run_loop) {
-        return TR_ERROR_BACKEND;
-    }
-    CFReadStreamScheduleWithRunLoop(async_request->stream, async_request->run_loop, kCFRunLoopDefaultMode);
-    async_request->scheduled = 1;
-    if (!CFReadStreamOpen(async_request->stream)) {
-        return TR_ERROR_BACKEND;
+    @autoreleasepool {
+        NSString *url_string;
+        NSString *method;
+        NSURL *url;
+        NSString *scheme;
+        NSMutableURLRequest *url_request;
+        NSURLSessionConfiguration *configuration;
+        TinyRequestsAppleDelegate *delegate;
+        size_t i;
+
+        url_string = [NSString stringWithUTF8String:request->url];
+        url = url_string ? [NSURL URLWithString:url_string] : nil;
+        scheme = [[url scheme] lowercaseString];
+        /* NSURLSession also reads file: and data: addresses, which CFHTTPStream did not */
+        if (!url || ![url host] || !scheme || (![scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"])) {
+            return TR_ERROR_URL;
+        }
+        method = [NSString stringWithUTF8String:request->method ? request->method : "GET"];
+        if (!method) {
+            return TR_ERROR_INVALID_ARGUMENT;
+        }
+        url_request = [NSMutableURLRequest requestWithURL:url];
+        [url_request setHTTPMethod:method];
+        for (i = 0; i < request->header_count; ++i) {
+            NSString *name = request->headers[i].name ? [NSString stringWithUTF8String:request->headers[i].name] : nil;
+            NSString *value = request->headers[i].value ? [NSString stringWithUTF8String:request->headers[i].value] : nil;
+            if (!name || !value) {
+                return TR_ERROR_INVALID_ARGUMENT;
+            }
+            [url_request setValue:value forHTTPHeaderField:name];
+        }
+        if (request->body && request->body_size > 0) {
+            [url_request setHTTPBody:[NSData dataWithBytes:request->body length:request->body_size]];
+        }
+
+        /* nothing kept between requests: no cache, no cookies */
+        configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        [configuration setURLCache:nil];
+        [configuration setHTTPCookieStorage:nil];
+        [configuration setHTTPShouldSetCookies:NO];
+        [configuration setRequestCachePolicy:NSURLRequestReloadIgnoringLocalCacheData];
+        if (request->timeout_ms > 0) {
+            [configuration setTimeoutIntervalForRequest:(NSTimeInterval) request->timeout_ms / 1000.0];
+            [configuration setTimeoutIntervalForResource:(NSTimeInterval) request->timeout_ms / 1000.0];
+            async_request->deadline = CFAbsoluteTimeGetCurrent() + ((CFAbsoluteTime) request->timeout_ms / 1000.0);
+            async_request->has_deadline = 1;
+        }
+
+        delegate = [[TinyRequestsAppleDelegate alloc] init];
+        if (!delegate) {
+            return TR_ERROR_NOMEM;
+        }
+        delegate->body = [[NSMutableData alloc] init];
+        delegate->finished = dispatch_semaphore_create(0);
+        delegate->max_size = client->max_response_size;
+        async_request->delegate = delegate;
+        async_request->session = [[NSURLSession sessionWithConfiguration:configuration delegate:delegate delegateQueue:nil] retain];
+        if (!async_request->session) {
+            return TR_ERROR_BACKEND;
+        }
+        async_request->task = [[async_request->session dataTaskWithRequest:url_request] retain];
+        if (!async_request->task) {
+            return TR_ERROR_BACKEND;
+        }
+        [async_request->task resume];
     }
     return TR_OK;
 }
@@ -1535,7 +1442,7 @@ tr_client *tr_client_create(const tr_config *config) {
     (void) config;
 #elif defined(__APPLE__)
     client->backend_kind = 3;
-    client->backend_name = "cfnetwork";
+    client->backend_name = "nsurlsession";
     (void) config;
 #else
     client->backend_kind = 2;
@@ -1749,17 +1656,17 @@ winhttp_cleanup:
         rc = tr__apple_start_async(client, &fake_async, request);
         if (rc != TR_OK) {
             tr__apple_cleanup_async(&fake_async);
-            tr__set_error(response, rc, rc == TR_ERROR_URL ? "invalid url" : "CFNetwork setup failed");
+            tr__set_error(response, rc, rc == TR_ERROR_URL ? "invalid url" : "NSURLSession setup failed");
             return rc;
         }
         while (fake_async.status == TR_IN_PROGRESS) {
             if (fake_async.has_deadline && CFAbsoluteTimeGetCurrent() >= fake_async.deadline) {
                 tr__apple_set_error(&fake_async, TR_ERROR_TIMEOUT, "timeout"); /* yap: was BACKEND */
-                tr__apple_close_stream(&fake_async);
+                tr__apple_cancel(&fake_async);
                 break;
             }
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, 0);
-            tr__apple_read_available(&fake_async);
+            dispatch_semaphore_wait(fake_async.delegate->finished, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC));
+            tr__apple_collect(&fake_async);
         }
         if (fake_async.status != TR_OK) {
             int error_code = fake_async.result_code;
@@ -2064,14 +1971,13 @@ size_t tr_client_poll(tr_client *client) {
     {
         size_t pending = 0;
         tr_async *cursor;
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, 1);
         for (cursor = client->async_head; cursor; cursor = cursor->next) {
             if (cursor->status == TR_IN_PROGRESS) {
                 if (cursor->has_deadline && CFAbsoluteTimeGetCurrent() >= cursor->deadline) {
                     tr__apple_set_error(cursor, TR_ERROR_TIMEOUT, "timeout"); /* yap: was BACKEND */
-                    tr__apple_close_stream(cursor);
+                    tr__apple_cancel(cursor);
                 } else {
-                    tr__apple_read_available(cursor);
+                    tr__apple_collect(cursor);
                 }
             }
             if (cursor->status == TR_IN_PROGRESS) {

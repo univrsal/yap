@@ -830,15 +830,27 @@ titlebar_merged :: proc(ui: ^UI) -> bool {
 // on the right, so widths counted from the right-hand edge are counted
 // from the buttons instead.
 //
-// With the title bar merged, a line goes under the row (see UI.title_line).
+// With the title bar merged, a line goes under the row (see UI.title_line), and
+// the row is as tall as puts that line along the bottom of the title bar's
+// strip (titlebar_area), in the normal layout and the compact one alike: on
+// macOS where the rail's extension under the buttons ends (titlebar_buttons in
+// ui_titlebar_darwin.odin), elsewhere under the buttons we draw.
 title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout := mu.get_layout(&ui.ctx)
+	height := height
 	if titlebar_merged(ui) && ui.title_line == 0 {
 		// Halfway into the gap under the row, where the content's surface
 		// starts (content_surface). A row of height 0 is a control's height.
 		style := ui.ctx.style
+		top := layout.body.y + layout.next_row
+		below := style.spacing - style.spacing / 2
+		if height == 0 && ui.titlebar_height > 0 {
+			// Never shorter than a line of text (not a control's height,
+			// which the compact layout makes a finger's).
+			height = max(ui.titlebar_height - top - below, ui.ctx.text_height(style.font))
+		}
 		h := height if height > 0 else style.size.y + 2 * style.padding
-		ui.title_line = layout.body.y + layout.next_row + h + style.spacing - style.spacing / 2
+		ui.title_line = top + h + below
 	}
 	indent := layout.indent
 	layout.indent += max(ui.titlebar_left - layout.body.x, 0)

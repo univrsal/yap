@@ -197,7 +197,8 @@ titlebar_client_rect :: proc(window: glfw.WindowHandle, x, y, w, h: i32) -> (i32
 // titlebar_area is the strip along the top that the title bar would have
 // taken, in window coordinates: how far in from the left and from the right
 // the window's own buttons reach (only the right here), and how tall the strip
-// is. It is zero in fullscreen, where there is no title bar.
+// is: MERGED_TITLE_HEIGHT, which scales with the UI, rather than the system's
+// caption height. It is zero in fullscreen, where there is no title bar.
 titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	hwnd := win.HWND(glfw.GetWin32Window(ui.window))
 	if hwnd == nil || !is_merged(hwnd) {
@@ -207,7 +208,11 @@ titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 		return
 	}
 	dpi := win.GetDpiForWindow(hwnd)
-	height = f32(win.GetSystemMetricsForDpi(win.SM_CYCAPTION, dpi))
+	if ui.input_scale > 0 {
+		height = f32(MERGED_TITLE_HEIGHT) / ui.input_scale
+	} else {
+		height = f32(win.GetSystemMetricsForDpi(win.SM_CYCAPTION, dpi))
+	}
 	right = f32(TITLEBAR_BUTTON_WIDTH * TITLEBAR_BUTTON_COUNT * i32(dpi) / 96) + TITLEBAR_GAP
 	return
 }

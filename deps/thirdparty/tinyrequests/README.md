@@ -3,9 +3,9 @@
 `tinyrequests` is a tiny single-header C library for basic HTTP(S) requests.
 
 - Windows uses the native `WinHTTP` API.
-- macOS uses native `CFNetwork`/`CoreFoundation` APIs.
+- macOS uses `NSURLSession` (Foundation); the header has to be compiled as Objective-C, without ARC. (yap: this was CFNetwork's CFHTTPStream, deprecated since macOS 10.11.)
 - Linux and BSD use `libcurl`, loaded at runtime on a best-effort basis.
-- Async requests are polling-based and do not create threads in the library.
+- Async requests are polling-based and do not create threads in the library (on macOS, NSURLSession runs its delegate on a queue of the system's).
 
 On Windows, async requests use WinHTTP async callbacks internally while the public API stays poll-driven.
 
@@ -14,7 +14,7 @@ On Windows, async requests use WinHTTP async callbacks internally while the publ
 This first cut is intentionally small.
 
 - Windows sync and async requests work through `WinHTTP`.
-- macOS sync and async requests work through `CFNetwork`.
+- macOS sync and async requests work through `NSURLSession`.
 - Linux and BSD sync and async requests work on the `libcurl` backend.
 - Response headers are exposed through `tr_response.headers` and `tr_response.header_count`.
 
@@ -97,7 +97,7 @@ You can also provide your own `dlopen` result or a full function table through `
 
 - Windows: link against `winhttp.lib`.
 - Linux/BSD: link against `libdl` if needed by your toolchain.
-- macOS: link `CoreFoundation` and `CFNetwork`.
+- macOS: compile with `-x objective-c` and link `Foundation`.
 
 ## Makefile
 
