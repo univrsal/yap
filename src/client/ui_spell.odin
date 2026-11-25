@@ -65,7 +65,7 @@ ui_speller :: proc(ui: ^UI) -> ^spell.Speller {
 		if !sp.opened {
 			sp.opened = true
 			sp.generation += 1
-			spell.speller_set_languages(&sp.speller, spell_chosen_languages(ui))
+			spell.speller_set_languages(&sp.speller, spell_chosen_languages(ui), spell_dirs())
 			spell.speller_set_personal(&sp.speller, ui.settings.spell_words[:])
 		}
 		if !spell.speller_active(&sp.speller) {
@@ -82,7 +82,7 @@ spell_chosen_languages :: proc(ui: ^UI) -> []string {
 		return ui.settings.spell_languages[:]
 	}
 	return spell_default_languages(
-		spell.languages(nil, context.temp_allocator),
+		spell.languages(spell_dirs(), context.temp_allocator),
 		platform.locale_name(),
 	)
 }
@@ -405,7 +405,7 @@ spell_settings :: proc(ui: ^UI) {
 	sp := &ui.spell
 	if !sp.listed {
 		sp.listed = true
-		sp.languages = spell.languages()
+		sp.languages = spell.languages(spell_dirs())
 		// By the names they are shown with, those without one last.
 		slice.sort_by(sp.languages, proc(a, b: string) -> bool {
 			na, nb := spell_language_name(a), spell_language_name(b)
@@ -511,12 +511,13 @@ spell_language_settings :: proc(ui: ^UI) {
 			spell_pick_language(ui, chosen, tag, on)
 		}
 	}
+	// Where Hunspell checks: more to download (ui_spell_download.odin).
+	spell_download_settings(ui)
 }
 
 // spell_pick_language checks against `tag` (`on`) or not any more. The
 // languages are picked from then on, starting from the ones that were
 // checked (`chosen`, which may be the default ones).
-@(private = "file")
 spell_pick_language :: proc(ui: ^UI, chosen: []string, tag: string, on: bool) {
 	picked := make([dynamic]string)
 	for c in chosen {
