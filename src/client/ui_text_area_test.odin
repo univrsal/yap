@@ -163,3 +163,34 @@ test_history_pasted_text_is_a_step :: proc(t: ^testing.T) {
 	testing.expect_value(t, step.text, "hi")
 	testing.expect_value(t, step.sel, [2]int{2, 2})
 }
+
+@(test)
+test_area_word :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		text: string,
+		at:   int,
+		word: [2]int,
+	} {
+		{"", 0, {0, 0}},
+		{"hello world", 0, {0, 5}},
+		{"hello world", 2, {0, 5}},
+		// At the end of a word, before a space: that word, not the space.
+		{"hello world", 5, {0, 5}},
+		{"hello world", 6, {6, 11}},
+		{"hello world", 11, {6, 11}},
+		// In a run of spaces: the spaces.
+		{"a   b", 2, {1, 4}},
+		// Punctuation is a word of its own, one character long.
+		{"hi, you", 2, {0, 2}},
+		{"hi,, you", 3, {3, 4}},
+		{"foo_bar1.baz", 4, {0, 8}},
+		// Non-ASCII letters are part of words.
+		{"grüße dich", 1, {0, 7}},
+		{"a\nb", 1, {0, 1}},
+		{"a\nb", 2, {2, 3}},
+	}
+	for c in cases {
+		got := area_word(c.text, c.at)
+		testing.expectf(t, got == c.word, "%q at %d: %v, not %v", c.text, c.at, got, c.word)
+	}
+}

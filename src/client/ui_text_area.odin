@@ -2,6 +2,7 @@ package client
 
 import "core:strings"
 import textedit "core:text/edit"
+import "core:time"
 import mu "vendor:microui"
 
 import "client:platform"
@@ -17,7 +18,9 @@ import "client:platform"
 // list, the composer's keys, pasting) works on this too. On top of that, Up
 // and Down (the UI's own keys, ui.keys) move between lines and keep to the
 // column they started in, Home and End go to the ends of the line (with Ctrl,
-// of the text), and the pointer lands on the line it is over.
+// of the text), and the pointer lands on the line it is over. A double click
+// selects the word under the pointer, and dragging on from it selects whole
+// words.
 //
 // The box's height is worked out before it is laid out (text_area_height), so
 // the rows above can make room. It is based on the width the text had in the
@@ -31,6 +34,9 @@ import "client:platform"
 
 // The most lines a text area grows to. Beyond that it scrolls.
 TEXT_AREA_MAX_LINES :: 10
+
+// How soon after a press another one near it makes a double click.
+TEXT_AREA_DOUBLE_CLICK :: 500 * time.Millisecond
 
 // What a text area keeps between frames.
 Text_Area :: struct {
@@ -60,6 +66,13 @@ Text_Area :: struct {
 	footer:       i32,
 	// A press in the footer, which the caret ignores until it is released.
 	footer_press: bool,
+	// The last press on the text, to tell a double click: when and where.
+	press_tick:   time.Tick,
+	press_pos:    mu.Vec2,
+	// While the press that made a double click is held: the word it selected,
+	// which dragging selects whole words from.
+	word_held:    bool,
+	word:         [2]int,
 	// In a web build, the page's own text field that stands in for it.
 	field:        Field_Sync,
 	// What Ctrl+Z and Ctrl+Y go through (ui_text_history.odin). Not in a web
@@ -155,6 +168,48 @@ area_vertical :: proc(
 	return offset_at(ctx, font, text, l.start, l.stop, x)
 }
 
+// area_word is the word at the place `at` in `text`, as its start and end: a
+// run of letters, digits and underscores (any non-ASCII character counts as a
+// letter), a run of spaces, or a single other character. It is the one right
+// after `at`, unless `at` is at the end of a word and not at the start of
+// another (at the end of the text, or before a space or punctuation), where it
+// is the one before.
+area_word :: proc(text: string, at: int) -> [2]int {
+	Class :: enum {
+		Word,
+		Space,
+		Other,
+	}
+	class :: proc(b: u8) -> Class {
+		switch b {
+		case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', 0x80 ..= 0xff:
+			return .Word
+		case ' ', '\t', '\n', '\r':
+			return .Space
+		}
+		return .Other
+	}
+	if len(text) == 0 {
+		return {}
+	}
+	i := clamp(at, 0, len(text))
+	if i == len(text) || (i > 0 && class(text[i]) != .Word && class(text[i - 1]) == .Word) {
+		i -= 1
+	}
+	c := class(text[i])
+	start, end := i, i + 1
+	if c == .Other {
+		return {start, end} // always one byte: non-ASCII counts as a letter
+	}
+	for start > 0 && class(text[start - 1]) == c {
+		start -= 1
+	}
+	for end < len(text) && class(text[end]) == c {
+		end += 1
+	}
+	return {start, end}
+}
+
 // text_area_single is how tall a text area of one line is: a control's
 // height, or more for a bigger font. Each additional line adds a line's height.
 text_area_single :: proc(ctx: ^mu.Context, font: mu.Font) -> i32 {
@@ -220,6 +275,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)
 	} else if .LEFT not_in ctx.mouse_down_bits {
 		area.footer_press = false
+		area.word_held = false
 	}
 	if ctx.hover_id == id && mu.mouse_over(ctx, tr) {
 		ui.select.over_text = true // shows an I-beam over it (draw_frame)
@@ -386,9 +442,36 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 					pl.stop,
 					ctx.mouse_pos.x - r.x - ctx.style.padding,
 				)
-				s.selection[0] = at
-				if .LEFT in ctx.mouse_pressed_bits && !shift {
-					s.selection[1] = at
+				if .LEFT in ctx.mouse_pressed_bits {
+					now := time.tick_now()
+					d := ctx.mouse_pos - area.press_pos
+					double :=
+						area.press_tick != {} &&
+						time.tick_diff(area.press_tick, now) < TEXT_AREA_DOUBLE_CLICK &&
+						abs(d.x) <= 4 &&
+						abs(d.y) <= 4
+					area.press_tick, area.press_pos = now, ctx.mouse_pos
+					area.word_held = double && !shift
+					if area.word_held {
+						area.press_tick = {} // a third press is a single one again
+						area.word = area_word(text, at)
+					}
+				}
+				if area.word_held {
+					// The caret is at the end the pointer is past: from the
+					// double-clicked word to the word the pointer is on.
+					if at < area.word[0] {
+						s.selection = {area_word(text, at)[0], area.word[1]}
+					} else if at > area.word[1] {
+						s.selection = {area_word(text, at)[1], area.word[0]}
+					} else {
+						s.selection = {area.word[1], area.word[0]}
+					}
+				} else {
+					s.selection[0] = at
+					if .LEFT in ctx.mouse_pressed_bits && !shift {
+						s.selection[1] = at
+					}
 				}
 			}
 		}
