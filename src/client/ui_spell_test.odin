@@ -92,3 +92,21 @@ test_spell_replace :: proc(t: ^testing.T) {
 	spell_replace(ui, c, {0, 3}, "Thhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhe")
 	testing.expect_value(t, string(buf[:n]), "The hut is reddish")
 }
+
+@(test)
+test_spell_language_name :: proc(t: ^testing.T) {
+	cases := [?][2]string {
+		{"de", "German"},
+		{"de-AT", "German (Austria)"},
+		{"en-GB", "English (United Kingdom)"},
+		{"en-029", "English (Caribbean)"},
+		{"sr-Latn", "Serbian (Latin script)"},
+		{"de-DE-frami", "German (Germany, with Swiss and Austrian spellings)"},
+		// An unknown region stays as it is; an unknown language has no name.
+		{"de-XX", "German (XX)"},
+		{"qq-DE", ""},
+	}
+	for c in cases {
+		testing.expect_value(t, spell_language_name(c[0]), c[1])
+	}
+}

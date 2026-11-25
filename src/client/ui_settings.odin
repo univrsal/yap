@@ -35,6 +35,7 @@ Client_Category :: enum {
 	Sounds,
 	Scripts,
 	Interface,
+	Spelling,
 	Hotkeys,
 	Screen_Sharing,
 	Camera,
@@ -53,6 +54,7 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Sounds          = "Sounds",
 	.Scripts         = "Scripts",
 	.Interface       = "User interface",
+	.Spelling        = "Spelling",
 	.Hotkeys         = "Global hotkeys",
 	.Screen_Sharing  = "Screen sharing",
 	.Camera          = "Camera",
@@ -66,12 +68,14 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 }
 
 // The categories a web build excludes: a page has neither global hotkeys nor
-// anything to install (ui_hotkeys_web.odin, ui_install_web.odin).
+// anything to install (ui_hotkeys_web.odin, ui_install_web.odin), and the
+// browser checks the spelling itself.
 @(private = "file")
 CLIENT_CATEGORIES ::
 	~bit_set[Client_Category] {
 		.Hotkeys,
 		.Install,
+		.Spelling,
 	} when platform.WEB else ~bit_set[Client_Category]{}
 
 // How wide the list of categories is.
@@ -176,6 +180,9 @@ category_list :: proc(
 	if ui.settings_tab == .Client {
 		for c in CLIENT_CATEGORIES {
 			if category_row(ctx, CLIENT_CATEGORY_NAMES[c], ui.settings_client == c && !narrow) {
+				if c == .Spelling {
+					spell_settings_opened(ui) // ui_spell.odin
+				}
 				ui.settings_client = c
 				picked = true
 			}
@@ -224,6 +231,8 @@ settings_body :: proc(ui: ^UI) {
 		script_settings(ui) // ui_script_settings.odin
 	case .Interface:
 		ui_settings(ui)
+	case .Spelling:
+		spell_settings(ui) // ui_spell.odin
 	case .Hotkeys:
 		hotkey_settings(ui)
 	case .Screen_Sharing:

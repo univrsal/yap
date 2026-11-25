@@ -1,6 +1,7 @@
 package client
 
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import mu "vendor:microui"
 
@@ -11,9 +12,10 @@ import "client:spell"
 // (client:spell) doesn't know are underlined with a wavy line in the text area
 // (text_area_spell). Code isn't checked: `inline code` and ``` blocks.
 //
-// The languages are the one the system is set to and English, of those that
-// the checker has. It is opened when first needed. The user's own words are
-// kept in the settings (spell_words).
+// It is set up in the settings' Spelling category (spell_settings): whether it
+// is on, the languages (until some are picked, the one the system is set to
+// and English, of those that the checker has) and the user's own words. The
+// checker is opened when first needed, and again when they change.
 //
 // Right-clicking an underlined word opens a menu (spell_menu) with what it may
 // have been meant to be, which replaces it, and a way to add it to the user's
@@ -27,6 +29,10 @@ UI_Spell :: struct {
 	// know to check their text again.
 	generation: u32,
 	menu:       Spell_Menu,
+	// The languages the checker has, for the settings: listed when the
+	// Spelling category is first shown (owned).
+	languages:  []string,
+	listed:     bool,
 }
 
 // The menu for a misspelled word in a composer.
@@ -44,21 +50,22 @@ Spell_Menu :: struct {
 @(private = "file")
 SPELL_MENU :: "spell menu"
 
-// ui_speller is the UI's speller, opened with the default languages the first
-// time. Nil when nothing can be checked here (the web, or no checker).
+// ui_speller is the UI's speller, opened with the languages of the settings
+// the first time and after they change (spell_settings_changed). Nil when
+// spell checking is off or nothing can be checked here (the web, no checker,
+// no languages).
 ui_speller :: proc(ui: ^UI) -> ^spell.Speller {
 	when platform.WEB {
 		return nil
 	} else {
+		if !ui.settings.spell_check {
+			return nil
+		}
 		sp := &ui.spell
 		if !sp.opened {
 			sp.opened = true
 			sp.generation += 1
-			tags := spell_default_languages(
-				spell.languages(nil, context.temp_allocator),
-				platform.locale_name(),
-			)
-			spell.speller_set_languages(&sp.speller, tags)
+			spell.speller_set_languages(&sp.speller, spell_chosen_languages(ui))
 			spell.speller_set_personal(&sp.speller, ui.settings.spell_words[:])
 		}
 		if !spell.speller_active(&sp.speller) {
@@ -68,8 +75,29 @@ ui_speller :: proc(ui: ^UI) -> ^spell.Speller {
 	}
 }
 
+// spell_chosen_languages are the languages to check: the ones picked in the
+// settings, or until some are, the default ones (spell_default_languages).
+spell_chosen_languages :: proc(ui: ^UI) -> []string {
+	if ui.settings.spell_languages_picked {
+		return ui.settings.spell_languages[:]
+	}
+	return spell_default_languages(
+		spell.languages(nil, context.temp_allocator),
+		platform.locale_name(),
+	)
+}
+
+// spell_settings_changed makes the checker take up the settings again, and
+// text areas check their text again.
+spell_settings_changed :: proc(ui: ^UI) {
+	ui.spell.opened = false
+	ui.spell.generation += 1
+	ui_redraw(ui)
+}
+
 ui_spell_destroy :: proc(ui: ^UI) {
 	spell_menu_forget(&ui.spell.menu)
+	spell_languages_forget(&ui.spell)
 	spell.speller_destroy(&ui.spell.speller)
 	ui.spell = {}
 }
@@ -353,4 +381,336 @@ spell_add_word :: proc(ui: ^UI, word: string) {
 	ui.settings_dirty = true
 	spell.speller_set_personal(&ui.spell.speller, ui.settings.spell_words[:])
 	ui.spell.generation += 1
+}
+
+@(private = "file")
+spell_languages_forget :: proc(sp: ^UI_Spell) {
+	for l in sp.languages {
+		delete(l)
+	}
+	delete(sp.languages)
+	sp.languages, sp.listed = nil, false
+}
+
+// spell_settings_opened is called when the Spelling category is opened: the
+// languages are listed again, as some may have been installed since.
+spell_settings_opened :: proc(ui: ^UI) {
+	spell_languages_forget(&ui.spell)
+}
+
+// spell_settings is the settings' Spelling category: whether spelling is
+// checked, the languages to check against, and the user's own words.
+spell_settings :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	sp := &ui.spell
+	if !sp.listed {
+		sp.listed = true
+		sp.languages = spell.languages()
+		// By the names they are shown with, those without one last.
+		slice.sort_by(sp.languages, proc(a, b: string) -> bool {
+			na, nb := spell_language_name(a), spell_language_name(b)
+			if (na == "") != (nb == "") {
+				return nb == ""
+			}
+			return na < nb if na != nb else a < b
+		})
+	}
+	mu.layout_row(ctx, {-1})
+	if .CHANGE in
+	   checkbox(ctx, "Check spelling while writing messages", &ui.settings.spell_check) {
+		save_settings(ui)
+		spell_settings_changed(ui)
+	}
+	if !spell.available() {
+		// Only Hunspell can be missing (Linux and the BSDs).
+		mu.layout_row(ctx, {-1})
+		with_text_color(
+			ctx,
+			theme.warning,
+			"  Spell checking needs Hunspell, which isn't installed. Install your system's Hunspell library (libhunspell) and the dictionaries for your languages (hunspell-en-us, hunspell-de-de, ...), then restart yap.",
+			wrap_text,
+		)
+		return
+	}
+
+	spell_words_settings(ui)
+	spell_language_settings(ui)
+}
+
+// spell_words_settings lists the user's own words, which can be removed.
+@(private = "file")
+spell_words_settings :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	sp := &ui.spell
+	section_label(ui, "Your words")
+	words := &ui.settings.spell_words
+	if len(words) == 0 {
+		mu.layout_row(ctx, {-1})
+		dim_note(
+			ctx,
+			"  None yet. Right-click an underlined word in a message and pick \"Add to dictionary\".",
+		)
+		return
+	}
+	remove := -1
+	for w, i in words {
+		mu.push_id(ctx, uintptr(i))
+		defer mu.pop_id(ctx)
+		mu.layout_row(ctx, {-(80 + ctx.style.spacing), -1})
+		mu.label(ctx, w)
+		if .SUBMIT in stable_button(ctx, "remove", "Remove") {
+			remove = i
+		}
+	}
+	// Done after the loop, which the list is shown by.
+	if remove >= 0 {
+		delete(words[remove])
+		ordered_remove(words, remove)
+		save_settings(ui)
+		spell.speller_set_personal(&sp.speller, words[:])
+		spell_settings_changed(ui)
+	}
+}
+
+// spell_language_settings lists the languages that the system's checker has,
+// each with whether it is checked against.
+@(private = "file")
+spell_language_settings :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	sp := &ui.spell
+	section_label(ui, "Languages")
+	// Where they come from, and how several are checked.
+	when ODIN_OS == .Windows {
+		WHERE :: "the languages that Windows has installed"
+	} else when ODIN_OS == .Darwin {
+		WHERE :: "the languages that macOS has"
+	} else {
+		WHERE :: "the Hunspell dictionaries installed on the system (in /usr/share/hunspell and the like)"
+	}
+	mu.layout_row(ctx, {-1})
+	dim_note(
+		ctx,
+		"  These are " +
+		WHERE +
+		". A word is taken as right when any of the checked languages knows it.",
+	)
+	if len(sp.languages) == 0 {
+		mu.layout_row(ctx, {-1})
+		with_text_color(
+			ctx,
+			theme.warning,
+			"  No languages were found to check against.",
+			wrap_text,
+		)
+	}
+	when ODIN_OS == .Windows {
+		mu.layout_row(ctx, {200})
+		if .SUBMIT in stable_button(ctx, "windows languages", "Windows language settings") {
+			platform.open_language_settings()
+		}
+	}
+	chosen := spell_chosen_languages(ui)
+	for tag, i in sp.languages {
+		mu.push_id(ctx, uintptr(i))
+		defer mu.pop_id(ctx)
+		on := slice.contains(chosen, tag)
+		name := spell_language_name(tag)
+		label := tag if name == "" else fmt.tprintf("%s (%s)", name, tag)
+		mu.layout_row(ctx, {-1})
+		if .CHANGE in checkbox(ctx, label, &on) {
+			spell_pick_language(ui, chosen, tag, on)
+		}
+	}
+}
+
+// spell_pick_language checks against `tag` (`on`) or not any more. The
+// languages are picked from then on, starting from the ones that were
+// checked (`chosen`, which may be the default ones).
+@(private = "file")
+spell_pick_language :: proc(ui: ^UI, chosen: []string, tag: string, on: bool) {
+	picked := make([dynamic]string)
+	for c in chosen {
+		if c != tag {
+			append(&picked, strings.clone(c))
+		}
+	}
+	if on {
+		append(&picked, strings.clone(tag))
+	}
+	s := &ui.settings
+	for l in s.spell_languages {
+		delete(l)
+	}
+	delete(s.spell_languages)
+	s.spell_languages = picked
+	s.spell_languages_picked = true
+	save_settings(ui)
+	spell_settings_changed(ui)
+}
+
+// spell_language_name is the name of the language `tag` ("de-AT") in English
+// ("German (Austria)"), or "" when it isn't known.
+spell_language_name :: proc(tag: string) -> string {
+	parts := strings.split(tag, "-", context.temp_allocator)
+	lang := ""
+	for l in LANGUAGE_NAMES {
+		if l[0] == strings.to_lower(parts[0], context.temp_allocator) {
+			lang = l[1]
+			break
+		}
+	}
+	if lang == "" {
+		return ""
+	}
+	if len(parts) == 1 {
+		return lang
+	}
+	rest := make([dynamic]string, context.temp_allocator)
+	for p in parts[1:] {
+		name := p
+		for r in REGION_NAMES {
+			if r[0] == p {
+				name = r[1]
+				break
+			}
+		}
+		append(&rest, name)
+	}
+	return fmt.tprintf("%s (%s)", lang, strings.join(rest[:], ", ", context.temp_allocator))
+}
+
+@(private = "file")
+LANGUAGE_NAMES := [?][2]string {
+	{"af", "Afrikaans"},
+	{"ar", "Arabic"},
+	{"ars", "Najdi Arabic"},
+	{"be", "Belarusian"},
+	{"bg", "Bulgarian"},
+	{"br", "Breton"},
+	{"ca", "Catalan"},
+	{"cs", "Czech"},
+	{"cy", "Welsh"},
+	{"da", "Danish"},
+	{"de", "German"},
+	{"el", "Greek"},
+	{"en", "English"},
+	{"eo", "Esperanto"},
+	{"es", "Spanish"},
+	{"et", "Estonian"},
+	{"eu", "Basque"},
+	{"fa", "Persian"},
+	{"fi", "Finnish"},
+	{"fo", "Faroese"},
+	{"fr", "French"},
+	{"fy", "Western Frisian"},
+	{"ga", "Irish"},
+	{"gd", "Scottish Gaelic"},
+	{"gl", "Galician"},
+	{"he", "Hebrew"},
+	{"hi", "Hindi"},
+	{"hr", "Croatian"},
+	{"hu", "Hungarian"},
+	{"hy", "Armenian"},
+	{"id", "Indonesian"},
+	{"is", "Icelandic"},
+	{"it", "Italian"},
+	{"ja", "Japanese"},
+	{"ka", "Georgian"},
+	{"ko", "Korean"},
+	{"la", "Latin"},
+	{"lb", "Luxembourgish"},
+	{"lt", "Lithuanian"},
+	{"lv", "Latvian"},
+	{"mk", "Macedonian"},
+	{"mn", "Mongolian"},
+	{"ms", "Malay"},
+	{"nb", "Norwegian Bokmål"},
+	{"nds", "Low German"},
+	{"ne", "Nepali"},
+	{"nl", "Dutch"},
+	{"nn", "Norwegian Nynorsk"},
+	{"no", "Norwegian"},
+	{"oc", "Occitan"},
+	{"pa", "Punjabi"},
+	{"pl", "Polish"},
+	{"pt", "Portuguese"},
+	{"ro", "Romanian"},
+	{"ru", "Russian"},
+	{"rw", "Kinyarwanda"},
+	{"sk", "Slovak"},
+	{"sl", "Slovenian"},
+	{"sr", "Serbian"},
+	{"sv", "Swedish"},
+	{"te", "Telugu"},
+	{"th", "Thai"},
+	{"tk", "Turkmen"},
+	{"tr", "Turkish"},
+	{"uk", "Ukrainian"},
+	{"vi", "Vietnamese"},
+	{"zh", "Chinese"},
+}
+
+// Countries and regions, the scripts a tag can name, and the variants
+// dictionaries are named with.
+@(private = "file")
+REGION_NAMES := [?][2]string {
+	{"029", "Caribbean"},
+	{"419", "Latin America"},
+	{"AR", "Argentina"},
+	{"AT", "Austria"},
+	{"AU", "Australia"},
+	{"BE", "Belgium"},
+	{"BO", "Bolivia"},
+	{"BR", "Brazil"},
+	{"BZ", "Belize"},
+	{"CA", "Canada"},
+	{"CH", "Switzerland"},
+	{"CL", "Chile"},
+	{"CO", "Colombia"},
+	{"CR", "Costa Rica"},
+	{"CU", "Cuba"},
+	{"DE", "Germany"},
+	{"DK", "Denmark"},
+	{"DO", "Dominican Republic"},
+	{"EC", "Ecuador"},
+	{"ES", "Spain"},
+	{"FI", "Finland"},
+	{"FR", "France"},
+	{"GB", "United Kingdom"},
+	{"GT", "Guatemala"},
+	{"HK", "Hong Kong"},
+	{"HN", "Honduras"},
+	{"ID", "Indonesia"},
+	{"IE", "Ireland"},
+	{"IN", "India"},
+	{"IT", "Italy"},
+	{"JM", "Jamaica"},
+	{"JP", "Japan"},
+	{"LI", "Liechtenstein"},
+	{"LU", "Luxembourg"},
+	{"MX", "Mexico"},
+	{"MY", "Malaysia"},
+	{"NI", "Nicaragua"},
+	{"NL", "Netherlands"},
+	{"NZ", "New Zealand"},
+	{"PA", "Panama"},
+	{"PE", "Peru"},
+	{"PH", "Philippines"},
+	{"PR", "Puerto Rico"},
+	{"PT", "Portugal"},
+	{"PY", "Paraguay"},
+	{"SE", "Sweden"},
+	{"SG", "Singapore"},
+	{"SV", "El Salvador"},
+	{"TT", "Trinidad and Tobago"},
+	{"US", "United States"},
+	{"UY", "Uruguay"},
+	{"VE", "Venezuela"},
+	{"ZA", "South Africa"},
+	{"ZW", "Zimbabwe"},
+	{"Latn", "Latin script"},
+	{"Cyrl", "Cyrillic script"},
+	{"polyton", "polytonic"},
+	{"valencia", "Valencian"},
+	{"frami", "with Swiss and Austrian spellings"},
 }
