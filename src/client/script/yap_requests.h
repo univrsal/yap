@@ -1,6 +1,6 @@
 /*
  * HTTP requests for the scripts (src/client/script/http_native.odin), over
- * tinyrequests (deps/thirdparty/tinyrequests): WinHTTP on Windows, CFNetwork on
+ * tinyrequests (deps/thirdparty/tinyrequests): WinHTTP on Windows, NSURLSession on
  * macOS, and a libcurl found at run time elsewhere. The requests are driven by
  * polling, from the thread that steps the scripts; nothing here has a thread of
  * its own and nothing waits.
@@ -34,7 +34,7 @@ typedef struct yap_http_result {
 
 /*
  * Makes a client, or NULL if there is no way to make requests here (no libcurl
- * on Linux). `backend` gets its name ("libcurl", "winhttp", "cfnetwork") if it was
+ * on Linux). `backend` gets its name ("libcurl", "winhttp", "nsurlsession") if it was
  * made. A response larger than max_response bytes stops the request.
  */
 yap_http *yap_http_new(size_t max_response, const char **backend);

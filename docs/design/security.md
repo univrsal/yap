@@ -624,7 +624,7 @@ drop frames above a cap in `Output::submit`.
   doesn't say so). Fix: a separate local-network permission, refusing
   non-public peers with `CURLOPT_OPENSOCKETFUNCTION` for libcurl, and
   pinned addresses or manual redirect handling for WinHTTP and
-  CFNetwork (or document the limit). Unverified: WinHTTP's default
+  NSURLSession (or document the limit). Unverified: WinHTTP's default
   automatic logon may send the user's NTLM or Kerberos credentials to
   intranet hosts.
 - Also: `runtime_commands` (`runtime.odin:601`) returns strings that a

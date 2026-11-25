@@ -8,7 +8,7 @@ import "core:time"
 
 import log "common:wlog"
 
-// Web requests on a desktop: tinyrequests (yap_requests.c) over WinHTTP, CFNetwork,
+// Web requests on a desktop: tinyrequests (yap_requests.c) over WinHTTP, NSURLSession,
 // or a libcurl that is loaded when the client starts. Without one (Linux without
 // libcurl) there are no requests, and the client says so in its log and on the
 // Scripts page, and a script finds out with yap.http_available(). The requests
@@ -33,7 +33,7 @@ when !#exists(REQUESTS_LIB) {
 when ODIN_OS == .Windows {
 	foreign import requests {REQUESTS_LIB, "system:winhttp.lib"}
 } else when ODIN_OS == .Darwin {
-	foreign import requests {REQUESTS_LIB, "system:CoreFoundation.framework", "system:CFNetwork.framework"}
+	foreign import requests {REQUESTS_LIB, "system:Foundation.framework"}
 } else {
 	foreign import requests {REQUESTS_LIB, "system:dl"}
 }

@@ -16,7 +16,7 @@ import "core:time"
 // options: { headers = { Name = "value" }, content_type = "...", timeout = seconds }.
 //
 // Doing the request is the host's (runtime.odin; http_native.odin has libcurl,
-// WinHTTP or CFNetwork do it, http_web.odin the browser): this is what a script
+// WinHTTP or NSURLSession do it, http_web.odin the browser): this is what a script
 // may ask for and the bookkeeping. It needs the `net` permission, and when
 // requests can't be made at all (no libcurl) fn is still called, with ok = false.
 

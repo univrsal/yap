@@ -16,7 +16,7 @@ import "client:conn"
 
 // A small HTTP server for the tests: a few pages, each connection answered and
 // closed. A connection is served on a thread of its own and gives up when nothing
-// comes for a while: a client may open a connection it never uses (CFNetwork does),
+// comes for a while: a client may open a connection it never uses (macOS's CFNetwork did),
 // and that must not hold up the next one or the end of the test.
 @(private = "file")
 Server :: struct {
