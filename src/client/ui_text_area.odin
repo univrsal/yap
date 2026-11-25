@@ -123,8 +123,13 @@ Field_Sync :: struct {
 // One line of a text area's text: text[start:end] is drawn, and the caret is
 // on it from `start` up to `stop` (where the next line starts, or before the
 // newline that ends it, or the end of the text).
+//
+// `shift` is how far the line is drawn from the left edge of the text: the
+// room left over in a line that is right to left, which sits against the
+// right edge. Every x of a line that these procs take or give includes it.
 Area_Line :: struct {
 	start, end, stop: int,
+	shift:            i32,
 }
 
 // area_lines lays `text` out in lines `width` wide. Every place in the text is
@@ -146,11 +151,19 @@ area_lines :: proc(
 		if at + next == len(text) && text[len(text) - 1] != '\n' {
 			stop = len(text)
 		}
-		append(&lines, Area_Line{at, at + end, stop})
+		l := Area_Line {
+			start = at,
+			end   = at + end,
+			stop  = stop,
+		}
+		if line_is_rtl(ctx, font, text, l.start, l.end) {
+			l.shift = max(0, width - ctx.text_width(font, text[l.start:l.end]))
+		}
+		append(&lines, l)
 		at += next
 	}
 	if len(text) == 0 || text[len(text) - 1] == '\n' {
-		append(&lines, Area_Line{len(text), len(text), len(text)})
+		append(&lines, Area_Line{start = len(text), end = len(text), stop = len(text)})
 	}
 	return lines[:]
 }
@@ -165,9 +178,52 @@ area_line_of :: proc(lines: []Area_Line, at: int) -> int {
 	return len(lines) - 1
 }
 
-// area_x is how far along its line the place `at` is, in pixels.
-area_x :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, at: int) -> i32 {
-	return ctx.text_width(font, text[l.start:clamp(at, l.start, l.stop)])
+// area_x is how far along its line (from the text's left edge) the place `at` is, in pixels: the width
+// of the text before it, or where the caret is drawn in a line with
+// right-to-left text (ui_bidi.odin). Places past the drawn part (the spaces
+// a wrap broke at) follow it.
+area_x :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, place: int) -> i32 {
+	at := clamp(place, l.start, l.stop)
+	if spans, shaped := line_spans(ctx, font, text, l.start, l.end); shaped {
+		if at <= l.end {
+			return l.shift + round_px(bidi_caret_x(spans, l.start, l.end, at))
+		}
+		return l.shift + ctx.text_width(font, text[l.start:l.end]) + ctx.text_width(font, text[l.end:at])
+	}
+	return ctx.text_width(font, text[l.start:at])
+}
+
+// area_hit is the place on the line `l` nearest to `x` pixels along it.
+area_hit :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, x_in: i32) -> int {
+	x := x_in - l.shift
+	if spans, shaped := line_spans(ctx, font, text, l.start, l.end); shaped {
+		w := ctx.text_width(font, text[l.start:l.end])
+		if x < w || l.end == l.stop {
+			return bidi_offset_at(spans, l.start, l.end, f32(x))
+		}
+		return offset_at(ctx, font, text, l.end, l.stop, x - w)
+	}
+	return offset_at(ctx, font, text, l.start, l.stop, x)
+}
+
+// area_ranges is the stretches of the line `l` (x from its start) that the
+// text from `lo` up to `hi` is drawn over: one, or several in a line with
+// right-to-left text.
+area_ranges :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, lo, hi: int) -> [dynamic][2]i32 {
+	out := make([dynamic][2]i32, context.temp_allocator)
+	if spans, shaped := line_spans(ctx, font, text, l.start, l.end); shaped {
+		for r in bidi_ranges(spans, lo, hi) {
+			append(&out, [2]i32{l.shift + round_px(r[0]), l.shift + round_px(r[1])})
+		}
+		if hi > l.end && lo < l.stop {
+			// The spaces a wrap broke at, after the drawn part.
+			a := area_x(ctx, font, text, l, max(lo, l.end))
+			append(&out, [2]i32{a, area_x(ctx, font, text, l, min(hi, l.stop))})
+		}
+		return out
+	}
+	append(&out, [2]i32{area_x(ctx, font, text, l, max(lo, l.start)), area_x(ctx, font, text, l, min(hi, l.stop))})
+	return out
 }
 
 // area_vertical is the place on the line above (`down` false) or below the
@@ -190,7 +246,7 @@ area_vertical :: proc(
 		return len(text)
 	}
 	l := lines[i]
-	return offset_at(ctx, font, text, l.start, l.stop, x)
+	return area_hit(ctx, font, text, l, x)
 }
 
 // area_offset_at is the place in `text` under the point `p`: on the line it is
@@ -209,7 +265,7 @@ area_offset_at :: proc(
 	lh := ctx.text_height(font)
 	i := clamp((p.y - r.y - top + scroll) / lh, 0, i32(len(lines) - 1))
 	l := lines[i]
-	return offset_at(ctx, font, text, l.start, l.stop, p.x - r.x - ctx.style.padding)
+	return area_hit(ctx, font, text, l, p.x - r.x - ctx.style.padding)
 }
 
 // text_area_spell works out which words of `text` are misspelled when the text
@@ -240,6 +296,23 @@ spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int
 	return focused && area.typed_at >= 0 && m[0] <= caret && caret <= m[1]
 }
 
+// Char_Class and char_class are the classes of area_word and the word jumps.
+Char_Class :: enum {
+	Word,
+	Space,
+	Other,
+}
+
+char_class :: proc(b: u8) -> Char_Class {
+	switch b {
+	case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', 0x80 ..= 0xff:
+		return .Word
+	case ' ', '\t', '\n', '\r':
+		return .Space
+	}
+	return .Other
+}
+
 // area_word is the word at the place `at` in `text`, as its start and end: a
 // run of letters, digits and underscores (any non-ASCII character counts as a
 // letter), a run of spaces, or a single other character. It is the one right
@@ -247,20 +320,7 @@ spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int
 // another (at the end of the text, or before a space or punctuation), where it
 // is the one before.
 area_word :: proc(text: string, at: int) -> [2]int {
-	Class :: enum {
-		Word,
-		Space,
-		Other,
-	}
-	class :: proc(b: u8) -> Class {
-		switch b {
-		case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', 0x80 ..= 0xff:
-			return .Word
-		case ' ', '\t', '\n', '\r':
-			return .Space
-		}
-		return .Other
-	}
+	class :: char_class
 	if len(text) == 0 {
 		return {}
 	}
@@ -462,16 +522,50 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 					textedit.move_to(s, t)
 				}
 			}
-			if .LEFT in ctx.key_pressed_bits {
-				move(s, .Word_Left if ctrl else .Left, shift)
-			}
-			if .RIGHT in ctx.key_pressed_bits {
-				move(s, .Word_Right if ctrl else .Right, shift)
-			}
-
 			// What is left needs the lines, as the text is now.
 			text := string(buf[:textlen^])
 			lines := area_lines(ctx, font, text, width)
+			for key in ([?]mu.Key{.LEFT, .RIGHT}) {
+				if key not_in ctx.key_pressed_bits {
+					continue
+				}
+				// In a line with right-to-left text, the caret moves to the
+				// next place on the screen (ui_bidi.odin), and at the line's
+				// end on to the next (or previous) line; with Ctrl, to the next
+				// word boundary on that side. To drop a selection it goes through
+				// the text.
+				right := key == .RIGHT
+				if shift || s.selection[0] == s.selection[1] {
+					li := area_line_of(lines, s.selection[0])
+					l := lines[li]
+					spans, shaped := line_spans(ctx, font, text, l.start, l.end)
+					if shaped && s.selection[0] <= l.end {
+						to, ok := bidi_step(spans, l.start, l.end, s.selection[0], right, text if ctrl else "")
+						if !ok {
+							// The way the lines go: down on the right of a
+							// left-to-right line, down on the left of a
+							// right-to-left one.
+							down := right != spans[0].line_rtl
+							to = s.selection[0]
+							if down && li + 1 < len(lines) {
+								to = lines[li + 1].start
+							} else if !down && li > 0 {
+								to = lines[li - 1].stop
+							}
+						}
+						s.selection[0] = to
+						if !shift {
+							s.selection[1] = to
+						}
+						continue
+					}
+				}
+				if right {
+					move(s, .Word_Right if ctrl else .Right, shift)
+				} else {
+					move(s, .Word_Left if ctrl else .Left, shift)
+				}
+			}
 			l := lines[area_line_of(lines, s.selection[0])]
 			s.line_start, s.line_end = l.start, l.stop
 			if .HOME in ctx.key_pressed_bits {
@@ -647,28 +741,34 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			continue
 		}
 		if focused && lo != hi && lo <= l.stop && hi >= l.start {
-			a := area_x(ctx, font, text, l, max(lo, l.start))
-			b := area_x(ctx, font, text, l, min(hi, l.stop))
-			// Past the end of the line: its newline is selected too.
+			ranges := area_ranges(ctx, font, text, l, max(lo, l.start), min(hi, l.stop))
+			// Past the end of the line: its newline is selected too, shown
+			// as a space after the rightmost stretch.
 			if hi > l.stop {
-				b += ctx.text_width(font, " ")
+				right := area_x(ctx, font, text, l, l.stop)
+				for r in ranges {
+					right = max(right, r[1])
+				}
+				append(&ranges, [2]i32{right, right + ctx.text_width(font, " ")})
 			}
-			mu.draw_rect(ctx, {x0 + a, y, b - a, lh}, ctx.style.colors[.SELECTION_BG])
+			for r in ranges {
+				mu.draw_rect(ctx, {x0 + r[0], y, r[1] - r[0], lh}, ctx.style.colors[.SELECTION_BG])
+			}
 		}
-		mu.draw_text(ctx, font, text[l.start:l.end], {x0, y}, color)
+		mu.draw_text(ctx, font, text[l.start:l.end], {x0 + l.shift, y}, color)
 		for m in area.spell_marks[:area.spell_n] {
 			if m[1] <= l.start ||
 			   m[0] >= l.end ||
 			   spell_mark_typing(area, m, focused, s.selection[0]) {
 				continue
 			}
-			a := area_x(ctx, font, text, l, max(m[0], l.start))
-			b := area_x(ctx, font, text, l, min(m[1], l.end))
-			render.draw_squiggle(
-				ctx,
-				{x0 + a, y + lh - render.SQUIGGLE_HEIGHT, b - a, render.SQUIGGLE_HEIGHT},
-				theme.error,
-			)
+			for r in area_ranges(ctx, font, text, l, max(m[0], l.start), min(m[1], l.end)) {
+				render.draw_squiggle(
+					ctx,
+					{x0 + r[0], y + lh - render.SQUIGGLE_HEIGHT, r[1] - r[0], render.SQUIGGLE_HEIGHT},
+					theme.error,
+				)
+			}
 		}
 		if focused && i == caret {
 			x := min(area_x(ctx, font, text, l, s.selection[0]), width)

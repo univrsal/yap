@@ -26,19 +26,19 @@ test_area_lines :: proc(t: ^testing.T) {
 		text:  string,
 		lines: []Area_Line,
 	} {
-		{"", {{0, 0, 0}}},
-		{"ab", {{0, 2, 2}}},
+		{"", {{0, 0, 0, 0}}},
+		{"ab", {{0, 2, 2, 0}}},
 		// A newline at the end: an empty line after it, for the caret.
-		{"ab\n", {{0, 2, 2}, {3, 3, 3}}},
-		{"\n", {{0, 0, 0}, {1, 1, 1}}},
-		{"ab\ncd", {{0, 2, 2}, {3, 5, 5}}},
-		{"a\n\nb", {{0, 1, 1}, {2, 2, 2}, {3, 4, 4}}},
+		{"ab\n", {{0, 2, 2, 0}, {3, 3, 3, 0}}},
+		{"\n", {{0, 0, 0, 0}, {1, 1, 1, 0}}},
+		{"ab\ncd", {{0, 2, 2, 0}, {3, 5, 5, 0}}},
+		{"a\n\nb", {{0, 1, 1, 0}, {2, 2, 2, 0}, {3, 4, 4, 0}}},
 		// Wrapped at a space: the space is the first line's, its last place.
-		{"aaaa bbbb", {{0, 4, 4}, {5, 9, 9}}},
+		{"aaaa bbbb", {{0, 4, 4, 0}, {5, 9, 9, 0}}},
 		// A word broken where it didn't fit.
-		{"abcdefg", {{0, 5, 4}, {5, 7, 7}}},
+		{"abcdefg", {{0, 5, 4, 0}, {5, 7, 7, 0}}},
 		// Wrapped at spaces right before a newline: one break, not two.
-		{"aaaa  \nbb", {{0, 4, 6}, {7, 9, 9}}},
+		{"aaaa  \nbb", {{0, 4, 6, 0}, {7, 9, 9, 0}}},
 	}
 	for c in cases {
 		got := area_lines(ctx, nil, c.text, W)
@@ -193,4 +193,17 @@ test_area_word :: proc(t: ^testing.T) {
 		got := area_word(c.text, c.at)
 		testing.expectf(t, got == c.word, "%q at %d: %v, not %v", c.text, c.at, got, c.word)
 	}
+}
+
+// A line drawn against the right edge (shift) is hit by where it is drawn.
+@(test)
+test_area_hit_shift :: proc(t: ^testing.T) {
+	ctx := area_test_ctx()
+	defer free(ctx)
+	text := "abcd"
+	line := Area_Line{0, 4, 4, 100}
+	// 8 pixels a character: the text spans 100..132.
+	testing.expect_value(t, area_hit(ctx, nil, text, line, 100), 0)
+	testing.expect_value(t, area_hit(ctx, nil, text, line, 116), 2)
+	testing.expect_value(t, area_hit(ctx, nil, text, line, 500), 4)
 }

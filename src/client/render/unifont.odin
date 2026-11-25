@@ -11,7 +11,8 @@ import "core:math"
 // the chart published by the Unifont project: all 65536 cells in a 256 x 256
 // grid, below a header row and next to a header column. A cell does not
 // store the width of its glyph, so a cell with nothing in its right half is
-// treated as narrow.
+// treated as narrow. Where the system has a font for a character
+// (sysfont.odin), that font is used instead.
 //
 // The chart is only decoded once some text needs it, because most sessions
 // never do, and only its bits are kept (32 bytes per character).
@@ -22,9 +23,9 @@ import "core:math"
 // bigger font, or a UI scale of 1.5) every pixel of the chart still takes the
 // same room, with a soft edge where it ends partway into a physical pixel,
 // instead of some becoming a physical pixel wider than others and the glyph
-// looking jagged. Not all glyphs would fit in one
-// texture, so the glyphs that text uses are copied into an atlas at the
-// current scale the first time they appear (unifont_cache).
+// looking jagged. Not all glyphs would fit in one texture, so the glyphs that
+// text uses are copied into the font's fallback atlas (glyph_atlas.odin) at
+// its scale the first time they appear (unifont_cache).
 //
 // Nothing is shaped or reordered. For example, Arabic is shown as its
 // isolated letters from left to right.
@@ -42,35 +43,16 @@ UNIFONT_CHARS :: 0x10000
 UNIFONT_SIZE :: 16 // cell height, logical pixels at scale 1
 UNIFONT_ASCENT :: 14 // cell top to baseline
 
-// Slots per row of the atlas. The atlas is sized to hold this many slots
-// squared (up to UNIFONT_MAX_ATLAS).
-@(private = "file")
-UNIFONT_SLOTS_PER_ROW :: 32
-@(private = "file")
-UNIFONT_MAX_ATLAS :: 2048
-
 Unifont :: struct {
-	loaded:             bool,
-	failed:             bool,
-	rows:               []u16, // 16 per character, top first; bit 15 is the leftmost pixel
-	width:              []u8, // per character: 8, 16, or 0 for none
-
-	// The atlas of glyphs drawn so far, rasterized for `scale`.
-	scale:              f32,
-	slots:              map[rune]i32,
-	cell:               i32, // a slot's side (physical pixels), with a pixel of gap
-	per_row:            i32,
-	pixels:             []u8, // side * side, one alpha byte per texel; nil until needed
-	side:               i32,
-	full:               bool, // out of slots: start again next frame
-	dirty_y0, dirty_y1: i32, // rows changed since the atlas was last uploaded
+	loaded: bool,
+	failed: bool,
+	rows:   []u16, // 16 per character, top first; bit 15 is the leftmost pixel
+	width:  []u8, // per character: 8, 16, or 0 for none
 }
 
 unifont_destroy :: proc(u: ^Unifont) {
 	delete(u.rows)
 	delete(u.width)
-	delete(u.pixels)
-	delete(u.slots)
 	u^ = {}
 }
 
@@ -143,94 +125,40 @@ unifont_load :: proc(u: ^Unifont) {
 	u.loaded = true
 }
 
-// unifont_reset empties the atlas and prepares a new one for `scale`.
-unifont_reset :: proc(u: ^Unifont, scale: f32) {
-	delete(u.pixels)
-	u.pixels = nil
-	clear(&u.slots)
-	u.scale = scale
-	u.full = false
-	u.cell = unifont_glyph_height(scale) + 1
-	u.side = 256
-	for u.side < u.cell * UNIFONT_SLOTS_PER_ROW && u.side < UNIFONT_MAX_ATLAS {
-		u.side *= 2
-	}
-	u.per_row = u.side / u.cell
-	u.dirty_y0, u.dirty_y1 = u.side, 0
-}
-
-// The number of glyphs the atlas holds. That is all slots except the last,
-// which is solid white so that rects can be drawn from this atlas too
-// (unifont_white). This way a run of emoji between rects does not need to
-// switch textures.
-unifont_capacity :: proc(u: ^Unifont) -> i32 {
-	return u.per_row * u.per_row - 1
-}
-
-// unifont_pixels allocates the atlas's pixels, including its white slot, if
-// that has not happened yet.
-unifont_pixels :: proc(u: ^Unifont) {
-	if u.pixels != nil {
-		return
-	}
-	u.pixels = make([]u8, int(u.side) * int(u.side))
-	slot := u.per_row * u.per_row - 1
-	x0 := (slot % u.per_row) * u.cell
-	y0 := (slot / u.per_row) * u.cell
-	for y in 0 ..< u.cell - 1 {
-		line := u.pixels[int(y0 + y) * int(u.side) + int(x0):]
-		for x in 0 ..< u.cell - 1 {
-			line[x] = 255
-		}
-	}
-	u.dirty_y0 = min(u.dirty_y0, y0)
-	u.dirty_y1 = max(u.dirty_y1, y0 + u.cell)
-}
-
-// unifont_white returns the texture coordinates of a texel in the middle of
-// the white slot. It is not ok before the atlas has pixels.
-unifont_white :: proc(u: ^Unifont) -> (uv: [2]f32, ok: bool) {
-	if u.pixels == nil {
-		return
-	}
-	slot := u.per_row * u.per_row - 1
-	x := f32((slot % u.per_row) * u.cell) + f32(u.cell - 1) / 2
-	y := f32((slot / u.per_row) * u.cell) + f32(u.cell - 1) / 2
-	return {x / f32(u.side), y / f32(u.side)}, true
-}
-
 // The height of a glyph in physical pixels at `scale`.
 unifont_glyph_height :: proc(scale: f32) -> i32 {
 	return max(1, i32(math.round(UNIFONT_SIZE * scale)))
 }
 
-// unifont_cache puts a character's glyph in the atlas, if it is not there
-// already, and returns its slot. Once the atlas is full this fails and the
-// atlas is flagged to be emptied before the next frame.
-unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
-	if s, found := u.slots[r]; found {
-		return s, true
-	}
-	width := unifont_width(u, r)
-	if width == 0 || u.full || u.side == 0 {
-		return
-	}
-	slot = i32(len(u.slots))
-	if slot >= unifont_capacity(u) {
-		u.full = true
-		return
-	}
-	unifont_pixels(u)
+// The width of a glyph in physical pixels at `scale`.
+unifont_glyph_width :: proc(u: ^Unifont, r: rune, scale: f32) -> i32 {
+	h := unifont_glyph_height(scale)
+	return i32(math.round(f32(u.width[r]) * f32(h) / UNIFONT_SIZE))
+}
 
-	h := unifont_glyph_height(u.scale)
-	w := unifont_glyph_width(u, r)
-	x0 := (slot % u.per_row) * u.cell
-	y0 := (slot / u.per_row) * u.cell
+// unifont_cache puts a character's glyph in the atlas `a`, at the atlas's
+// scale, if it is not there already. It fails once the atlas is full (it is
+// then emptied before the next frame).
+unifont_cache :: proc(u: ^Unifont, a: ^Glyph_Atlas, r: rune) -> (g: Atlas_Glyph, ok: bool) {
+	if g, ok = glyph_atlas_find(a, atlas_key(r)); ok {
+		return
+	}
+	if unifont_width(u, r) == 0 {
+		return
+	}
+	h := unifont_glyph_height(a.scale)
+	w := unifont_glyph_width(u, r, a.scale)
+	top := -i32(math.round(UNIFONT_ASCENT * f32(h) / UNIFONT_SIZE))
+	pixels: []u8
+	g, pixels, ok = glyph_atlas_add(a, atlas_key(r), w, h, 0, top)
+	if !ok {
+		return
+	}
 	glyph := u.rows[int(r) * 16:][:16]
 	k := f32(16) / f32(h) // chart pixels per physical pixel, on each side
 	for y in 0 ..< h {
 		ya, yb := f32(y) * k, f32(y + 1) * k
-		line := u.pixels[int(y0 + y) * int(u.side) + int(x0):]
+		line := pixels[int(y) * int(a.side):]
 		for x in 0 ..< w {
 			xa, xb := f32(x) * k, f32(x + 1) * k
 			// How much of this pixel the chart's set pixels cover.
@@ -246,16 +174,7 @@ unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
 			line[x] = u8(math.round(clamp(cover / (k * k), 0, 1) * 255))
 		}
 	}
-	u.slots[r] = slot
-	u.dirty_y0 = min(u.dirty_y0, y0)
-	u.dirty_y1 = max(u.dirty_y1, y0 + u.cell)
-	return slot, true
-}
-
-// The width of a glyph in physical pixels at the atlas's scale.
-unifont_glyph_width :: proc(u: ^Unifont, r: rune) -> i32 {
-	h := unifont_glyph_height(u.scale)
-	return i32(math.round(f32(u.width[r]) * f32(h) / UNIFONT_SIZE))
+	return g, true
 }
 
 // is_ignorable returns whether a character only affects how other characters

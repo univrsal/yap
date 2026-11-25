@@ -387,6 +387,10 @@ ui_settings :: proc(ui: ^UI) {
 		save_settings(ui)
 	}
 
+	// Characters the bundled fonts lack, from the system's fonts
+	// (ui_fonts_native.odin).
+	system_font_settings(ui)
+
 	when !platform.WEB {
 		// The window's buttons are in the first row, instead of in a title bar
 		// of the desktop's (ui_titlebar.odin).

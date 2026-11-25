@@ -189,7 +189,7 @@ rich_plain :: proc(text: string) -> Rich {
 }
 
 // rich_run is which of the runs text[i] is in (the last run for a position past the end).
-@(private = "file")
+@(private)
 rich_run :: proc(r: ^Rich, i: int) -> int {
 	lo, hi := 0, len(r.runs)
 	for lo < hi {
@@ -531,6 +531,11 @@ rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 		// Then what is behind its pieces, the selection over that, and then the
 		// pieces.
 		pos := mu.Vec2{row.x + vl.x, row.y + vl.top}
+		// A line of right-to-left text sits against the right edge of its
+		// column, each line by its own direction; code and tables stay put.
+		if vl.cell < 0 && l.kind != .Code && line_is_rtl(ctx, ctx.style.font, r.text, vl.start, vl.end, r) {
+			pos.x += max(0, row.w - vl.x - rich_width(ctx, r, vl.start, vl.end))
+		}
 		rich_pieces(ui, r, vl, l.kind == .Code, pos, color, item, .Back)
 		select_line(
 			ui,

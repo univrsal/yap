@@ -24,43 +24,50 @@ test_unifont_chart :: proc(t: ^testing.T) {
 	testing.expect_value(t, u.rows['中' * 16 + 0], 0b0000_0001_0000_0000)
 }
 
+
 @(test)
 test_unifont_cache_scales :: proc(t: ^testing.T) {
 	u: Unifont
 	defer unifont_destroy(&u)
+	a: Glyph_Atlas
+	defer glyph_atlas_destroy(&a)
+	// The pixel at x, y of a glyph in the atlas.
+	at :: proc(a: ^Glyph_Atlas, g: Atlas_Glyph, x, y: i32) -> u8 {
+		return a.pixels[int(g.y + y) * int(a.side) + int(g.x + x)]
+	}
 
 	// At twice the size, every pixel of the chart becomes a 2 x 2 block.
-	unifont_reset(&u, 2)
-	slot, ok := unifont_cache(&u, '中')
+	glyph_atlas_reset(&a, 2)
+	g, ok := unifont_cache(&u, &a, '中')
 	testing.expect(t, ok)
-	testing.expect_value(t, slot, 0)
-	testing.expect_value(t, unifont_glyph_width(&u, '中'), 32)
-	at :: proc(u: ^Unifont, x, y: int) -> u8 {return u.pixels[y * int(u.side) + x]}
-	testing.expect_value(t, at(&u, 13, 0), 0)
-	testing.expect_value(t, at(&u, 14, 0), 255)
-	testing.expect_value(t, at(&u, 15, 1), 255)
-	testing.expect_value(t, at(&u, 16, 0), 0)
-	testing.expect(t, u.dirty_y1 > u.dirty_y0)
+	testing.expect_value(t, g.w, 32)
+	testing.expect_value(t, g.h, 32)
+	testing.expect_value(t, g.yoff, -28) // its top is 14 pixels of the chart above the baseline
+	testing.expect_value(t, at(&a, g, 13, 0), 0)
+	testing.expect_value(t, at(&a, g, 14, 0), 255)
+	testing.expect_value(t, at(&a, g, 15, 1), 255)
+	testing.expect_value(t, at(&a, g, 16, 0), 0)
+	testing.expect(t, a.dirty_y1 > a.dirty_y0)
 
-	// The same character again does not take a new slot, but another
-	// character does.
-	slot, ok = unifont_cache(&u, '中')
-	testing.expect_value(t, slot, 0)
-	slot, ok = unifont_cache(&u, 'A')
-	testing.expect_value(t, slot, 1)
-	testing.expect_value(t, unifont_glyph_width(&u, 'A'), 16)
+	// The same character again is the same glyph, and another character
+	// goes somewhere else.
+	again, _ := unifont_cache(&u, &a, '中')
+	testing.expect_value(t, again, g)
+	letter, _ := unifont_cache(&u, &a, 'A')
+	testing.expect(t, letter.x != g.x || letter.y != g.y)
+	testing.expect_value(t, letter.w, 16)
 
 	// A fractional scale keeps the glyph's proportions.
-	unifont_reset(&u, 1.5)
-	testing.expect_value(t, len(u.slots), 0)
+	glyph_atlas_reset(&a, 1.5)
+	testing.expect_value(t, len(a.glyphs), 0)
 	testing.expect_value(t, unifont_glyph_height(1.5), 24)
-	testing.expect_value(t, unifont_glyph_width(&u, '中'), 24)
-	testing.expect_value(t, unifont_glyph_width(&u, 'A'), 12)
+	testing.expect_value(t, unifont_glyph_width(&u, '中', 1.5), 24)
+	testing.expect_value(t, unifont_glyph_width(&u, 'A', 1.5), 12)
 
 	// At a fractional scale every pixel of the chart takes the same room: the
 	// glyph has as much ink as the chart's pixels times the scale squared,
 	// with soft edges, rather than whole pixels of uneven widths.
-	slot, ok = unifont_cache(&u, '中')
+	g, ok = unifont_cache(&u, &a, '中')
 	testing.expect(t, ok)
 	set := 0
 	for row in u.rows[int('中') * 16:][:16] {
@@ -69,9 +76,9 @@ test_unifont_cache_scales :: proc(t: ^testing.T) {
 		}
 	}
 	ink, soft := 0, 0
-	for y in 0 ..< 24 {
-		for x in 0 ..< 24 {
-			v := at(&u, x, y)
+	for y in 0 ..< i32(24) {
+		for x in 0 ..< i32(24) {
+			v := at(&a, g, x, y)
 			ink += int(v)
 			soft += 1 if v != 0 && v != 255 else 0
 		}
@@ -80,11 +87,11 @@ test_unifont_cache_scales :: proc(t: ^testing.T) {
 	testing.expect(t, soft > 0)
 
 	// At a whole scale, nothing is soft.
-	unifont_reset(&u, 2)
-	slot, ok = unifont_cache(&u, '中')
-	for y in 0 ..< 32 {
-		for x in 0 ..< 32 {
-			v := at(&u, x, y)
+	glyph_atlas_reset(&a, 2)
+	g, ok = unifont_cache(&u, &a, '中')
+	for y in 0 ..< i32(32) {
+		for x in 0 ..< i32(32) {
+			v := at(&a, g, x, y)
 			testing.expect(t, v == 0 || v == 255)
 		}
 	}

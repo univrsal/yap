@@ -129,9 +129,25 @@ THIRD_PARTY := [?]Third_Party {
 	{
 		name = "GNU Unifont",
 		license = "OFL-1.1 or GPL-2.0-or-later with the font embedding exception",
-		use = "The fallback font for characters that Roboto doesn't have",
+		use = "The fallback font for characters that neither Roboto nor the system's fonts have",
 		url = "https://unifoundry.com/unifont/",
 		text = #load("licenses/unifont.txt", string),
+		builds = {.Desktop, .Web},
+	},
+	{
+		name = "kb_text_shape",
+		license = "Zlib",
+		use = "Shaping text in scripts whose letters join, and right-to-left text",
+		url = "https://github.com/JimmyLefevre/kb",
+		text = #load("licenses/kb_text_shape.txt", string),
+		builds = {.Desktop},
+	},
+	{
+		name = "Blobmoji",
+		license = "Apache-2.0",
+		use = "The emoji, where the system has none of its own",
+		url = "https://github.com/C1710/blobmoji",
+		text = #load("licenses/blobmoji.txt", string),
 		builds = {.Desktop, .Web},
 	},
 	{

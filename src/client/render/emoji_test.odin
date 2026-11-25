@@ -68,7 +68,7 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 		g.q = q
 	})
 	testing.expect_value(t, got.n, 1)
-	testing.expect(t, got.q.emoji && !got.q.unifont)
+	testing.expect(t, got.q.emoji && !got.q.fallback)
 	testing.expect_value(t, got.q.y1 - got.q.y0, EMOJI_SIZE)
 	testing.expect(t, got.q.y0 >= 0 && got.q.y1 <= f32(LINE_HEIGHT))
 	testing.expect(t, got.q.x0 >= 0 && got.q.x1 <= EMOJI_ADVANCE)

@@ -29,3 +29,12 @@ PackEnd :: stbtt.PackEnd
 PackFontRanges :: stbtt.PackFontRanges
 GetCodepointBitmapBox :: stbtt.GetCodepointBitmapBox
 MakeCodepointBitmap :: stbtt.MakeCodepointBitmap
+// For the system's fonts (render/sysfont_native.odin), which the web client
+// doesn't read.
+GetNumberOfFonts :: stbtt.GetNumberOfFonts
+GetFontOffsetForIndex :: stbtt.GetFontOffsetForIndex
+GetFontNameString :: stbtt.GetFontNameString
+// For the layers of color emoji (render/colorfont.odin).
+GetGlyphBox :: stbtt.GetGlyphBox
+GetGlyphBitmapBoxSubpixel :: stbtt.GetGlyphBitmapBoxSubpixel
+MakeGlyphBitmapSubpixel :: stbtt.MakeGlyphBitmapSubpixel

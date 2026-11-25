@@ -2,6 +2,7 @@ package render
 
 import glfw "client:wglfw"
 import "core:math"
+import "core:unicode/utf8"
 import mu "vendor:microui"
 
 // Draws microui's command list. Rects and text are quads from the font atlas
@@ -368,18 +369,19 @@ chat_font :: proc(style: Font_Style) -> mu.Font {
 
 // font_with_style returns `font` (the UI's or the chat's) in another face.
 font_with_style :: proc(font: mu.Font, style: Font_Style) -> mu.Font {
-	return mu.Font(uintptr(font) & 0xf | uintptr(style) << 4)
+	return mu.Font(uintptr(font) &~ uintptr(0xf0) | uintptr(style) << 4)
 }
 
 // font_style returns the face that a handle refers to.
 font_style :: proc(font: mu.Font) -> Font_Style {
-	return Font_Style((uintptr(font) >> 4) % len(Font_Style))
+	return Font_Style((uintptr(font) >> 4 & 0xf) % len(Font_Style))
 }
 
 Font_Slot :: struct {
 	font:            Font,
 	textures:        [Font_Style]Gpu_Texture, // the faces' atlases; 0 until drawn
-	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
+	fallback_texture: Gpu_Texture, // the fallback glyphs' atlas (glyph_atlas.odin); 0 until it has glyphs
+	emoji_texture:    Gpu_Texture, // the system's color emoji (Font.emoji); 0 until it has some
 	// The requested zoom (font_set_zoom). The font applies it with its next
 	// atlas.
 	zoom:            f32,
@@ -388,6 +390,8 @@ Font_Slot :: struct {
 Renderer :: struct {
 	gpu:              Gpu,
 	fonts:            [Font_Kind]Font_Slot,
+	// The system's fonts, which every font falls back on (sysfont.odin).
+	system:           System_Fonts,
 	icon_texture:     Gpu_Texture, // microui's own icons
 	icons:            Icon_Atlas, // our own icons (icons.odin)
 	icons_texture:    Gpu_Texture,
@@ -444,7 +448,7 @@ heading_zoom :: proc(r: ^Renderer, zoom: f32) {
 		slot := &r.fonts[Font_Kind(int(Font_Kind.Heading_1) + i)]
 		slot.zoom = zoom * factor
 		slot.font.zoom = zoom * factor
-		slot.font.scale, slot.font.uni.scale = 0, 0
+		slot.font.scale, slot.font.fallback.scale, slot.font.emoji.scale = 0, 0, 0
 	}
 }
 
@@ -459,8 +463,69 @@ set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
 	slot.zoom = zoom
 	slot.font.zoom = zoom
 	// The next frame rebuilds them at the new size.
-	slot.font.scale, slot.font.uni.scale = 0, 0
+	slot.font.scale, slot.font.fallback.scale, slot.font.emoji.scale = 0, 0, 0
 	heading_zoom(r, zoom)
+}
+
+// set_system_fonts turns the system's fonts for the characters that the
+// bundled ones lack on or off (sysfont.odin). Text measuring uses the change
+// immediately, and the fallback glyphs are drawn again in the next frame.
+// Call it between frames.
+set_system_fonts :: proc(r: ^Renderer, enabled: bool) {
+	if !system_fonts_enable(&r.system, enabled) {
+		return
+	}
+	// The atlases have glyphs of the other kind for the same characters.
+	for &slot in r.fonts {
+		if slot.font.fallback.side != 0 {
+			glyph_atlas_reset(&slot.font.fallback, slot.font.fallback.scale)
+		}
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+	}
+}
+
+// set_system_emoji turns the system's color emoji on or off
+// (sysemoji_native.odin). Emoji take the same space either way, so only
+// their pictures change, from the next frame on. Call it between frames.
+set_system_emoji :: proc(r: ^Renderer, enabled: bool) {
+	if !system_emoji_enable(&r.system, enabled) {
+		return
+	}
+	for &slot in r.fonts {
+		if slot.font.emoji.side != 0 {
+			glyph_atlas_reset(&slot.font.emoji, slot.font.emoji.scale)
+		}
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
+	}
+}
+
+// system_emoji_font returns the name of the system's emoji font that emoji
+// are drawn from, or "" if there is none we can draw (or they are off).
+system_emoji_font :: proc(r: ^Renderer) -> string {
+	if !r.system.emoji_enabled {
+		return ""
+	}
+	return system_emoji_name(&r.system)
+}
+
+// set_system_fonts_language sets the user's language, which picks between
+// fonts of the system's that have different shapes for the same characters
+// (Chinese, Japanese and Korean). `locale` is a locale's name such as
+// "ja-JP" or "de_DE.UTF-8".
+set_system_fonts_language :: proc(r: ^Renderer, locale: string) {
+	system_fonts_language(&r.system, locale)
+}
+
+// system_fonts_generation changes whenever set_system_fonts changes what text
+// is drawn with, so that sizes worked out before can be worked out again.
+system_fonts_generation :: proc(r: ^Renderer) -> int {
+	return r.system.generation
+}
+
+// system_fonts_used returns the names of the system's fonts that text has
+// been drawn with so far. In the temp allocator.
+system_fonts_used :: proc(r: ^Renderer) -> []string {
+	return system_fonts_in_use(&r.system)
 }
 
 // quad_indices returns the contents of the index buffer: two triangles per
@@ -491,6 +556,9 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	r.fonts[.List].zoom, r.fonts[.List].font.zoom = LIST_ZOOM, LIST_ZOOM
 	heading_zoom(r, 1)
 	g_fonts = &r.fonts
+	for &slot in r.fonts {
+		slot.font.sys = &r.system
+	}
 	if !gpu_init(&r.gpu, window) {
 		for &slot in r.fonts {
 			font_destroy(&slot.font)
@@ -512,7 +580,8 @@ renderer_destroy :: proc(r: ^Renderer) {
 		for &t in slot.textures {
 			gpu_texture_delete(&r.gpu, &t)
 		}
-		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
@@ -520,6 +589,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	icon_atlas_destroy(&r.icons)
 	icon_atlas_destroy(&r.controls)
+	system_fonts_destroy(&r.system)
 	gpu_destroy(&r.gpu)
 	for &slot in r.fonts {
 		font_destroy(&slot.font)
@@ -538,8 +608,9 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 		for &t in slot.textures {
 			gpu_texture_delete(&r.gpu, &t)
 		}
-		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
-		slot.font.scale, slot.font.uni.scale = 0, 0
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
+		slot.font.scale, slot.font.fallback.scale, slot.font.emoji.scale = 0, 0, 0
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
@@ -595,6 +666,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	// size by less than a logical pixel at the right and bottom edges.
 	view_w, view_h := f32(fb_w) / scale, f32(fb_h) / scale
 	r.scale = scale
+	shaping_frame(&r.system.shaping)
 	if !gpu_begin(&r.gpu, fb_w, fb_h, view_w, view_h, clear) {
 		return // minimized, or the device is lost
 	}
@@ -602,8 +674,20 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	for kind in Font_Kind {
 		// The preview and list fonts wait until they are drawn with
 		// (Command_Text).
+		slot := &r.fonts[kind]
 		if !lazy_font(kind) {
-			slot_prepare(r, &r.fonts[kind], scale)
+			slot_prepare(r, slot, scale)
+		} else {
+			// Their fallback glyphs and emoji start again too once they run
+			// out of room, though not in the middle of a frame.
+			if slot.font.fallback.full {
+				glyph_atlas_reset(&slot.font.fallback, slot.font.fallback.scale)
+				gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+			}
+			if slot.font.emoji.full {
+				glyph_atlas_reset(&slot.font.emoji, slot.font.emoji.scale)
+				gpu_texture_delete(&r.gpu, &slot.emoji_texture)
+			}
 		}
 	}
 	if scale != r.icons.scale {
@@ -664,7 +748,8 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			}
 			style := font_style(c.font)
 			font_cache_glyphs(&slot.font, c.str, style)
-			upload_unifont(r, slot)
+			upload_atlas(r, &slot.font.fallback, &slot.fallback_texture)
+			upload_atlas(r, &slot.font.emoji, &slot.emoji_texture)
 			if style != .Regular {
 				for face in font_faces_used(&slot.font, c.str, style) {
 					face_ready(r, slot, face)
@@ -684,6 +769,17 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
+					if q.color {
+						// The system's emoji, like the sheet's below.
+						use_texture(e.r, e.slot.emoji_texture, rgba = true)
+						push_quad(
+							e.r,
+							{q.x0, q.y0, q.x1, q.y1},
+							{q.u0, q.v0, q.u1, q.v1},
+							{255, 255, 255, e.color.a},
+						)
+						return
+					}
 					if q.emoji {
 						// The emoji keeps its own colors but takes the text's
 						// opacity. Nothing is drawn until the sheet is decoded.
@@ -700,7 +796,7 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 					}
 					use_texture(
 						e.r,
-						e.slot.unifont_texture if q.unifont else e.slot.textures[q.face],
+						e.slot.fallback_texture if q.fallback else e.slot.textures[q.face],
 					)
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
@@ -801,11 +897,16 @@ slot_prepare :: proc(r: ^Renderer, slot: ^Font_Slot, scale: f32) {
 		font_set_scale(&slot.font, at)
 	}
 	face_ready(r, slot, .Regular)
-	// The fallback font's atlas fills up as text needs glyphs. It starts
+	// The fallback glyphs' atlas fills up as text needs glyphs. It starts
 	// empty at a new scale and is emptied again once it runs out of room.
-	if at != slot.font.uni.scale || slot.font.uni.full {
-		unifont_reset(&slot.font.uni, at)
-		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+	if at != slot.font.fallback.scale || slot.font.fallback.full {
+		glyph_atlas_reset(&slot.font.fallback, at)
+		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+	}
+	// The same for the system's color emoji.
+	if at != slot.font.emoji.scale || slot.font.emoji.full {
+		glyph_atlas_reset(&slot.font.emoji, at)
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
 	}
 }
 
@@ -1072,23 +1173,24 @@ face_ready :: proc(r: ^Renderer, slot: ^Font_Slot, face: Font_Style) {
 	}
 }
 
-// upload_unifont uploads the rows of the fallback font's atlas that have
-// changed to its texture, and creates the texture the first time. Glyphs are
-// only ever added to empty slots, so quads that are already waiting to be
-// drawn still find their glyphs.
+// upload_atlas uploads the rows of a glyph atlas (the fallback glyphs' or
+// the color emoji's) that have changed to its texture, and creates the
+// texture the first time. Glyphs are only ever added to empty room, so quads
+// that are already waiting to be drawn still find their glyphs.
 @(private = "file")
-upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
-	u := &slot.font.uni
-	if u.dirty_y1 <= u.dirty_y0 {
+upload_atlas :: proc(r: ^Renderer, a: ^Glyph_Atlas, texture: ^Gpu_Texture) {
+	if a.dirty_y1 <= a.dirty_y0 {
 		return
 	}
-	if slot.unifont_texture == 0 {
-		slot.unifont_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
+	kind: Texture_Kind = .Rgba if a.rgba else .Alpha
+	if texture^ == 0 {
+		texture^ = gpu_texture_make(&r.gpu, kind, a.side, a.side, a.pixels)
 	} else {
-		rows := u.pixels[int(u.dirty_y0) * int(u.side):int(u.dirty_y1) * int(u.side)]
-		gpu_texture_update_rows(&r.gpu, slot.unifont_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
+		row := int(a.side) * glyph_atlas_bytes(a)
+		rows := a.pixels[int(a.dirty_y0) * row:int(a.dirty_y1) * row]
+		gpu_texture_update_rows(&r.gpu, texture^, a.side, a.dirty_y0, a.dirty_y1, rows, kind)
 	}
-	u.dirty_y0, u.dirty_y1 = u.side, 0
+	a.dirty_y0, a.dirty_y1 = a.side, 0
 }
 
 // rect_white returns the position of the white texel to use for a rect. It
@@ -1102,10 +1204,19 @@ rect_white :: proc(r: ^Renderer) -> [2]f32 {
 	if r.bound != 0 && r.rgba && r.bound == r.emoji_texture {
 		return emoji_white()
 	}
+	if r.bound != 0 && r.rgba {
+		for &slot in r.fonts {
+			if r.bound == slot.emoji_texture {
+				if uv, ok := glyph_atlas_white(&slot.font.emoji); ok {
+					return uv
+				}
+			}
+		}
+	}
 	if r.bound != 0 && !r.rgba {
 		for &slot in r.fonts {
-			if r.bound == slot.unifont_texture {
-				if uv, ok := unifont_white(&slot.font.uni); ok {
+			if r.bound == slot.fallback_texture {
+				if uv, ok := glyph_atlas_white(&slot.font.fallback); ok {
 					return uv
 				}
 			}
@@ -1225,4 +1336,105 @@ set_clip :: proc(r: ^Renderer, rect: mu.Rect) {
 	y0 := o.y + math.round(f32(rect.y) * s)
 	y1 := o.y + math.round(f32(rect.y + rect.h) * s)
 	gpu_clip(&r.gpu, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
+}
+
+// A character of a line of text as it is laid out: where it is in the text
+// and where it is drawn. In a line with right-to-left text the characters
+// aren't drawn in the order of the text, so this is what a caret, a click
+// or a selection in such a line goes by (ui_bidi.odin).
+Char_Span :: struct {
+	at:     int, // the character's byte offset in the text
+	x0, x1: f32, // its left and right edges, from the line's start (logical pixels)
+	rtl:    bool, // in a right-to-left run: its leading edge is x1
+	line_rtl: bool, // the line is right to left, so its left end is where its text ends
+	joined: bool, // it continues the grapheme before it: the caret doesn't stop in front of it
+}
+
+// text_is_shaped returns whether `text` is shaped (and put in visual order)
+// when drawn in `font`, so that its characters aren't where the widths of
+// the text before them say.
+text_is_shaped :: proc(font: mu.Font, text: string) -> bool {
+	if g_fonts == nil {
+		return false
+	}
+	return needs_shaping(&slot_of(g_fonts, font).font, text)
+}
+
+// text_spans returns where each character of a shaped `text` is drawn in
+// `font`, one span per character in the order of the text. The characters
+// that the font draws as one glyph (a cluster: a ligature, a letter with its
+// marks) share that glyph's width. In the temp allocator.
+text_spans :: proc(font: mu.Font, text: string) -> []Char_Span {
+	slot := slot_of(g_fonts, font)
+	f := &slot.font
+	sh := shaped_text(f, font_style(font), text)
+	n := utf8.rune_count(text)
+	spans := make([]Char_Span, n, context.temp_allocator)
+	i := 0
+	for _, at in text {
+		spans[i].at = at
+		spans[i].line_rtl = sh.rtl
+		spans[i].joined = i < len(sh.joined) && sh.joined[i]
+		i += 1
+	}
+	// Each cluster's extent, by its first character.
+	Cluster :: struct {
+		x0, x1: f32,
+		rtl:    bool,
+		seen:   bool,
+	}
+	clusters := make([]Cluster, n + 1, context.temp_allocator)
+	for g in sh.glyphs {
+		if g.at < 0 || g.at >= n {
+			continue
+		}
+		c := &clusters[g.at]
+		x0, x1 := g.x * f.zoom, (g.x + g.w) * f.zoom
+		if !c.seen {
+			c^ = {x0, x1, g.rtl, true}
+		} else {
+			c.x0, c.x1 = min(c.x0, x0), max(c.x1, x1)
+		}
+	}
+	// A cluster covers its first character and those after it up to the
+	// next cluster's, which share its width, in its direction.
+	start := 0
+	for start < n {
+		end := start + 1
+		for end < n && !clusters[end].seen {
+			end += 1
+		}
+		c := clusters[start]
+		if !c.seen {
+			// Characters before the first glyph (removed by the shaper).
+			for k in start ..< end {
+				spans[k].x0, spans[k].x1 = 0, 0
+			}
+			start = end
+			continue
+		}
+		step := (c.x1 - c.x0) / f32(end - start)
+		for k in start ..< end {
+			j := f32(k - start)
+			if c.rtl {
+				spans[k].x0, spans[k].x1 = c.x1 - (j + 1) * step, c.x1 - j * step
+			} else {
+				spans[k].x0, spans[k].x1 = c.x0 + j * step, c.x0 + (j + 1) * step
+			}
+			spans[k].rtl = c.rtl
+		}
+		start = end
+	}
+	if sh.rtl {
+		// A right-to-left line is drawn from its right end, the end of the
+		// room its width rounded up takes (font_layout), so the characters
+		// are that much further right than their glyphs' pen positions.
+		w := sh.width * f.zoom
+		pad := math.ceil(w) - w
+		for &s in spans {
+			s.x0 += pad
+			s.x1 += pad
+		}
+	}
+	return spans
 }

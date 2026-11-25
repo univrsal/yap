@@ -464,15 +464,22 @@ gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels
 	)
 }
 
-// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture that
+// gpu_texture_update_rows replaces rows y0 up to y1 of a texture of `kind` that
 // is `width` pixels wide with `rows`.
-gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {
+gpu_texture_update_rows :: proc(
+	g: ^Gpu,
+	tex: Gpu_Texture,
+	width, y0, y1: i32,
+	rows: []u8,
+	kind := Texture_Kind.Alpha,
+) {
+	pixel_size: i32 = 1 if kind == .Alpha else 4
 	t := (^Metal_Texture)(tex)
 	if t == nil {
 		return
 	}
 	settle(g)
-	t.texture->replaceRegion(region(0, y0, width, y1 - y0), 0, raw_data(rows), NS.UInteger(width))
+	t.texture->replaceRegion(region(0, y0, width, y1 - y0), 0, raw_data(rows), NS.UInteger(width * pixel_size))
 }
 
 gpu_native :: proc(g: ^Gpu) -> Gpu_Native {

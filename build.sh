@@ -75,6 +75,13 @@ if c_lib_stale $tray tray deps/thirdparty/traycon/traycon.h deps/thirdparty/tray
 	c_lib_build $tray tray -std=c99 -Os $tray_flags
 fi
 
+# Text shaping (src/client/shape) over kb_text_shape, whose single header is
+# in deps/thirdparty.
+shape=src/client/shape
+if c_lib_stale $shape shape deps/thirdparty/kb_text_shape/kb_text_shape.h; then
+	c_lib_build $shape shape -std=c99 -O2
+fi
+
 # tinydialogs, for picking a file to send in a DM. It runs zenity or
 # kdialog on Linux and the BSDs, so nothing to compile against there; on
 # macOS it's Cocoa, so it has to be built as Objective-C.

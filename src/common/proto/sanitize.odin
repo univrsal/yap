@@ -63,7 +63,8 @@ MAX_BLANK_LINES :: 2
 // whitespace but keeps its indentation. Blank lines at the start and end
 // are removed, and more than MAX_BLANK_LINES consecutive blank lines are
 // shortened to MAX_BLANK_LINES. Whitespace before the first line's text is
-// removed as well, like in sanitize_text.
+// removed as well, like in sanitize_text. Unlike sanitize_text, it keeps
+// the invisible characters that writing needs (shaping_mark).
 sanitize_message :: proc(text: string, buf: []u8) -> string {
 	n := 0
 	// Counted but not written until a visible character follows, so that
@@ -88,7 +89,7 @@ sanitize_message :: proc(text: string, buf: []u8) -> string {
 			continue
 		case r < 0x20, r == 0x7f, r >= 0x80 && r < 0xa0:
 			continue // other control characters go
-		case invisible(r), is_emoji_placeholder(r):
+		case invisible(r) && !shaping_mark(r), is_emoji_placeholder(r):
 			continue
 		}
 		breaks := 0 if n == 0 else min(newlines, MAX_BLANK_LINES + 1)
@@ -112,6 +113,24 @@ sanitize_message :: proc(text: string, buf: []u8) -> string {
 	return string(buf[:n])
 }
 
+
+// Invisible characters that messages keep, because writing needs them: the
+// zero-width non-joiner and joiner (U+200C, U+200D), which Persian and the
+// Indic scripts use to keep letters apart or join them, and the direction
+// marks (U+200E, U+200F, U+061C), which put punctuation and numbers on the
+// right side of text that mixes directions. They change how the letters
+// around them are drawn, not where text goes: the embeddings, overrides and
+// isolates (U+202A..U+202E, U+2066..U+2069), which can make text read in
+// another order than it is stored, stay out. Names and the other single
+// lines keep none of them, so that a name can't look like another one.
+@(private = "file")
+shaping_mark :: proc(r: rune) -> bool {
+	switch r {
+	case 0x200C, 0x200D, 0x200E, 0x200F, 0x061C:
+		return true
+	}
+	return false
+}
 // Characters that show nothing (or only change how what is around them is
 // shown): zero-width characters, bidirectional controls, the BOM, the
 // default-ignorable fillers (Hangul and Braille blanks among them), the

@@ -620,9 +620,16 @@ gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels
 	g.ctx->UpdateSubresource(t.texture, 0, nil, raw_data(pixels), u32(width) * 4, 0)
 }
 
-// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture that
+// gpu_texture_update_rows replaces rows y0 up to y1 of a texture of `kind` that
 // is `width` pixels wide with `rows`.
-gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {
+gpu_texture_update_rows :: proc(
+	g: ^Gpu,
+	tex: Gpu_Texture,
+	width, y0, y1: i32,
+	rows: []u8,
+	kind := Texture_Kind.Alpha,
+) {
+	pixel_size: i32 = 1 if kind == .Alpha else 4
 	t := (^D3D_Texture)(tex)
 	if t == nil {
 		return
@@ -635,7 +642,7 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 		bottom = u32(y1),
 		back   = 1,
 	}
-	g.ctx->UpdateSubresource(t.texture, 0, &box, raw_data(rows), u32(width), 0)
+	g.ctx->UpdateSubresource(t.texture, 0, &box, raw_data(rows), u32(width * pixel_size), 0)
 }
 
 gpu_native :: proc(g: ^Gpu) -> Gpu_Native {
