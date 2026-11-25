@@ -423,6 +423,10 @@ wait until someone needs them.
    Done when: Ctrl+Right in "abc שלום עולם 123" goes "abc" → the word
    right of it on the screen → … → the line's right end, never backwards.
 
+   *Done:* `bidi_step` takes the line's text for Ctrl and then only stops
+   at places where a word starts or ends (`char_class`, shared with
+   `area_word`) or at the line's ends; the text area and text boxes pass it.
+
 3. **Right-aligning right-to-left lines.** A line whose first strong
    character is right to left (`Char_Span.line_rtl`, `Shaped.rtl`) is
    still drawn from the left edge, in messages and in the composer. It

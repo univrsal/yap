@@ -282,6 +282,23 @@ spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int
 	return focused && area.typed_at >= 0 && m[0] <= caret && caret <= m[1]
 }
 
+// Char_Class and char_class are the classes of area_word and the word jumps.
+Char_Class :: enum {
+	Word,
+	Space,
+	Other,
+}
+
+char_class :: proc(b: u8) -> Char_Class {
+	switch b {
+	case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', 0x80 ..= 0xff:
+		return .Word
+	case ' ', '\t', '\n', '\r':
+		return .Space
+	}
+	return .Other
+}
+
 // area_word is the word at the place `at` in `text`, as its start and end: a
 // run of letters, digits and underscores (any non-ASCII character counts as a
 // letter), a run of spaces, or a single other character. It is the one right
@@ -289,20 +306,7 @@ spell_mark_typing :: proc(area: ^Text_Area, m: [2]int, focused: bool, caret: int
 // another (at the end of the text, or before a space or punctuation), where it
 // is the one before.
 area_word :: proc(text: string, at: int) -> [2]int {
-	Class :: enum {
-		Word,
-		Space,
-		Other,
-	}
-	class :: proc(b: u8) -> Class {
-		switch b {
-		case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', 0x80 ..= 0xff:
-			return .Word
-		case ' ', '\t', '\n', '\r':
-			return .Space
-		}
-		return .Other
-	}
+	class :: char_class
 	if len(text) == 0 {
 		return {}
 	}
@@ -513,15 +517,16 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 				}
 				// In a line with right-to-left text, the caret moves to the
 				// next place on the screen (ui_bidi.odin), and at the line's
-				// end on to the next (or previous) line. With Ctrl, or to drop
-				// a selection, it goes through the text.
+				// end on to the next (or previous) line; with Ctrl, to the next
+				// word boundary on that side. To drop a selection it goes through
+				// the text.
 				right := key == .RIGHT
-				if !ctrl && (shift || s.selection[0] == s.selection[1]) {
+				if shift || s.selection[0] == s.selection[1] {
 					li := area_line_of(lines, s.selection[0])
 					l := lines[li]
 					spans, shaped := line_spans(ctx, font, text, l.start, l.end)
 					if shaped && s.selection[0] <= l.end {
-						to, ok := bidi_step(spans, l.start, l.end, s.selection[0], right)
+						to, ok := bidi_step(spans, l.start, l.end, s.selection[0], right, text if ctrl else "")
 						if !ok {
 							// The way the lines go: down on the right of a
 							// left-to-right line, down on the left of a

@@ -166,10 +166,10 @@ text_box_raw :: proc(
 			right := key == .RIGHT
 			// To the next place on the screen in a line with right-to-left
 			// text, as in a text area.
-			if !ctrl && (shift || s.selection[0] == s.selection[1]) {
+			if shift || s.selection[0] == s.selection[1] {
 				text := string(textbuf[:textlen^])
 				if spans, shaped := spans_of(ctx, font, text, plain); shaped {
-					if to, ok := bidi_step(spans, 0, len(text), s.selection[0], right); ok {
+					if to, ok := bidi_step(spans, 0, len(text), s.selection[0], right, text if ctrl else ""); ok {
 						s.selection[0] = to
 						if !shift {
 							s.selection[1] = to

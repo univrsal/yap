@@ -195,12 +195,21 @@ bidi_ranges :: proc(spans: []render.Char_Span, lo, hi: int) -> [][2]f32 {
 
 // bidi_step returns the place the caret goes to from `at` when it moves to
 // the right (or left) in a line: the place drawn nearest to it on that side.
-// It isn't ok at the line's right (left) end.
-bidi_step :: proc(spans: []render.Char_Span, start, end, at: int, right: bool) -> (to: int, ok: bool) {
+// It isn't ok at the line's right (left) end. With the line's `words` (its
+// text), it goes to the nearest place that starts or ends a word instead.
+bidi_step :: proc(
+	spans: []render.Char_Span,
+	start, end, at: int,
+	right: bool,
+	words := "",
+) -> (
+	to: int,
+	ok: bool,
+) {
 	x := bidi_caret_x(spans, start, end, at)
 	best: f32
 	for s in caret_stops(spans, start, end) {
-		if s.at == at {
+		if s.at == at || (words != "" && !word_boundary(words, start, end, s.at)) {
 			continue
 		}
 		d := s.x - x if right else x - s.x
@@ -209,6 +218,19 @@ bidi_step :: proc(spans: []render.Char_Span, start, end, at: int, right: bool) -
 		}
 	}
 	return
+}
+
+// word_boundary returns whether the place `at` of text, a line from `start`
+// to `end`, is the line's start or end or has a word (area_word's classes)
+// on one side and not on the other.
+@(private = "file")
+word_boundary :: proc(text: string, start, end, at: int) -> bool {
+	if at <= start || at >= end {
+		return true
+	}
+	before := char_class(text[at - 1]) == .Word
+	after := char_class(text[at]) == .Word
+	return before != after
 }
 
 // round_px rounds a position along a line to whole logical pixels.

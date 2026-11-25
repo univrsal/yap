@@ -161,3 +161,32 @@ test_bidi_cluster :: proc(t: ^testing.T) {
 	testing.expect_value(t, bidi_offset_at(spans, 0, 5, 24), 1)
 	testing.expect_value(t, bidi_offset_at(spans, 0, 5, 36), 4)
 }
+
+// Ctrl+Right in "abc wxyz 123" with the letters shown as in hebrew_line goes
+// from word boundary to word boundary along the screen, never back.
+@(test)
+test_bidi_word_step :: proc(t: ^testing.T) {
+	spans := hebrew_line()
+	text := "abc wxyz 123"
+	at := 0
+	last_x := bidi_caret_x(spans, 0, 12, at)
+	want := [?]int{3, 4, 9, 8, 12}
+	for w in want {
+		to, ok := bidi_step(spans, 0, 12, at, true, text)
+		testing.expect(t, ok)
+		testing.expect_value(t, to, w)
+		x := bidi_caret_x(spans, 0, 12, to)
+		testing.expectf(t, x > last_x, "%d to %d goes back", at, to)
+		at, last_x = to, x
+	}
+	_, ok := bidi_step(spans, 0, 12, at, true, text)
+	testing.expect(t, !ok)
+	// And left again, the same places the other way.
+	for i := len(want) - 2; i >= 0; i -= 1 {
+		to, _ := bidi_step(spans, 0, 12, at, false, text)
+		testing.expect_value(t, to, want[i])
+		at = to
+	}
+	to, _ := bidi_step(spans, 0, 12, at, false, text)
+	testing.expect_value(t, to, 0)
+}
