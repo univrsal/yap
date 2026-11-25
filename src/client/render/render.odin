@@ -380,6 +380,7 @@ Font_Slot :: struct {
 	font:            Font,
 	textures:        [Font_Style]Gpu_Texture, // the faces' atlases; 0 until drawn
 	fallback_texture: Gpu_Texture, // the fallback glyphs' atlas (glyph_atlas.odin); 0 until it has glyphs
+	emoji_texture:    Gpu_Texture, // the system's color emoji (Font.emoji); 0 until it has some
 	// The requested zoom (font_set_zoom). The font applies it with its next
 	// atlas.
 	zoom:            f32,
@@ -446,7 +447,7 @@ heading_zoom :: proc(r: ^Renderer, zoom: f32) {
 		slot := &r.fonts[Font_Kind(int(Font_Kind.Heading_1) + i)]
 		slot.zoom = zoom * factor
 		slot.font.zoom = zoom * factor
-		slot.font.scale, slot.font.fallback.scale = 0, 0
+		slot.font.scale, slot.font.fallback.scale, slot.font.emoji.scale = 0, 0, 0
 	}
 }
 
@@ -461,7 +462,7 @@ set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
 	slot.zoom = zoom
 	slot.font.zoom = zoom
 	// The next frame rebuilds them at the new size.
-	slot.font.scale, slot.font.fallback.scale = 0, 0
+	slot.font.scale, slot.font.fallback.scale, slot.font.emoji.scale = 0, 0, 0
 	heading_zoom(r, zoom)
 }
 
@@ -480,6 +481,30 @@ set_system_fonts :: proc(r: ^Renderer, enabled: bool) {
 		}
 		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
 	}
+}
+
+// set_system_emoji turns the system's color emoji on or off
+// (sysemoji_native.odin). Emoji take the same space either way, so only
+// their pictures change, from the next frame on. Call it between frames.
+set_system_emoji :: proc(r: ^Renderer, enabled: bool) {
+	if !system_emoji_enable(&r.system, enabled) {
+		return
+	}
+	for &slot in r.fonts {
+		if slot.font.emoji.side != 0 {
+			glyph_atlas_reset(&slot.font.emoji, slot.font.emoji.scale)
+		}
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
+	}
+}
+
+// system_emoji_font returns the name of the system's emoji font that emoji
+// are drawn from, or "" if there is none we can draw (or they are off).
+system_emoji_font :: proc(r: ^Renderer) -> string {
+	if !r.system.emoji_enabled {
+		return ""
+	}
+	return system_emoji_name(&r.system)
 }
 
 // set_system_fonts_language sets the user's language, which picks between
@@ -555,6 +580,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 			gpu_texture_delete(&r.gpu, &t)
 		}
 		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
@@ -582,7 +608,8 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 			gpu_texture_delete(&r.gpu, &t)
 		}
 		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
-		slot.font.scale, slot.font.fallback.scale = 0, 0
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
+		slot.font.scale, slot.font.fallback.scale, slot.font.emoji.scale = 0, 0, 0
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
@@ -648,11 +675,17 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 		slot := &r.fonts[kind]
 		if !lazy_font(kind) {
 			slot_prepare(r, slot, scale)
-		} else if slot.font.fallback.full {
-			// Their fallback glyphs start again too once they run out of
-			// room, though not in the middle of a frame.
-			glyph_atlas_reset(&slot.font.fallback, slot.font.fallback.scale)
-			gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+		} else {
+			// Their fallback glyphs and emoji start again too once they run
+			// out of room, though not in the middle of a frame.
+			if slot.font.fallback.full {
+				glyph_atlas_reset(&slot.font.fallback, slot.font.fallback.scale)
+				gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+			}
+			if slot.font.emoji.full {
+				glyph_atlas_reset(&slot.font.emoji, slot.font.emoji.scale)
+				gpu_texture_delete(&r.gpu, &slot.emoji_texture)
+			}
 		}
 	}
 	if scale != r.icons.scale {
@@ -713,7 +746,8 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			}
 			style := font_style(c.font)
 			font_cache_glyphs(&slot.font, c.str, style)
-			upload_fallback(r, slot)
+			upload_atlas(r, &slot.font.fallback, &slot.fallback_texture)
+			upload_atlas(r, &slot.font.emoji, &slot.emoji_texture)
 			if style != .Regular {
 				for face in font_faces_used(&slot.font, c.str, style) {
 					face_ready(r, slot, face)
@@ -733,6 +767,17 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
+					if q.color {
+						// The system's emoji, like the sheet's below.
+						use_texture(e.r, e.slot.emoji_texture, rgba = true)
+						push_quad(
+							e.r,
+							{q.x0, q.y0, q.x1, q.y1},
+							{q.u0, q.v0, q.u1, q.v1},
+							{255, 255, 255, e.color.a},
+						)
+						return
+					}
 					if q.emoji {
 						// The emoji keeps its own colors but takes the text's
 						// opacity. Nothing is drawn until the sheet is decoded.
@@ -855,6 +900,11 @@ slot_prepare :: proc(r: ^Renderer, slot: ^Font_Slot, scale: f32) {
 	if at != slot.font.fallback.scale || slot.font.fallback.full {
 		glyph_atlas_reset(&slot.font.fallback, at)
 		gpu_texture_delete(&r.gpu, &slot.fallback_texture)
+	}
+	// The same for the system's color emoji.
+	if at != slot.font.emoji.scale || slot.font.emoji.full {
+		glyph_atlas_reset(&slot.font.emoji, at)
+		gpu_texture_delete(&r.gpu, &slot.emoji_texture)
 	}
 }
 
@@ -1121,23 +1171,24 @@ face_ready :: proc(r: ^Renderer, slot: ^Font_Slot, face: Font_Style) {
 	}
 }
 
-// upload_fallback uploads the rows of the fallback glyphs' atlas that have
-// changed to its texture, and creates the texture the first time. Glyphs are
-// only ever added to empty room, so quads that are already waiting to be
-// drawn still find their glyphs.
+// upload_atlas uploads the rows of a glyph atlas (the fallback glyphs' or
+// the color emoji's) that have changed to its texture, and creates the
+// texture the first time. Glyphs are only ever added to empty room, so quads
+// that are already waiting to be drawn still find their glyphs.
 @(private = "file")
-upload_fallback :: proc(r: ^Renderer, slot: ^Font_Slot) {
-	u := &slot.font.fallback
-	if u.dirty_y1 <= u.dirty_y0 {
+upload_atlas :: proc(r: ^Renderer, a: ^Glyph_Atlas, texture: ^Gpu_Texture) {
+	if a.dirty_y1 <= a.dirty_y0 {
 		return
 	}
-	if slot.fallback_texture == 0 {
-		slot.fallback_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
+	kind: Texture_Kind = .Rgba if a.rgba else .Alpha
+	if texture^ == 0 {
+		texture^ = gpu_texture_make(&r.gpu, kind, a.side, a.side, a.pixels)
 	} else {
-		rows := u.pixels[int(u.dirty_y0) * int(u.side):int(u.dirty_y1) * int(u.side)]
-		gpu_texture_update_rows(&r.gpu, slot.fallback_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
+		row := int(a.side) * glyph_atlas_bytes(a)
+		rows := a.pixels[int(a.dirty_y0) * row:int(a.dirty_y1) * row]
+		gpu_texture_update_rows(&r.gpu, texture^, a.side, a.dirty_y0, a.dirty_y1, rows, kind)
 	}
-	u.dirty_y0, u.dirty_y1 = u.side, 0
+	a.dirty_y0, a.dirty_y1 = a.side, 0
 }
 
 // rect_white returns the position of the white texel to use for a rect. It
@@ -1150,6 +1201,15 @@ upload_fallback :: proc(r: ^Renderer, slot: ^Font_Slot) {
 rect_white :: proc(r: ^Renderer) -> [2]f32 {
 	if r.bound != 0 && r.rgba && r.bound == r.emoji_texture {
 		return emoji_white()
+	}
+	if r.bound != 0 && r.rgba {
+		for &slot in r.fonts {
+			if r.bound == slot.emoji_texture {
+				if uv, ok := glyph_atlas_white(&slot.font.emoji); ok {
+					return uv
+				}
+			}
+		}
 	}
 	if r.bound != 0 && !r.rgba {
 		for &slot in r.fonts {

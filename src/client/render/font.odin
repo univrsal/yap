@@ -120,6 +120,8 @@ Font :: struct {
 	sys:      ^System_Fonts,
 	uni:      Unifont,
 	fallback: Glyph_Atlas,
+	// The system's color emoji drawn so far (sysemoji_native.odin), in RGBA.
+	emoji:    Glyph_Atlas,
 }
 
 font_init :: proc(f: ^Font) -> bool {
@@ -141,6 +143,7 @@ font_init :: proc(f: ^Font) -> bool {
 	f.baseline = (LINE_HEIGHT - text_height) / 2 + f32(ascent) * s
 
 	f.zoom = 1
+	f.emoji.rgba = true
 	f.ok = true
 	return true
 }
@@ -215,6 +218,7 @@ font_line_height :: proc(f: ^Font) -> i32 {
 font_destroy :: proc(f: ^Font) {
 	unifont_destroy(&f.uni)
 	glyph_atlas_destroy(&f.fallback)
+	glyph_atlas_destroy(&f.emoji)
 	for &fc in f.faces {
 		delete(fc.pixels)
 		delete(fc.codepoints)
@@ -395,6 +399,10 @@ font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
 			system_glyph_cache(f.sys, &f.fallback, r, f.em)
 		case .Unifont:
 			unifont_cache(&f.uni, &f.fallback, r)
+		case .Emoji:
+			if _, ok := system_emoji_glyph(f.sys, r); ok {
+				system_emoji_cache(f.sys, &f.emoji, r, emoji_side(f.scale), EMOJI_FILL)
+			}
 		}
 	}
 }
@@ -414,7 +422,8 @@ Glyph_Quad :: struct {
 	x0, y0, x1, y1: f32, // logical pixels
 	u0, v0, u1, v1: f32,
 	fallback:       bool, // from the fallback atlas (Unifont's and the system's glyphs) rather than a face's
-	emoji:          bool, // from the emoji sheet, in color; neither of the others
+	emoji:          bool, // from the emoji sheet, in color; none of the others
+	color:          bool, // from the font's atlas of the system's color emoji; none of the others
 	face:           Font_Style, // which face's atlas the glyph is from, if it is a face glyph
 }
 
@@ -535,6 +544,31 @@ font_layout_unzoomed :: proc(
 			px := origin + math.round(pen * s) + math.round((EMOJI_ADVANCE - EMOJI_SIZE) / 2 * s)
 			py := math.round((y + (LINE_HEIGHT - EMOJI_SIZE) / 2) * s)
 			side := math.round(EMOJI_SIZE * s)
+			// The system's picture where there is one (sysemoji_native.odin),
+			// drawn at this size; the sheet's otherwise, or while the atlas
+			// is full.
+			if _, has := system_emoji_glyph(f.sys, r); has {
+				a := &f.emoji
+				g, ok := system_emoji_cache(f.sys, a, r, i32(side), EMOJI_FILL)
+				if ok && a.scale == s && f32(g.w) == side {
+					emit(
+						data,
+						Glyph_Quad {
+							x0 = px / s,
+							y0 = py / s,
+							x1 = (px + side) / s,
+							y1 = (py + side) / s,
+							u0 = f32(g.x) / f32(a.side),
+							v0 = f32(g.y) / f32(a.side),
+							u1 = f32(g.x + g.w) / f32(a.side),
+							v1 = f32(g.y + g.h) / f32(a.side),
+							color = true,
+						},
+					)
+					pen += EMOJI_ADVANCE
+					continue
+				}
+			}
 			u0, v0, u1, v1 := emoji_uv(i)
 			emit(
 				data,

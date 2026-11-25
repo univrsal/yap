@@ -275,6 +275,7 @@ draw_frame :: proc(ui: ^UI) {
 	// The chat's text size, used for measuring and drawing this frame.
 	render.set_chat_zoom(&ui.renderer, settings.chat_scale_factor(&ui.settings))
 	render.set_system_fonts(&ui.renderer, ui.settings.system_fonts)
+	render.set_system_emoji(&ui.renderer, ui.settings.system_emoji)
 	activity_input(ui)
 	voice_elsewhere_update(ui)
 	theme_update(ui) // the palette for this frame (theme.odin)

@@ -58,6 +58,11 @@ System_Fonts :: struct {
 	// was laid out with the other fonts can be laid out again.
 	generation: int,
 	lookup:     System_Lookup, // the OS's own state (sysfont_*.odin)
+	// The system's color emoji (sysemoji_native.odin): whether they are
+	// used, the font, and its glyph for each emoji looked up (0 for none).
+	emoji_enabled: bool,
+	emoji:         System_Emoji,
+	emoji_found:   map[rune]int,
 }
 
 // A font file that the system offers for a character.
@@ -80,6 +85,8 @@ system_fonts_destroy :: proc(s: ^System_Fonts) {
 	delete(s.found)
 	delete(s.language)
 	system_lookup_destroy(&s.lookup)
+	system_emoji_destroy(&s.emoji)
+	delete(s.emoji_found)
 	s^ = {}
 }
 
@@ -107,6 +114,16 @@ system_fonts_enable :: proc(s: ^System_Fonts, enabled: bool) -> bool {
 	return true
 }
 
+
+// system_emoji_enable turns the system's color emoji on or off. It returns
+// whether that changed anything.
+system_emoji_enable :: proc(s: ^System_Fonts, enabled: bool) -> bool {
+	if s.emoji_enabled == enabled {
+		return false
+	}
+	s.emoji_enabled = enabled
+	return true
+}
 // system_glyph returns the system font that a character is drawn from, if
 // the fonts are on and one of them has the character.
 system_glyph :: proc(s: ^System_Fonts, r: rune) -> (g: System_Glyph, ok: bool) {

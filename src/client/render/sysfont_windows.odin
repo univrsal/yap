@@ -61,14 +61,7 @@ system_lookup_destroy :: proc(l: ^System_Lookup) {
 // system_font_candidates lists the font files that may have `r`.
 @(private)
 system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_File) {
-	l := &s.lookup
-	if l.fonts_dir == "" {
-		windir := os.get_env("WINDIR", context.temp_allocator)
-		if windir == "" {
-			windir = "C:\\Windows"
-		}
-		l.fonts_dir = strings.concatenate({windir, "\\Fonts\\"})
-	}
+	dir := fonts_dir(&s.lookup)
 	add :: proc(out: ^[dynamic]Font_File, dir, name: string) {
 		path := strings.concatenate({dir, name}, context.temp_allocator)
 		for f in out {
@@ -79,22 +72,22 @@ system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_Fi
 		append(out, Font_File{path = path})
 	}
 	for name in WINDOWS_FIRST {
-		add(out, l.fonts_dir, name)
+		add(out, dir, name)
 	}
 	lang := s.language
 	switch {
 	case strings.has_prefix(lang, "ja"):
-		add(out, l.fonts_dir, "YuGothR.ttc")
+		add(out, dir, "YuGothR.ttc")
 	case strings.has_prefix(lang, "ko"):
-		add(out, l.fonts_dir, "malgun.ttf")
+		add(out, dir, "malgun.ttf")
 	case lang == "zh-tw" || lang == "zh-hk" || lang == "zh-mo" || strings.has_prefix(lang, "zh-hant"):
-		add(out, l.fonts_dir, "msjh.ttc")
+		add(out, dir, "msjh.ttc")
 	}
 	for name in WINDOWS_CJK {
-		add(out, l.fonts_dir, name)
+		add(out, dir, name)
 	}
 	for name in WINDOWS_REST {
-		add(out, l.fonts_dir, name)
+		add(out, dir, name)
 	}
 }
 
@@ -134,4 +127,24 @@ map_font_file :: proc(path: string) -> (data: []u8, ok: bool) {
 @(private)
 unmap_font_file :: proc(data: []u8) {
 	win.UnmapViewOfFile(raw_data(data))
+}
+
+// system_emoji_files lists the emoji font: Segoe UI Emoji, whose emoji are
+// layers of colored outlines (colorfont.odin).
+@(private)
+system_emoji_files :: proc(s: ^System_Fonts, out: ^[dynamic]Font_File) {
+	append(out, Font_File{path = strings.concatenate({fonts_dir(&s.lookup), "seguiemj.ttf"}, context.temp_allocator)})
+}
+
+// fonts_dir returns Windows' Fonts folder, with a backslash at the end.
+@(private = "file")
+fonts_dir :: proc(l: ^System_Lookup) -> string {
+	if l.fonts_dir == "" {
+		windir := os.get_env("WINDIR", context.temp_allocator)
+		if windir == "" {
+			windir = `C:\Windows`
+		}
+		l.fonts_dir = strings.concatenate({windir, `\Fonts\`})
+	}
+	return l.fonts_dir
 }

@@ -138,3 +138,10 @@ system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_Fi
 		found += 1
 	}
 }
+
+// system_emoji_files lists the fonts that the system offers for an emoji;
+// the first that has color glyphs we draw is used (sysemoji_native.odin).
+@(private)
+system_emoji_files :: proc(s: ^System_Fonts, out: ^[dynamic]Font_File) {
+	system_font_candidates(s, 0x1f600, out)
+}

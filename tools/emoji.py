@@ -3,7 +3,7 @@
 Makes the emoji the client draws and both sides know of (phase 10):
 
   src/client/assets/emoji.webp        a sheet of those emoji's pictures, one
-                                      64 pixel cell each, from a colour
+                                      48 pixel cell each, from a colour
                                       emoji font
   src/client/render/emoji_cells.odin  which character is in which cell
   src/common/proto/emoji_table.odin   those emoji: the character, its
@@ -15,18 +15,23 @@ font has a picture for. Sequences (flags, skin tones, people joined with
 U+200D) are left out: the text sanitizer drops the joiners, and each
 emoji would need a picture of its own.
 
-The font is Apple Color Emoji, in the build for Linux (the CBDT format,
-which fontTools reads; the one from macOS is another format). Its pictures
-are cut to 60 pixels and set in cells of 64: the margin keeps one's edge
-from bleeding into the next when the sheet is shrunk (mipmaps). Colours
-are carried out into the transparent pixels around each picture, so
-filtering the edge doesn't pull in black.
+The font is Blobmoji (github.com/C1710/blobmoji, release v15.0:
+Blobmoji.ttf), which carries on Google's older "blob" emoji up to Emoji
+15.0; its pictures are under the Apache License 2.0
+(src/client/licenses/blobmoji.txt). It is a CBDT font, which fontTools
+reads. Its pictures are cut to 44 pixels and set in cells of 48: the
+margin keeps one's edge from bleeding into the next when the sheet is
+shrunk (mipmaps). Colours are carried out into the transparent pixels
+around each picture, so filtering the edge doesn't pull in black. The
+cells, 42 by 42, take up the top left of a 2048 pixel sheet. The client
+draws the system's own emoji where it can (render/sysemoji_native.odin);
+the sheet is for the rest.
 
 All three outputs are committed; this is only run to bring them up to
 date. It needs Python 3 with fontTools, Pillow (with WebP) and numpy, and
 fetches the emoji list with curl.
 
-	tools/emoji.py AppleColorEmoji-Linux.ttf
+	tools/emoji.py Blobmoji.ttf
 """
 
 import argparse
@@ -50,11 +55,16 @@ TABLE_OUT = os.path.join(ROOT, "src/common/proto/emoji_table.odin")
 
 # The sheet's layout, as src/client/render/emoji_atlas.odin has it. The
 # last cell is left for a white texel (rects drawn between emoji).
-CELL = 64
-COLUMNS = 32
-ROWS = 32
+CELL = 48
+COLUMNS = 42
+ROWS = 42
+SIDE = 2048  # the sheet, of which the cells take up the top left
 PADDING = 2
 WEBP_QUALITY = 96
+
+# Characters that stay text: they are common in ordinary text (a copyright
+# line), where a picture would be out of place.
+TEXT = {0xA9, 0xAE}
 
 # gemoji's categories, as the table's enum names them, in picker order.
 CATEGORIES = {
@@ -146,7 +156,7 @@ def main():
             if len(chars) != 1:
                 continue
             r = ord(chars)
-            if r in seen or r not in have or not e["aliases"]:
+            if r in seen or r in TEXT or r not in have or not e["aliases"]:
                 continue
             seen.add(r)
             names = [a for a in e["aliases"] if all(c.isalnum() or c in "_+-" for c in a)]
@@ -160,7 +170,7 @@ def main():
     if len(runes) > COLUMNS * ROWS - 1:
         sys.exit("too many emoji for the sheet: %d" % len(runes))
 
-    sheet = np.zeros((ROWS * CELL, COLUMNS * CELL, 4), np.uint8)
+    sheet = np.zeros((SIDE, SIDE, 4), np.uint8)
     for cell, r in enumerate(runes):
         x, y = (cell % COLUMNS) * CELL, (cell // COLUMNS) * CELL
         sheet[y:y + CELL, x:x + CELL] = tile_of(have[r])

@@ -168,3 +168,10 @@ cf_path :: proc(url: CF.TypeRef) -> string {
 	}
 	return strings.clone(string(cstring(raw_data(path[:]))), context.temp_allocator)
 }
+
+// system_emoji_files lists the fonts that the system offers for an emoji;
+// the first that has color glyphs we draw is used (sysemoji_native.odin).
+@(private)
+system_emoji_files :: proc(s: ^System_Fonts, out: ^[dynamic]Font_File) {
+	system_font_candidates(s, 0x1f600, out)
+}

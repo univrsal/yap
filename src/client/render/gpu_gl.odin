@@ -268,9 +268,15 @@ gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 
-// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture that
+// gpu_texture_update_rows replaces rows y0 up to y1 of a texture of `kind` that
 // is `width` pixels wide with `rows`.
-gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {
+gpu_texture_update_rows :: proc(
+	g: ^Gpu,
+	tex: Gpu_Texture,
+	width, y0, y1: i32,
+	rows: []u8,
+	kind := Texture_Kind.Alpha,
+) {
 	gl.BindTexture(gl.TEXTURE_2D, u32(tex))
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	gl.TexSubImage2D(
@@ -280,7 +286,7 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 		y0,
 		width,
 		y1 - y0,
-		gl.RED,
+		gl.RED if kind == .Alpha else gl.RGBA,
 		gl.UNSIGNED_BYTE,
 		raw_data(rows),
 	)

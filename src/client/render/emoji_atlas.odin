@@ -1,29 +1,41 @@
 package render
 
+import "core:math"
 import "core:slice"
 
-// The emoji (proto/emoji.odin) are drawn as pictures from Apple Color Emoji,
-// packed into one sheet (assets/emoji.webp). tools/emoji.py creates the
-// sheet together with the list that maps each character to its cell
-// (emoji_cells.odin). Emoji are in color, so they are drawn from a texture of
-// their own (Texture_Kind.Rgba, with mipmaps because they are drawn much
-// smaller than their source size) instead of from a font's alpha atlas.
+// The emoji (proto/emoji.odin) are drawn as pictures from Blobmoji (a
+// continuation of Google's older "blob" emoji, Apache 2.0), packed into one
+// sheet (assets/emoji.webp). tools/emoji.py creates the sheet together with
+// the list that maps each character to its cell (emoji_cells.odin). Emoji
+// are in color, so they are drawn from a texture of their own
+// (Texture_Kind.Rgba, with mipmaps because they are drawn smaller than their
+// source size) instead of from a font's alpha atlas. Where the system has an
+// emoji font we can draw, its pictures are used instead
+// (sysemoji_native.odin), and the sheet only for what it lacks.
 //
-// The sheet is EMOJI_SIDE pixels square and has EMOJI_COLUMNS columns of
-// EMOJI_CELL pixels each. A character's cell is its index in EMOJI_CELLS.
-// The last cell is blank and gets a white texel, so rects between emoji
-// (such as a button frame in the picker) can be drawn from this texture too
-// without switching to a font's atlas and back.
+// The sheet is EMOJI_SIDE pixels square and has EMOJI_COLUMNS columns (and
+// as many rows) of EMOJI_CELL pixels each, which leaves a strip on the
+// right and at the bottom unused. A character's cell is its index in
+// EMOJI_CELLS. The last cell is blank and gets a white texel, so rects
+// between emoji (such as a button frame in the picker) can be drawn from
+// this texture too without switching to a font's atlas and back.
 //
 // The client decodes the sheet (a WebP, see ui_images.odin) and passes the
 // pixels to emoji_sheet_upload. Until then, emoji take up their space in a
 // line but are not drawn.
 
-EMOJI_COLUMNS :: 32
-EMOJI_CELL :: 64
-EMOJI_SIDE :: EMOJI_COLUMNS * EMOJI_CELL
+EMOJI_COLUMNS :: 42
+EMOJI_CELL :: 48
+EMOJI_SIDE :: 2048
+#assert(EMOJI_COLUMNS * EMOJI_CELL <= EMOJI_SIDE)
 // The size of the sheet in bytes, as expected from the decoder.
 EMOJI_PIXELS :: EMOJI_SIDE * EMOJI_SIDE * 4
+// The margin around each picture in its cell, which keeps one's edge from
+// bleeding into the next when the sheet is shrunk (tools/emoji.py), and how
+// much of the cell the picture takes up as a result. The system's emoji are
+// drawn as big (sysemoji_native.odin).
+EMOJI_PADDING :: 2
+EMOJI_FILL :: f32(EMOJI_CELL - 2 * EMOJI_PADDING) / EMOJI_CELL
 
 // How much space an emoji takes up in a line and how big it is drawn, in
 // logical pixels. These match the server's custom emoji (CUSTOM_EMOJI_*),
@@ -31,6 +43,11 @@ EMOJI_PIXELS :: EMOJI_SIDE * EMOJI_SIDE * 4
 // slightly smaller than this.
 EMOJI_ADVANCE :: f32(19)
 EMOJI_SIZE :: f32(18)
+
+// emoji_side is how many physical pixels an emoji is drawn at `scale`.
+emoji_side :: proc(scale: f32) -> i32 {
+	return i32(math.round(EMOJI_SIZE * scale))
+}
 
 @(private = "file")
 WHITE_CELL :: EMOJI_COLUMNS * EMOJI_COLUMNS - 1 // the sheet is square

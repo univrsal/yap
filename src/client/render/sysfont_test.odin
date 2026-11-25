@@ -111,3 +111,61 @@ test_system_fonts :: proc(t: ^testing.T) {
 	testing.expect(t, system_fonts_enable(&s, false))
 	testing.expect_value(t, font_text_width(&f, "中"), 16)
 }
+
+// This depends on the machine's emoji font too: where there is none we can
+// draw, it only checks that the sheet is used.
+@(test)
+test_system_emoji :: proc(t: ^testing.T) {
+	s: System_Fonts
+	defer system_fonts_destroy(&s)
+
+	// Off: none.
+	_, on := system_emoji_glyph(&s, 0x1f600)
+	testing.expect(t, !on)
+
+	testing.expect(t, system_emoji_enable(&s, true))
+	glyph, ok := system_emoji_glyph(&s, 0x1f600)
+	if !ok {
+		log.info("no system emoji font we can draw; the sheet is used")
+		testing.expect_value(t, system_emoji_name(&s), "")
+		return
+	}
+	log.infof("😀 is glyph %d of %s (%v)", glyph, system_emoji_name(&s), s.emoji.font.format)
+	testing.expect(t, system_emoji_name(&s) != "")
+	// Letters aren't emoji, even where the font has a glyph for them.
+	_, letter := system_emoji_glyph(&s, 'a')
+	testing.expect(t, !letter)
+
+	// Drawn at 36 pixels (2x): in color in the middle, clear in the corners.
+	a := Glyph_Atlas{rgba = true}
+	defer glyph_atlas_destroy(&a)
+	glyph_atlas_reset(&a, 2)
+	g, drawn := system_emoji_cache(&s, &a, 0x1f600, 36, EMOJI_FILL)
+	testing.expect(t, drawn)
+	testing.expect_value(t, g.w, 36)
+	testing.expect_value(t, g.h, 36)
+	at :: proc(a: ^Glyph_Atlas, g: Atlas_Glyph, x, y: i32) -> [4]u8 {
+		p := a.pixels[(int(g.y + y) * int(a.side) + int(g.x + x)) * 4:]
+		return {p[0], p[1], p[2], p[3]}
+	}
+	testing.expect_value(t, at(&a, g, 0, 0)[3], 0)
+	testing.expect_value(t, at(&a, g, 35, 35)[3], 0)
+	colored := 0
+	for y in i32(8) ..< 28 {
+		for x in i32(8) ..< 28 {
+			p := at(&a, g, x, y)
+			if p[3] > 200 && abs(int(p[0]) - int(p[2])) > 60 {
+				colored += 1
+			}
+		}
+	}
+	// A yellow face: most of the middle is opaque and far from gray.
+	testing.expect(t, colored > 100)
+	again, _ := system_emoji_cache(&s, &a, 0x1f600, 36, EMOJI_FILL)
+	testing.expect_value(t, again, g)
+
+	// Off again.
+	testing.expect(t, system_emoji_enable(&s, false))
+	_, on = system_emoji_glyph(&s, 0x1f600)
+	testing.expect(t, !on)
+}

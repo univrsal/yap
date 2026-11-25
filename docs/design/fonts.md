@@ -292,6 +292,25 @@ affects the download and the binary.
    cache, with the bundled sheet (remade from Blobmoji) as the fallback.
    Remaking the sheet can also happen first, on its own, since it only
    changes `tools/emoji.py`'s input. Saves most of the emoji's video memory.
+
+   *As built:* `render/colorfont.odin` reads `cmap`, `sbix`, `CBDT`/`CBLC`
+   and `COLR` v0/`CPAL` itself (stb_truetype only rasterizes COLR's
+   layers), and draws an emoji into a square RGBA tile at the size it is
+   shown, fitted like the sheet's. `sysemoji_native.odin` picks the font
+   (Segoe UI Emoji on Windows, whatever the system offers for 😀 elsewhere)
+   and fills each font's RGBA atlas (`Font.emoji`) as emoji are drawn. Only
+   the table's emoji are drawn this way, in the space they always take, so
+   switching ("Use the system's emoji" under Settings > User interface)
+   moves no text; an emoji the font lacks, or one drawn while the atlas is
+   full, comes from the sheet. The sheet is Blobmoji v15.0: measured
+   against today's 2.16 MB Apple sheet (1005 emoji), the same 1005 came to
+   2.03 MB from the 2017 blob font and 2.04 MB from Blobmoji; their full
+   sets to 2.18 MB (1083) and 2.78 MB (1377, which needs a taller sheet at
+   64 pixel cells). It is Blobmoji's full set in 48 pixel cells, 42 by 42
+   in the same 2048 pixel sheet: 1375 emoji (© and ® stay text), 1.88 MB,
+   370 more in the shared table. `AppleColorEmoji.ttf` left the
+   repository. Checked by rendering on Windows 10 (COLR), macOS 27 (sbix)
+   and with Blobmoji.ttf for CBDT; not run on Linux.
 3. **Shaping and bidi with kb_text_shape**, together with the change to
    `sanitize.odin` on the server. Emoji sequences and skin tones (and
    offering them in the picker) come with this step.

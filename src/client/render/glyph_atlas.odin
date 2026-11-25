@@ -25,6 +25,9 @@ import "core:math"
 // sized for this many, up to GLYPH_ATLAS_MAX).
 @(private = "file")
 GLYPH_ATLAS_PER_ROW :: 32
+// The same for the color emoji, which take four times the memory.
+@(private = "file")
+EMOJI_ATLAS_PER_ROW :: 24
 GLYPH_ATLAS_MAX :: 2048
 // Pixels between glyphs, so that filtering one doesn't pull in its neighbor.
 @(private = "file")
@@ -47,9 +50,12 @@ Shelf :: struct {
 }
 
 Glyph_Atlas :: struct {
+	// RGBA pixels (4 bytes each, for color emoji) rather than coverage (one
+	// byte). Set before the first glyph_atlas_reset; kept by resets.
+	rgba:               bool,
 	scale:              f32, // physical pixels per logical pixel of the font
 	glyphs:             map[rune]Atlas_Glyph,
-	pixels:             []u8, // side * side, one alpha byte per texel; nil until needed
+	pixels:             []u8, // side * side texels (glyph_atlas_bytes each); nil until needed
 	side:               i32,
 	shelves:            [dynamic]Shelf,
 	bottom:             i32, // the first row below the last shelf
@@ -75,10 +81,13 @@ glyph_atlas_reset :: proc(a: ^Glyph_Atlas, scale: f32) {
 	a.full = false
 	a.bottom = 0
 	// Room for a few rows of Unifont's 16-pixel glyphs (about as tall as the
-	// system fonts' glyphs at this size), the way its slots were sized.
+	// system fonts' glyphs and the emoji at this size), the way its slots
+	// were sized. Color emoji take four times the memory and are fewer, so
+	// their atlas is made for fewer.
 	line := max(1, i32(math.round(UNIFONT_SIZE * scale))) + GLYPH_GAP
 	a.side = 256
-	for a.side < line * GLYPH_ATLAS_PER_ROW && a.side < GLYPH_ATLAS_MAX {
+	per_row: i32 = EMOJI_ATLAS_PER_ROW if a.rgba else GLYPH_ATLAS_PER_ROW
+	for a.side < line * per_row && a.side < GLYPH_ATLAS_MAX {
 		a.side *= 2
 	}
 	a.dirty_y0, a.dirty_y1 = a.side, 0
@@ -90,7 +99,8 @@ glyph_atlas_find :: proc(a: ^Glyph_Atlas, r: rune) -> (g: Atlas_Glyph, ok: bool)
 }
 
 // glyph_atlas_add makes room for a glyph of w x h pixels and returns the
-// pixels to draw it into (rows `side` apart). Once there is no room, it fails
+// pixels to draw it into (rows `side` texels apart, glyph_atlas_bytes each).
+// Once there is no room, it fails
 // and the atlas is flagged to be emptied before the next frame. The glyph is
 // found by `r` afterwards.
 glyph_atlas_add :: proc(
@@ -120,7 +130,7 @@ glyph_atlas_add :: proc(
 	a.glyphs[r] = g
 	a.dirty_y0 = min(a.dirty_y0, y)
 	a.dirty_y1 = max(a.dirty_y1, y + h)
-	return g, a.pixels[int(y) * int(a.side) + int(x):], true
+	return g, a.pixels[(int(y) * int(a.side) + int(x)) * glyph_atlas_bytes(a):], true
 }
 
 // place finds room for w x h pixels on a shelf, or starts a new one.
@@ -160,11 +170,15 @@ glyph_atlas_pixels :: proc(a: ^Glyph_Atlas) {
 	if a.pixels != nil || a.side == 0 {
 		return
 	}
-	a.pixels = make([]u8, int(a.side) * int(a.side))
+	bytes := glyph_atlas_bytes(a)
+	a.pixels = make([]u8, int(a.side) * int(a.side) * bytes)
 	x, y, _ := place(a, WHITE_SIDE, WHITE_SIDE)
 	for j in 0 ..< i32(WHITE_SIDE) {
 		for i in 0 ..< i32(WHITE_SIDE) {
-			a.pixels[int(y + j) * int(a.side) + int(x + i)] = 255
+			at := (int(y + j) * int(a.side) + int(x + i)) * bytes
+			for &b in a.pixels[at:][:bytes] {
+				b = 255
+			}
 		}
 	}
 	a.white = {
@@ -182,4 +196,9 @@ glyph_atlas_white :: proc(a: ^Glyph_Atlas) -> (uv: [2]f32, ok: bool) {
 		return
 	}
 	return a.white, true
+}
+
+// glyph_atlas_bytes is how many bytes a texel of the atlas takes.
+glyph_atlas_bytes :: proc(a: ^Glyph_Atlas) -> int {
+	return 4 if a.rgba else 1
 }

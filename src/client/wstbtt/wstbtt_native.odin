@@ -34,3 +34,7 @@ MakeCodepointBitmap :: stbtt.MakeCodepointBitmap
 GetNumberOfFonts :: stbtt.GetNumberOfFonts
 GetFontOffsetForIndex :: stbtt.GetFontOffsetForIndex
 GetFontNameString :: stbtt.GetFontNameString
+// For the layers of color emoji (render/colorfont.odin).
+GetGlyphBox :: stbtt.GetGlyphBox
+GetGlyphBitmapBoxSubpixel :: stbtt.GetGlyphBitmapBoxSubpixel
+MakeGlyphBitmapSubpixel :: stbtt.MakeGlyphBitmapSubpixel
