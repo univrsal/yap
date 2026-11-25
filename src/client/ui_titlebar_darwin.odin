@@ -29,7 +29,7 @@ TITLEBAR_GAP :: 8
 // Room left between the buttons and the slanted edge of the rail's extension
 // (titlebar_buttons), in points.
 @(private = "file")
-SLANT_GAP :: 3
+SLANT_GAP :: 8
 
 // titlebar_merge lets the UI take the title bar's place, or gives it back.
 // Called once the window has its Metal layer, and when the setting changes.
