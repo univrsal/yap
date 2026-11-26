@@ -462,15 +462,27 @@ members_list :: proc(ui: ^UI) {
 		account: proto.Account_Id,
 		name:    string,
 		online:  bool,
+		group:   int, // the position of their highest role, or max(int) for none and for offline
 	}
 	list := make([dynamic]Member, 0, len(accounts), context.temp_allocator)
 	for a in accounts {
 		e := buddy_entry(v, a, false)
-		append(&list, Member{a, e.name, e.online || a == v.me})
+		online := e.online || a == v.me
+		group := max(int)
+		if r := conn.top_role(v, a); online && r >= 0 {
+			group = r
+		}
+		append(&list, Member{a, e.name, online, group})
 	}
+	// Those who are here come first, grouped by their highest role (the
+	// highest first) and then by name; those who aren't here come last, by
+	// name only.
 	slice.sort_by(list[:], proc(a, b: Member) -> bool {
 		if a.online != b.online {
 			return a.online
+		}
+		if a.group != b.group {
+			return a.group < b.group
 		}
 		an := strings.to_lower(a.name, context.temp_allocator)
 		bn := strings.to_lower(b.name, context.temp_allocator)
@@ -489,9 +501,32 @@ members_list :: proc(ui: ^UI) {
 	// with them (ui_buddies.odin), because the server only says it to people
 	// who have written to each other, and a list where only some have it
 	// would look broken.
-	for e in list {
+	shown_group := -1 // the group whose heading was last drawn
+	shown_offline := false
+	for e, i in list {
+		if !e.online && !shown_offline || e.online && e.group != shown_group {
+			shown_offline = !e.online
+			shown_group = e.group
+			n := 0
+			for o in list[i:] {
+				if o.online != e.online || o.group != e.group {
+					break
+				}
+				n += 1
+			}
+			title := "Offline"
+			if e.online {
+				title = "Online"
+				if e.group != max(int) {
+					title = v.roles[e.group].name
+				}
+			}
+			mu.layout_row(ctx, {-1})
+			dim_label(ctx, fmt.tprintf("%s  %d", title, n))
+		}
 		admin := slice.contains(admins, e.account)
-		if person_row(ui, e.account, e.name, e.online, "admin" if admin else "") {
+		owner := .Owner in (v.accounts[e.account] or_else {}).flags
+		if person_row(ui, e.account, e.name, e.online, crown = owner || admin, owner = owner) {
 			if e.account == v.me {
 				open_status_editor(ui)
 			} else {
@@ -499,6 +534,17 @@ members_list :: proc(ui: ^UI) {
 			}
 		}
 	}
+}
+
+// crown_color is the colour of a crown: gold for the server's owner, the dim
+// colour for a channel's admin, fainter if they aren't here.
+@(private = "file")
+crown_color :: proc(owner, online: bool) -> mu.Color {
+	c := mu.Color{240, 190, 40, 255} if owner else theme.dim
+	if !online {
+		c.a = c.a / 2
+	}
+	return c
 }
 
 // person_row is a person in a list: their picture, their name (dimmed if they
@@ -510,6 +556,8 @@ person_row :: proc(
 	name: string,
 	online: bool,
 	extra := "",
+	crown := false, // a crown after the name: gold for the owner, gray for a channel's admin
+	owner := false,
 ) -> bool {
 	ctx := &ui.ctx
 	v := ui.view
@@ -548,6 +596,8 @@ person_row :: proc(
 		extra,
 		.Bot in acc.flags,
 		talking = talking,
+		crown = crown,
+		crown_color = crown_color(owner, online),
 	)
 	talking_hint(ui, icon_r, talking)
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} || keyed
@@ -569,6 +619,8 @@ name_and_status :: proc(
 	bold := false,
 	talking := "",
 	status_color := mu.Color{}, // theme.dim if zero
+	crown := false,
+	crown_color := mu.Color{},
 ) -> (
 	icon_r: mu.Rect,
 ) {
@@ -583,6 +635,11 @@ name_and_status :: proc(
 	x += ctx.text_width(name_font, name)
 	if bot {
 		x += bot_tag(ctx, x, y)
+	}
+	if crown {
+		x += 6
+		mu.draw_icon(ctx, render.icon_id(.Crown), {x, y, h, h}, crown_color)
+		x += h
 	}
 	x += 10
 	if talking != "" {
