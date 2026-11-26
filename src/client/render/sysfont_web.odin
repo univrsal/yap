@@ -1,8 +1,9 @@
 #+build wasi
 package render
 
-// A page can't read the system's fonts (sysfont.odin), so the web client
-// draws everything the bundled faces lack from Unifont.
+// A page can't read the system's font files (sysfont.odin), so the web
+// client has the browser draw the characters the bundled faces lack
+// (sysglyph_web.odin); Unifont where the browser has none either.
 
 System_Lookup :: struct {}
 

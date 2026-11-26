@@ -906,6 +906,23 @@ EM_JS(void, yap_image_cache_store, (const char *key, const unsigned char *data, 
 	Module.yapImages.store(UTF8ToString(key), data, len);
 });
 
+/* The browser's fonts, drawn by a canvas (web/glyphs.js, src/client/render/sysglyph_web.odin). */
+EM_JS(double, yap_glyph_probe, (int cp, int emoji), {
+	return Module.yapGlyphs.probe(cp, emoji);
+});
+
+EM_JS(int, yap_glyph_render, (int cp, int emoji, double px, int side, double fill), {
+	return Module.yapGlyphs.render(cp, emoji, px, side, fill);
+});
+
+EM_JS(int, yap_glyph_info, (int which), {
+	return Module.yapGlyphs.info(which);
+});
+
+EM_JS(void, yap_glyph_take, (unsigned char *out, int stride), {
+	Module.yapGlyphs.take(out, stride);
+});
+
 /* Pictures decoded by the browser (web/decode.js, src/client/ui_images_worker_web.odin). */
 EM_JS(int, yap_image_decode_start, (const unsigned char *data, int len, double max_pixels, int max_side), {
 	return Module.yapDecode.start(data, len, max_pixels, max_side);
