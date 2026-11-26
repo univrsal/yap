@@ -146,6 +146,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	join_frame(ui)
 	rail_frame(ui)
 	switch_now(ui)
+	history_frame(ui)
 	memory_frame(ui)
 
 	// Wake up for input, or often enough for the work below that isn't
@@ -442,6 +443,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
 	ui_nav_destroy(ui)
+	ui_history_destroy(ui)
 	ui_palette_destroy(ui)
 	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
