@@ -173,11 +173,16 @@ make_swap_chain :: proc(g: ^Gpu, hwnd: win32.HWND) -> bool {
 		Format = .B8G8R8A8_UNORM,
 		SampleDesc = {Count = 1},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
-		BufferCount = 2,
-		// While the window is being resized and the back buffer is not yet,
-		// the last frame stays where it was instead of being stretched.
-		Scaling = .NONE,
-		SwapEffect = .FLIP_DISCARD,
+		BufferCount = 1,
+		Scaling = .STRETCH,
+		// The older blit model, not a flip model: a present is copied into
+		// the window's own surface. While the window's edge is dragged,
+		// Windows 10 shows a flip model swap chain from the corner of the
+		// whole window rather than of its client area, so with the system's
+		// title bar the picture jumps up and left behind it (and its bottom
+		// is left blank) until the drag ends. With the title bar merged the
+		// two corners are the same, which hides it.
+		SwapEffect = .DISCARD,
 	}
 	if hr := factory->CreateSwapChainForHwnd(g.device, hwnd, &desc, nil, nil, &g.swap_chain);
 	   failed(hr) {
