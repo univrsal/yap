@@ -103,6 +103,7 @@ emcc "$out/yap.obj" \
 	--pre-js web/keys.js \
 	--pre-js web/images.js \
 	--pre-js web/decode.js \
+	--pre-js web/glyphs.js \
 	--pre-js web/sounds.js \
 	--pre-js web/video.js \
 	--pre-js web/push.js \
