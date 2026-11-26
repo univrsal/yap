@@ -38,7 +38,13 @@ Fontconfig :: struct {
 	CharSetHasChar:         proc "c" (cs: rawptr, ucs4: u32) -> c.int,
 	ConfigSubstitute:       proc "c" (config: rawptr, p: rawptr, kind: c.int) -> c.int,
 	DefaultSubstitute:      proc "c" (p: rawptr),
-	FontSort:               proc "c" (config: rawptr, p: rawptr, trim: c.int, csp: ^rawptr, result: ^c.int) -> ^Font_Set,
+	FontSort:               proc "c" (
+		config: rawptr,
+		p: rawptr,
+		trim: c.int,
+		csp: ^rawptr,
+		result: ^c.int,
+	) -> ^Font_Set,
 	FontSetDestroy:         proc "c" (s: ^Font_Set),
 	ConfigDestroy:          proc "c" (config: rawptr),
 }
@@ -73,6 +79,16 @@ system_lookup_destroy :: proc(l: ^System_Lookup) {
 // system_font_candidates lists the font files that may have `r`.
 @(private)
 system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_File) {
+	candidates(s, r, out, false)
+}
+
+// candidates is system_font_candidates; with `emoji` it asks for fonts that
+// fontconfig calls emoji fonts first. Without that, the fonts that merely
+// have the character (DejaVu Sans, in four styles, has most emoji as
+// outlines) come before an installed color emoji font and use up all the
+// candidates.
+@(private = "file")
+candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_File, emoji: bool) {
 	l := &s.lookup
 	if !l.tried {
 		l.tried = true
@@ -97,6 +113,10 @@ system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_Fi
 	fc.CharSetAddChar(chars, u32(r))
 	fc.PatternAddCharSet(pattern, "charset", chars)
 	fc.PatternAddBool(pattern, "scalable", 1)
+	if emoji {
+		fc.PatternAddString(pattern, "family", "emoji")
+		fc.PatternAddBool(pattern, "color", 1)
+	}
 	if s.language != "" {
 		fc.PatternAddString(
 			pattern,
@@ -131,7 +151,7 @@ system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_Fi
 		append(
 			out,
 			Font_File {
-				path = strings.clone(string(file), context.temp_allocator),
+				path  = strings.clone(string(file), context.temp_allocator),
 				index = i32(index & 0xffff), // the upper half is a variable font's instance
 			},
 		)
@@ -143,5 +163,5 @@ system_font_candidates :: proc(s: ^System_Fonts, r: rune, out: ^[dynamic]Font_Fi
 // the first that has color glyphs we draw is used (sysemoji_native.odin).
 @(private)
 system_emoji_files :: proc(s: ^System_Fonts, out: ^[dynamic]Font_File) {
-	system_font_candidates(s, 0x1f600, out)
+	candidates(s, 0x1f600, out, true)
 }
