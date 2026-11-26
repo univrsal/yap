@@ -24,6 +24,7 @@ Theme :: struct {
 	border:      tui.Style,
 	error:       tui.Style,
 	online:      tui.Style, // the mark of someone who is here
+	owner:       tui.Style, // the star of the server's owner
 }
 
 theme := Theme {
@@ -45,6 +46,7 @@ theme := Theme {
 	border = {fg = tui.color_index(240)},
 	error = {fg = tui.color_index(203)},
 	online = {fg = tui.color_index(78)},
+	owner = {fg = tui.color_index(220)},
 }
 
 // The colours names are drawn in; someone always gets the same one.

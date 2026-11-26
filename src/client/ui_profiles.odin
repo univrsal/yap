@@ -525,7 +525,8 @@ members_list :: proc(ui: ^UI) {
 			dim_label(ctx, fmt.tprintf("%s  %d", title, n))
 		}
 		admin := slice.contains(admins, e.account)
-		if person_row(ui, e.account, e.name, e.online, crown = admin) {
+		owner := .Owner in (v.accounts[e.account] or_else {}).flags
+		if person_row(ui, e.account, e.name, e.online, crown = owner || admin, owner = owner) {
 			if e.account == v.me {
 				open_status_editor(ui)
 			} else {
@@ -535,9 +536,16 @@ members_list :: proc(ui: ^UI) {
 	}
 }
 
-// The colour of the crown of a channel's admin, and the same when they aren't here.
-GOLD :: mu.Color{240, 190, 40, 255}
-GOLD_DIM :: mu.Color{240, 190, 40, 120}
+// crown_color is the colour of a crown: gold for the server's owner, the dim
+// colour for a channel's admin, fainter if they aren't here.
+@(private = "file")
+crown_color :: proc(owner, online: bool) -> mu.Color {
+	c := mu.Color{240, 190, 40, 255} if owner else theme.dim
+	if !online {
+		c.a = c.a / 2
+	}
+	return c
+}
 
 // person_row is a person in a list: their picture, their name (dimmed if they
 // aren't here) and, dimmed after it, their status and `extra`. It is a flat
@@ -548,7 +556,8 @@ person_row :: proc(
 	name: string,
 	online: bool,
 	extra := "",
-	crown := false, // a gold crown after the name: a channel's admin
+	crown := false, // a crown after the name: gold for the owner, gray for a channel's admin
+	owner := false,
 ) -> bool {
 	ctx := &ui.ctx
 	v := ui.view
@@ -588,7 +597,7 @@ person_row :: proc(
 		.Bot in acc.flags,
 		talking = talking,
 		crown = crown,
-		crown_color = GOLD if online else GOLD_DIM,
+		crown_color = crown_color(owner, online),
 	)
 	talking_hint(ui, icon_r, talking)
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} || keyed
