@@ -423,6 +423,12 @@ cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: i32) {
 	}
 }
 
+// GLFW's fourth and fifth buttons, the thumb buttons of a mouse.
+@(private = "file")
+MOUSE_BUTTON_BACK :: 3
+@(private = "file")
+MOUSE_BUTTON_FORWARD :: 4
+
 @(private = "file")
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
 	context = platform.callback_context()
@@ -436,6 +442,13 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 		btn = .RIGHT
 	case glfw.MOUSE_BUTTON_MIDDLE:
 		btn = .MIDDLE
+	case MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD:
+		// The extra buttons go back and forth in a narrow window
+		// (see ui_history.odin).
+		if action == glfw.PRESS && g_ui.narrow {
+			g_ui.history.request = -1 if button == MOUSE_BUTTON_BACK else 1
+		}
+		return
 	case:
 		return
 	}

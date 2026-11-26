@@ -253,6 +253,7 @@ UI :: struct {
 	dropdown:            Dropdown_State,
 	// The keyboard focus (ui_nav.odin), and the command palette (ui_palette.odin).
 	nav:                 UI_Nav,
+	history:             UI_History, // back and forward (ui_history.odin)
 	palette:             UI_Palette,
 	// Whether the voice gate section, with the meter, was on screen in the last
 	// frame (see gate_settings). The microphone is only opened for it in that case.
