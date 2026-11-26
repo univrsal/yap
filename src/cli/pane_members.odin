@@ -18,10 +18,11 @@ Member_Row :: struct {
 	activity: proto.Activity,
 	online:   bool,
 	admin:    bool,
+	group:    int, // the position of their highest role if they are here, else max(int)
 }
 
-// member_rows are the members of the conversation shown, online ones first and
-// each group by name. It is empty until the server has answered. Call with the
+// member_rows are the members of the conversation shown, online ones first, grouped
+// by their highest role, and each group by name. It is empty until the server has answered. Call with the
 // View locked.
 member_rows :: proc(v: ^conn.View) -> (rows: []Member_Row, loading: bool) {
 	if v.members.conv != v.viewing || v.viewing == 0 {
@@ -45,12 +46,19 @@ member_rows :: proc(v: ^conn.View) -> (rows: []Member_Row, loading: bool) {
 				break
 			}
 		}
+		row.group = max(int)
+		if r := conn.top_role(v, id); row.online && r >= 0 {
+			row.group = r
+		}
 		row.admin = slice.contains(v.members.admins[:], id)
 		append(&list, row)
 	}
 	slice.sort_by(list[:], proc(a, b: Member_Row) -> bool {
 		if a.online != b.online {
 			return a.online
+		}
+		if a.group != b.group {
+			return a.group < b.group
 		}
 		an := strings.to_lower(a.name, context.temp_allocator)
 		bn := strings.to_lower(b.name, context.temp_allocator)

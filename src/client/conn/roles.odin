@@ -321,3 +321,20 @@ view_clear_roles :: proc(v: ^View) {
 	}
 	clear(&v.roles)
 }
+
+// top_role is the highest of an account's roles (View.roles is in order, the
+// highest first), not counting the everyone role, which has no entry in an
+// account's list. It is the position in View.roles, or -1 if the account has
+// no role. Call with the mutex held.
+top_role :: proc(v: ^View, account: proto.Account_Id) -> int {
+	acc, known := v.accounts[account]
+	if !known {
+		return -1
+	}
+	for role, i in v.roles {
+		if role.id != proto.EVERYONE_ROLE && slice.contains(acc.roles, role.id) {
+			return i
+		}
+	}
+	return -1
+}

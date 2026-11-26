@@ -462,15 +462,27 @@ members_list :: proc(ui: ^UI) {
 		account: proto.Account_Id,
 		name:    string,
 		online:  bool,
+		group:   int, // the position of their highest role, or max(int) for none and for offline
 	}
 	list := make([dynamic]Member, 0, len(accounts), context.temp_allocator)
 	for a in accounts {
 		e := buddy_entry(v, a, false)
-		append(&list, Member{a, e.name, e.online || a == v.me})
+		online := e.online || a == v.me
+		group := max(int)
+		if r := conn.top_role(v, a); online && r >= 0 {
+			group = r
+		}
+		append(&list, Member{a, e.name, online, group})
 	}
+	// Those who are here come first, grouped by their highest role (the
+	// highest first) and then by name; those who aren't here come last, by
+	// name only.
 	slice.sort_by(list[:], proc(a, b: Member) -> bool {
 		if a.online != b.online {
 			return a.online
+		}
+		if a.group != b.group {
+			return a.group < b.group
 		}
 		an := strings.to_lower(a.name, context.temp_allocator)
 		bn := strings.to_lower(b.name, context.temp_allocator)
@@ -489,7 +501,29 @@ members_list :: proc(ui: ^UI) {
 	// with them (ui_buddies.odin), because the server only says it to people
 	// who have written to each other, and a list where only some have it
 	// would look broken.
-	for e in list {
+	shown_group := -1 // the group whose heading was last drawn
+	shown_offline := false
+	for e, i in list {
+		if !e.online && !shown_offline || e.online && e.group != shown_group {
+			shown_offline = !e.online
+			shown_group = e.group
+			n := 0
+			for o in list[i:] {
+				if o.online != e.online || o.group != e.group {
+					break
+				}
+				n += 1
+			}
+			title := "Offline"
+			if e.online {
+				title = "Online"
+				if e.group != max(int) {
+					title = v.roles[e.group].name
+				}
+			}
+			mu.layout_row(ctx, {-1})
+			dim_label(ctx, fmt.tprintf("%s  %d", title, n))
+		}
 		admin := slice.contains(admins, e.account)
 		if person_row(ui, e.account, e.name, e.online, "admin" if admin else "") {
 			if e.account == v.me {
