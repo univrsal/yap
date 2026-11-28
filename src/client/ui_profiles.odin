@@ -467,7 +467,10 @@ members_list :: proc(ui: ^UI) {
 	list := make([dynamic]Member, 0, len(accounts), context.temp_allocator)
 	for a in accounts {
 		e := buddy_entry(v, a, false)
-		online := e.online || a == v.me
+		// A person of the bridged site has no connection; the server's
+		// activity says whether the site's presence list has them.
+		acc := v.accounts[a] or_else {}
+		online := e.online || a == v.me || .Bridged in acc.flags && acc.activity != .Offline
 		group := max(int)
 		if r := conn.top_role(v, a); online && r >= 0 {
 			group = r

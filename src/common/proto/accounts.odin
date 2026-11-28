@@ -121,6 +121,10 @@ Account_Flag :: enum u8 {
 	// Muted for everyone by a moderator (moderation.odin): the server drops
 	// its voice until the mute is lifted.
 	Server_Muted,
+	// A person of another chat that the server shows (the Sneedchat bridge,
+	// docs: misc/sneed-bridge). It has no password and no devices, can't log
+	// in, and its messages are written by the bridge.
+	Bridged,
 }
 
 // The display name of a deleted account.
