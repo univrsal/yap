@@ -54,7 +54,7 @@ paste_exports=_web_file_pasted,_web_paste_failed,_web_paste_text,_web_max_attach
 # What web/http.js calls (src/client/script/http_web.odin).
 http_exports=_web_http_done
 # What web/files.js calls (src/client/ui_files_web.odin).
-files_exports=_web_file_picked,_web_file_dropped,_web_drag
+files_exports=_web_file_picked,_web_file_dropped,_web_drag,_web_mouse_lost
 # What web/avatar.js calls (src/client/ui_avatar_pick_web.odin).
 avatar_exports=_web_avatar_reading,_web_avatar_picked,_web_avatar_failed
 # What web/decode.js calls (src/client/ui_images_worker_web.odin).

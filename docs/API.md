@@ -380,8 +380,23 @@ Nothing is posted when someone runs a command; answer with
 | --- | --- |
 | `POST /uploads?name=` | Upload a file, the body being the file. → 201 `{id, name, size}` |
 | `POST /avatars` | Upload a picture for a persona (see Posting): a JPEG of at most 256 pixels per side and 64 KB, the body being the file. → 201 `{id}` |
-| `GET /attachments/{id}` | A file a message carries, by its attachment's `id`. → the bytes |
+| `GET /attachments/{id}` | A file a message carries, by its attachment's `id`. → the bytes. `?thumb=1` asks for a picture's thumbnail instead (see below). |
 | `GET /blobs/{id}` | A picture: an avatar, the server's icon, its emoji. → the bytes, as `image/jpeg` (or png, webp, gif) |
+
+### Thumbnails
+
+The server makes a small copy of each picture that is attached to a message (a
+WebP of at most 512 pixels on its longer side, upright even if the photo is
+turned by its EXIF orientation), and says so in the message's `attachments`:
+`thumbnail` has its `size` in bytes and its `width` and `height`.
+`GET /attachments/{id}?thumb=1` returns it, as `image/webp`. A picture that has
+no thumbnail yet (it is small, or an animation, or the server hasn't made it
+yet) and any other file is returned whole, with the content type of a picture
+(`image/png` and so on) if it is one and `application/octet-stream` if not, so
+a bot that wants to show a picture small can always ask with `?thumb=1`. `?thumb=0` is the file,
+as without it; any other value is a 400. A message that was posted before its
+thumbnail was made states it when it is read again, and is sent again to
+clients of the events (as `MESSAGE_UPDATE`) once it is made.
 
 An upload needs a Content-Length and is posted by naming its `id` in a
 message's `attachments`, within an hour. It can be as big as the server
@@ -472,7 +487,7 @@ counting at 100.
 | `kind` | `text`, `file` (a file offered in a DM, peer to peer, which the API can't take), `system` (a call that was missed or ended, or something that happened in the channel or on the server) |
 | `content` | The text. |
 | `thread` | The thread's first message, if this is a reply in one. |
-| `attachments` | `[{id, name, size}]`; `id` is `null` once the server has let the file go. |
+| `attachments` | `[{id, name, size, thumbnail}]`; `id` is `null` once the server has let the file go, and `thumbnail` is `null` unless the server has made one of a picture (`{size, width, height}`, see [Thumbnails](#thumbnails)). |
 | `reactions` | `[{emoji, count, me}]` |
 | `pinned`, `deleted` | A deleted message keeps its place but loses its content. |
 | `forwarded` | `{author_id, conv_id, timestamp}` of the original, for a copy. |
@@ -533,7 +548,7 @@ reads.
 | --- | --- |
 | `READY` | as above |
 | `MESSAGE_CREATE` | a [message](#message) |
-| `MESSAGE_UPDATE` | a [message](#message) as it is now: edited, pinned or unpinned |
+| `MESSAGE_UPDATE` | a [message](#message) as it is now: edited, pinned or unpinned, or its picture got a thumbnail |
 | `MESSAGE_DELETE` | `{id, conv_id}` |
 | `MESSAGE_REACTION_ADD`, `MESSAGE_REACTION_REMOVE` | `{message_id, conv_id, emoji, count, account}`: `count` is how many have it now, `account` who reacted or took it back |
 | `MESSAGES_PURGED` | `{conv_id, before_id, what, author_id, from_id}`: messages (or, with `what` `files`, only their files) older than `before_id` are gone. Or, when `author_id` isn't `null`, that account's messages from `from_id` on are gone (pinned ones too), and `before_id` is `"0"`; a thread root of theirs that others replied to stays, deleted (a `MESSAGE_UPDATE` comes first) |

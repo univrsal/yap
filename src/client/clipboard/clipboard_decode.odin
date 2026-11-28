@@ -52,6 +52,26 @@ decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: 
 		pixels = make([]u8, n, allocator),
 	}
 	copy(img.pixels, pixels[:n])
+	// stb_image leaves a JPEG as it is stored. A browser shows it turned as its
+	// EXIF orientation says, and so does the thumbnail the server made of it.
+	if imagekind.is_jpeg(data) {
+		turn := imagekind.jpeg_orientation(data[:min(len(data), 80 * 1024)])
+		if turn > 1 {
+			turned, tw, th := imagekind.orient_rgba(
+				img.pixels,
+				img.width,
+				img.height,
+				turn,
+				allocator,
+			)
+			delete(img.pixels, allocator)
+			img = {
+				width  = tw,
+				height = th,
+				pixels = turned,
+			}
+		}
+	}
 	return img, .None
 }
 

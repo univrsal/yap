@@ -154,6 +154,7 @@ Server :: struct {
 	// Files uploaded with messages, including uploads and downloads in
 	// progress (attachments.odin).
 	attach:             Attachments,
+	thumbs:             Thumbnails,
 	// The server's custom emoji (emoji.odin).
 	emoji:              Custom_Emoji,
 	// Deleting old data (retention.odin).
@@ -206,6 +207,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer blob_store_close(&s.blobs)
 	attachments_open(&s, settings.attachments)
 	defer attachments_close(&s)
+	thumbnails_open(&s, settings.attachments)
+	defer thumbnails_close(&s)
 	retention_open(&s.retention, &s.db, settings.retention)
 	defer retention_close(&s.retention)
 	emoji_open(&s, settings.emoji_dir)
@@ -287,6 +290,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		{.State, sync_state},
 		{.Transfers, transfers_sync},
 		{.Attachments, attachments_sync},
+		{.Thumbnails, thumbnails_sync},
 		{.Files, files_sync},
 		{.Emoji, emoji_sync},
 		{.Profiles, profiles_sync},

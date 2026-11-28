@@ -51,6 +51,7 @@ Loop_Phase :: enum u8 {
 	State,
 	Transfers,
 	Attachments,
+	Thumbnails,
 	Files,
 	Emoji,
 	Profiles,

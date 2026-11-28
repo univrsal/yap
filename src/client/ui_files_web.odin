@@ -82,6 +82,24 @@ attach_dropped :: proc(ui: ^UI) {}
 // drag_frame: the page reports drags as they happen (see web_drag).
 drag_frame :: proc(ui: ^UI) {}
 
+// The page has seen that no mouse button is down, while the client thinks there
+// is one: the mouse-up went to the file dialog that the click opened (see
+// web/files.js). The buttons are let go, so that hover works again.
+@(export)
+web_mouse_lost :: proc "c" () {
+	context = platform.callback_context()
+	if g_ui == nil || g_ui.ctx.mouse_down_bits == {} {
+		return
+	}
+	ctx := &g_ui.ctx
+	ui_redraw(g_ui)
+	for button in mu.Mouse {
+		if button in ctx.mouse_down_bits {
+			mu.input_mouse_up(ctx, ctx.mouse_pos.x, ctx.mouse_pos.y, button)
+		}
+	}
+}
+
 // Files are dragged over the page (`over`), or left it or were dropped, at
 // fx, fy: how far across and down the canvas, from 0 to 1. The page says so
 // before it hands over dropped files, so they go where they were dropped.

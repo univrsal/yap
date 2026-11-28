@@ -24,6 +24,7 @@ comments cite them by file name (for example "D12 in hq-share.md").
 | [scripting.md](scripting.md) | Lua scripts in the client |
 | [security.md](security.md) | The security review of 2026-10-15 |
 | [sounds.md](sounds.md) | A sound for every event |
+| [thumbnails.md](thumbnails.md) | Server-made thumbnails of attached pictures |
 | [ui-refresh.md](ui-refresh.md) | The UI refresh |
 | [video-chat.md](video-chat.md) | Cameras and calls |
 | [refactor.md](refactor.md) | The 2026-10 repository clean-up: findings, decisions and what was built |

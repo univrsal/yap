@@ -73,6 +73,50 @@ docker compose --profile proxy up -d
 `YAP_RELAY_HOST_IP=127.0.0.1` then keeps the plain-HTTP relay port off the
 network. For the bot API behind it, set `api.behind_proxy` in `config.json`.
 
+## Thumbnails
+
+When a picture is attached to a message, the server makes a small copy of it
+(a WebP of at most 512 pixels on its longer side), and clients fetch that to
+show the picture in the chat instead of the whole file. The file itself is
+fetched when somebody opens the picture in the viewer or saves it. A phone
+photo of 5 MB becomes about 10 KB.
+
+It is on by default, and the settings are in `attachments` in `config.json`:
+
+```json
+"attachments": {
+	"thumbnails": true,
+	"thumb_side": 512,
+	"thumb_quality": 65,
+	"thumb_min_kb": 64,
+	"thumb_megapixels": 64
+}
+```
+
+`thumbnails` turns it off (then clients fetch the whole picture as before),
+`thumb_side` and `thumb_quality` (WebP, 1 to 100) say how big and how good the
+copies are, `thumb_min_kb` leaves pictures alone that are smaller than this and
+fit in `thumb_side` anyway, and `thumb_megapixels` leaves pictures alone that
+are larger than this, since decoding them takes memory (4 bytes a pixel). Animated pictures get none, so they still move.
+
+- **How it works.** The copies are made on a thread of its own, one picture at
+  a time, so voice isn't held up. A message is sent again to the people in its
+  channel when the copy of its picture is ready, which can be a moment after it
+  was posted.
+- **Pictures from before.** A picture without a copy gets one when somebody
+  reads its message, and a slow pass after each start of the server works
+  through the rest, newest first. It says so in the log when it starts
+  and finishes. Turning `thumbnails` off and on again picks up whatever is
+  missing.
+- **Disk.** A copy takes about 0.2% of the picture's size. It is kept as long
+  as the picture is, and is removed with it by retention and purges
+  (`file_days`, `blob_megabytes`, `yap-server purge`). `thumb_*` copies don't
+  count toward `daily_megabytes`, `blob_megabytes` or the "stored files" that a
+  purge reports.
+- **Turned photos.** A JPEG that says it is turned (EXIF orientation) is
+  shown upright, in the copy and in the original, and the sizes the server tells
+  clients are those of the upright picture.
+
 ## A demo server
 
 `scripts/demo.py` makes and runs a throwaway server with made-up people,

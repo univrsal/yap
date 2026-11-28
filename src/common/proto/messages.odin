@@ -39,7 +39,8 @@ import "core:strings"
 // 	          [thread_root u64][edited u64]
 // 	          text:    [text str16]
 // 	                   if Has_Attachments: [count u8] per file:
-// 	                   [blob u64][size u64][width u16][height u16][name str8]
+// 	                   [blob u64][size u64][width u16][height u16]
+// 	                   [thumb_size u32][thumb_width u16][thumb_height u16][name str8]
 // 	          file:    [size u64][name str8]
 // 	          system:  [what u8][arg u32][text str16]
 // 	          if Has_Thread: [reply_count u32][last_reply u64]
@@ -84,6 +85,11 @@ import "core:strings"
 // removed when the message is deleted. A picture's width and height are what
 // its header states, so that it can be given its room before it has arrived.
 // They are 0 for other files and for pictures whose header can't be read.
+// A picture that the server has made a thumbnail of (thumbnails.odin) states the
+// thumbnail's size in bytes and its own width and height, which are not the
+// picture's if it is turned by its EXIF orientation. They are 0 for a
+// picture without one, which may have one later: Attach_Get asks for the
+// thumbnail whether or not the message states it (attachments.odin).
 //
 // Files: a message of kind File is an offer to send a file. It is only possible
 // in a DM. It states the file's name and size, and the file itself is
@@ -173,6 +179,7 @@ Blob_Kind :: enum u8 {
 	Emoji_Sheet  = 3, // the server's custom emoji, as one image
 	File         = 4, // a message's attachment (attachments.odin)
 	Emoji_Frames = 5, // the frames of one of the animated emoji (emoji.odin)
+	Thumbnail    = 6, // a small copy of a picture attachment (thumbnails.odin)
 }
 
 // The maximum number of files that a message may carry.
@@ -185,6 +192,10 @@ Attachment :: struct {
 	size:          u64,
 	name:          string,
 	width, height: int, // a picture's, or 0 (see above)
+	// Its thumbnail's size in bytes and pixels, or 0 for none (see above).
+	thumb_size:    u32,
+	thumb_width:   int,
+	thumb_height:  int,
 }
 
 // The most bytes of a persona's name.
@@ -225,7 +236,7 @@ Message :: struct {
 }
 
 // The maximum size of a message's files.
-ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 2 + 2 + 1 + MAX_FILE_NAME)
+ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 2 + 2 + 4 + 2 + 2 + 1 + MAX_FILE_NAME)
 
 // The maximum size of a message.
 MESSAGE_MAX_SIZE ::
@@ -335,7 +346,7 @@ message_size :: proc(m: Message) -> int {
 			n += 1
 			for i in 0 ..< m.attachment_count {
 				a := m.attachments[i]
-				n += 8 + 8 + 2 + 2 + 1 + len(a.name)
+				n += 8 + 8 + 2 + 2 + 4 + 2 + 2 + 1 + len(a.name)
 			}
 		}
 	case .File:
@@ -383,6 +394,9 @@ put_message :: proc(w: ^Writer, m: Message) {
 				put_u64(w, a.size)
 				put_u16(w, u16(clamp(a.width, 0, 65535)))
 				put_u16(w, u16(clamp(a.height, 0, 65535)))
+				put_u32(w, a.thumb_size)
+				put_u16(w, u16(clamp(a.thumb_width, 0, 65535)))
+				put_u16(w, u16(clamp(a.thumb_height, 0, 65535)))
 				put_str8(w, a.name)
 			}
 		}
@@ -440,6 +454,9 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 				a.size = get_u64(r)
 				a.width = int(get_u16(r))
 				a.height = int(get_u16(r))
+				a.thumb_size = get_u32(r)
+				a.thumb_width = int(get_u16(r))
+				a.thumb_height = int(get_u16(r))
 				a.name = get_str8(r)
 			}
 		}

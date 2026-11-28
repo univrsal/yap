@@ -195,10 +195,13 @@ Stmt :: enum {
 	Blob_Hashes,
 	Persona_Avatar_Used,
 	Blob_Touch,
+	Blob_Set_Thumb,
+	Blob_Unthumbed,
 	Attach_Add,
 	Attach_Of_Msg,
 	Attach_Clear,
 	Attach_Blob_Convs,
+	Attach_Blob_Msgs,
 	Files_Index_Add,
 	Files_Index_Remove,
 	File_Search,
@@ -238,7 +241,7 @@ STMT_SQL := [Stmt]string {
 	.Meta_Set               = "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
 	.Meta_Delete_Like       = "DELETE FROM meta WHERE key LIKE ?1",
 	.Blob_Add               = "INSERT INTO blobs (sha256, size, kind, width, height, created, by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-	.Blob_By_Id             = "SELECT sha256, size, kind, width, height, created FROM blobs WHERE id = ?1",
+	.Blob_By_Id             = "SELECT sha256, size, kind, width, height, created, thumb FROM blobs WHERE id = ?1",
 	.Blob_By_Hash           = "SELECT id FROM blobs WHERE sha256 = ?1",
 	.Blob_Delete            = "DELETE FROM blobs WHERE id = ?1",
 	.Account_Add            = "INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, flags, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -365,13 +368,16 @@ STMT_SQL := [Stmt]string {
 	.Purge_Files            = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0), m.thread_root FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Purge_Files_Conv       = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0), m.thread_root FROM messages m WHERE m.conv = ?4 AND m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Attach_Strip           = "UPDATE attachments SET blob = NULL WHERE msg = ?1",
-	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM messages WHERE persona_avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM messages WHERE persona_avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM blobs o WHERE o.thumb = blobs.id), kind FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
 	.Persona_Avatar_Used    = "SELECT 1 FROM messages WHERE persona_avatar = ?1 LIMIT 1",
 	.Blob_Hashes            = "SELECT sha256 FROM blobs",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
+	.Blob_Set_Thumb         = "UPDATE blobs SET thumb = ?2 WHERE id = ?1",
+	.Blob_Unthumbed         = "SELECT id FROM blobs WHERE id < ?1 AND kind = ?2 AND thumb = 0 AND width > 0 AND EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) ORDER BY id DESC LIMIT ?3",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
-	.Attach_Of_Msg          = "SELECT a.blob, a.name, a.size, coalesce(b.width, 0), coalesce(b.height, 0) FROM attachments a LEFT JOIN blobs b ON b.id = a.blob WHERE a.msg = ?1 ORDER BY a.idx",
+	.Attach_Of_Msg          = "SELECT a.blob, a.name, a.size, coalesce(b.width, 0), coalesce(b.height, 0), coalesce(t.size, 0), coalesce(t.width, 0), coalesce(t.height, 0), coalesce(b.thumb, -1) FROM attachments a LEFT JOIN blobs b ON b.id = a.blob LEFT JOIN blobs t ON t.id = b.thumb WHERE a.msg = ?1 ORDER BY a.idx",
 	.Attach_Clear           = "DELETE FROM attachments WHERE msg = ?1",
+	.Attach_Blob_Msgs       = "SELECT msg FROM attachments WHERE blob = ?1",
 	.Attach_Blob_Convs      = "SELECT DISTINCT m.conv FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob = ?1",
 	.Files_Index_Add        = "INSERT INTO files_fts (rowid, names) VALUES (?1, ?2)",
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
@@ -470,7 +476,13 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		db_close(db)
 		return false
 	}
-	for pragma in ([]string{"PRAGMA journal_mode = WAL", "PRAGMA synchronous = NORMAL", "PRAGMA wal_autocheckpoint = 0", "PRAGMA foreign_keys = ON", "PRAGMA temp_store = MEMORY"}) {
+	for pragma in ([]string {
+			"PRAGMA journal_mode = WAL",
+			"PRAGMA synchronous = NORMAL",
+			"PRAGMA wal_autocheckpoint = 0",
+			"PRAGMA foreign_keys = ON",
+			"PRAGMA temp_store = MEMORY",
+		}) {
 		if !db_exec(db, pragma) {
 			db_close(db)
 			return false

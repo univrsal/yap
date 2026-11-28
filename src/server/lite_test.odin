@@ -118,6 +118,7 @@ lt_turn :: proc(ts: ^Test_Server, clients: ..^lite.Client) {
 	sync_state(s)
 	transfers_sync(s)
 	attachments_sync(s)
+	thumbnails_sync(s)
 	db_commit(&s.db)
 	time.sleep(200 * time.Microsecond)
 }

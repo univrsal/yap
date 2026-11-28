@@ -529,6 +529,44 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 	ui.hint = ""
 }
 
+// The least a chip's picture is shown at, tall: in a window with less room than
+// this above or below the chip, there is no preview.
+CHIP_PREVIEW_MIN :: 48
+
+// chip_preview_place says where the preview of the chip `of` goes: above it if
+// the picture (`pic_w` by `pic_h`) and the `chrome` under it (the hint and the
+// padding) fit, otherwise below it, and otherwise on the side with more room,
+// with the picture made smaller to fit. It is never over the chip, which
+// the pointer is on: a preview there would take the hover from the chip. The
+// result is the window's top, and the picture's size. `ok` is false if there is
+// not even room for CHIP_PREVIEW_MIN.
+chip_preview_place :: proc(
+	of: mu.Rect,
+	window_h, pic_w, pic_h, chrome: i32,
+) -> (
+	y, w, h: i32,
+	ok: bool,
+) {
+	above := of.y - 2
+	below := window_h - (of.y + of.h + 2)
+	w, h = pic_w, pic_h
+	switch {
+	case pic_h + chrome <= above:
+		return of.y - 2 - (pic_h + chrome), w, h, true
+	case pic_h + chrome <= below:
+		return of.y + of.h + 2, w, h, true
+	}
+	room := max(above, below) - chrome
+	if room < CHIP_PREVIEW_MIN {
+		return 0, 0, 0, false
+	}
+	w, h = max(pic_w * room / max(pic_h, 1), 1), room
+	if above >= below {
+		return of.y - 2 - (h + chrome), w, h, true
+	}
+	return of.y + of.h + 2, w, h, true
+}
+
 // chip_preview_popup draws the picture of the chip under the pointer
 // above it (or below it if there is no room), together with the chip's hint.
 chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
@@ -546,15 +584,16 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 		fw, fh := conn.fit_box(iw, ih, CHIP_PREVIEW_W, CHIP_PREVIEW_H)
 		pic_w, pic_h = i32(fw), i32(fh)
 	}
+	// Kept off the chip, so the pointer stays on the chip, in a window of any height.
+	y, fit_w, fit_h, fits := chip_preview_place(p.of, window_h, pic_w, pic_h, line_h + 3 * pad)
+	if !fits {
+		return
+	}
+	pic_w, pic_h = fit_w, fit_h
 	w := max(pic_w, ctx.text_width(ctx.style.font, p.caption)) + 2 * pad
 	h := pic_h + line_h + 3 * pad
 	x := min(p.of.x, max(window_w - w, 0))
-	y := p.of.y - h - 2
-	if y < 0 {
-		y = min(p.of.y + p.of.h + 2, max(window_h - h, 0))
-	}
 	r := mu.Rect{x, y, w, h}
-	// Keep it off the chip, so the pointer stays on the chip.
 	cnt := mu.get_container(ctx, CHIP_PREVIEW_WINDOW)
 	if cnt == nil {
 		return
@@ -670,7 +709,18 @@ PREVIEW_HEIGHT :: 160
 // PREVIEW_WIDTH and PREVIEW_HEIGHT allow.
 @(private = "file")
 previewed :: proc(f: conn.Msg_File) -> bool {
-	return f.blob != 0 && conn.preview_wanted(f.name, f.size)
+	return conn.file_previewed(f)
+}
+
+// preview_dims is the size of what a picture's preview shows: its thumbnail,
+// which can be turned from the picture (see Msg_File), or the picture itself.
+// It is 0 by 0 if the message doesn't say.
+@(private = "file")
+preview_dims :: proc(f: conn.Msg_File) -> (w, h: int) {
+	if f.thumb_size > 0 && f.thumb_width > 0 && f.thumb_height > 0 {
+		return f.thumb_width, f.thumb_height
+	}
+	return f.width, f.height
 }
 
 // preview_size is how large a picture's preview is in a message `width`
@@ -690,10 +740,11 @@ preview_size :: proc(
 		min(width if in_text else width - ICON_SIZE_CELL - ctx.style.spacing, PREVIEW_WIDTH),
 		1,
 	)
-	if f.width <= 0 || f.height <= 0 {
+	pw, ph := preview_dims(f)
+	if pw <= 0 || ph <= 0 {
 		return room, PREVIEW_HEIGHT
 	}
-	fw, fh := conn.fit_box(f.width, f.height, int(room), PREVIEW_HEIGHT)
+	fw, fh := conn.fit_box(pw, ph, int(room), PREVIEW_HEIGHT)
 	return i32(fw), i32(fh)
 }
 
@@ -703,11 +754,12 @@ preview_size :: proc(
 // shown. The viewer decodes it at its own size when it is clicked (see
 // image_fitted). A picture whose size isn't known gets the usual maximum.
 preview_side :: proc(ui: ^UI, f: conn.Msg_File) -> int {
-	if f.width <= 0 || f.height <= 0 {
+	pw, ph := preview_dims(f)
+	if pw <= 0 || ph <= 0 {
 		return PREVIEW_MAX_SIDE
 	}
 	scale := int(clamp(math.ceil(ui.metrics.scale), 1, 3))
-	w, h := conn.fit_box(f.width, f.height, PREVIEW_WIDTH * scale, PREVIEW_HEIGHT * scale)
+	w, h := conn.fit_box(pw, ph, PREVIEW_WIDTH * scale, PREVIEW_HEIGHT * scale)
 	return clamp(max(w, h), 64, PREVIEW_MAX_SIDE)
 }
 
@@ -762,17 +814,45 @@ file_preview :: proc(
 		area.x += ICON_SIZE_CELL + ctx.style.spacing
 	}
 	area.w = w
-	img, here := ui.view.blobs[f.blob]
+	// The preview is the thumbnail if the message states one, which is kept
+	// under an id of its own (the picture itself is the viewer's).
+	shown := f.blob
+	if f.thumb_size > 0 {
+		shown = conn.thumb_blob_id(f.blob)
+	}
+	img, here := ui.view.blobs[shown]
 	if !here || img.state != .Ready {
-		asked, was := ui.previews_asked[f.blob]
+		asked, was := ui.previews_asked[shown]
 		if !was || time.tick_since(asked) > 10 * time.Second {
-			ui.previews_asked[f.blob] = time.tick_now()
+			ui.previews_asked[shown] = time.tick_now()
 			command(ui, conn.Attach_Preview_Command{conv = conv, msg = m.id, index = i})
 		}
 	}
 	key := Image_Key {
 		kind = .Picture,
-		id   = u64(f.blob),
+		id   = u64(shown),
+	}
+	// Once the picture is clicked, the viewer wants the picture itself.
+	original: []u8
+	if f.thumb_size > 0 && ui.images.viewer == key {
+		full, got := ui.view.blobs[f.blob]
+		if got && full.state == .Ready {
+			original = full.jpeg
+		} else if !got || full.state != .Ready {
+			asked, was := ui.previews_asked[f.blob]
+			if !was || time.tick_since(asked) > 10 * time.Second {
+				ui.previews_asked[f.blob] = time.tick_now()
+				command(
+					ui,
+					conn.Attach_Preview_Command {
+						conv = conv,
+						msg = m.id,
+						index = i,
+						original = true,
+					},
+				)
+			}
+		}
 	}
 	save := conn.Attach_Save_Command {
 		conv  = conv,
@@ -807,6 +887,8 @@ file_preview :: proc(
 		f.name,
 		cover = button,
 		max_side = preview_side(ui, f),
+		original = original,
+		thumbnail = f.thumb_size > 0,
 	) {
 		// The viewer's Save: the file itself, under its name.
 		command(ui, save)

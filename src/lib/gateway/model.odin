@@ -309,9 +309,19 @@ Author_JSON :: struct {
 }
 
 Attachment_JSON :: struct {
-	id:   Maybe(string), // the file's blob id, null once it has been removed
-	name: string,
-	size: u64,
+	id:        Maybe(string), // the file's blob id, null once it has been removed
+	name:      string,
+	size:      u64,
+	thumbnail: Maybe(Thumbnail_JSON), // null for a file the server has no thumbnail of
+}
+
+// Thumbnail_JSON is the thumbnail of a picture, which GET /attachments/{id}?thumb=1
+// returns: a WebP of at most 512 pixels, upright (a photo that is turned by its
+// EXIF orientation is turned in it).
+Thumbnail_JSON :: struct {
+	size:   u64,
+	width:  int,
+	height: int,
 }
 
 Reaction_JSON :: struct {
@@ -603,6 +613,13 @@ message_json :: proc(m: ^Model, msg: ^proto.Message) -> Message_JSON {
 		}
 		if a.blob != 0 {
 			j.attachments[i].id = id_string(a.blob)
+		}
+		if a.blob != 0 && a.thumb_size > 0 {
+			j.attachments[i].thumbnail = Thumbnail_JSON {
+				size   = u64(a.thumb_size),
+				width  = a.thumb_width,
+				height = a.thumb_height,
+			}
 		}
 	}
 	buf: [proto.MAX_REACTIONS]proto.Reaction

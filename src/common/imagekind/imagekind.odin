@@ -192,3 +192,133 @@ jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 	}
 	return
 }
+
+// jpeg_orientation returns the EXIF orientation (1 to 8) that a JPEG states in
+// its first APP1 segment, which says how the picture is turned for display:
+// 1 is as it is, 3 upside down, 6 and 8 a quarter turn, 2, 4, 5 and 7 mirrored
+// versions. It is 1 for anything that doesn't state one (or states
+// nonsense). `data` should be the first few dozen KB of the file, since the
+// metadata comes before the picture.
+jpeg_orientation :: proc(data: []u8) -> int {
+	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+		return 1
+	}
+	at := 2
+	for at + 4 <= len(data) {
+		if data[at] != 0xFF {
+			return 1
+		}
+		marker := data[at + 1]
+		switch marker {
+		case 0xFF:
+			at += 1
+			continue
+		case 0x01, 0xD0 ..= 0xD8:
+			at += 2
+			continue
+		case 0xD9, 0xDA:
+			return 1
+		}
+		length := int(data[at + 2]) << 8 | int(data[at + 3])
+		if length < 2 || at + 2 + length > len(data) {
+			return 1
+		}
+		if marker == 0xE1 {
+			return exif_orientation(data[at + 4:at + 2 + length])
+		}
+		at += 2 + length
+	}
+	return 1
+}
+
+// exif_orientation reads the orientation tag from the body of an Exif APP1
+// segment ("Exif\0\0", then a TIFF header and its first directory).
+@(private)
+exif_orientation :: proc(seg: []u8) -> int {
+	if len(seg) < 14 || string(seg[:6]) != "Exif\x00\x00" {
+		return 1
+	}
+	tiff := seg[6:]
+	big: bool
+	switch string(tiff[:2]) {
+	case "MM":
+		big = true
+	case "II":
+	case:
+		return 1
+	}
+	u16 :: proc(b: []u8, big: bool) -> int {
+		return int(b[0]) << 8 | int(b[1]) if big else int(b[1]) << 8 | int(b[0])
+	}
+	u32 :: proc(b: []u8, big: bool) -> int {
+		if big {
+			return int(b[0]) << 24 | int(b[1]) << 16 | int(b[2]) << 8 | int(b[3])
+		}
+		return int(b[3]) << 24 | int(b[2]) << 16 | int(b[1]) << 8 | int(b[0])
+	}
+	if u16(tiff[2:], big) != 42 {
+		return 1
+	}
+	dir := u32(tiff[4:], big)
+	if dir < 8 || dir + 2 > len(tiff) {
+		return 1
+	}
+	count := u16(tiff[dir:], big)
+	for i in 0 ..< count {
+		entry := dir + 2 + i * 12
+		if entry + 12 > len(tiff) {
+			return 1
+		}
+		if u16(tiff[entry:], big) == 0x0112 {
+			// A SHORT with one value, held in the first two bytes of the value.
+			value := u16(tiff[entry + 8:], big)
+			return value if value >= 1 && value <= 8 else 1
+		}
+	}
+	return 1
+}
+
+// orient_rgba turns RGBA pixels (w by h, rows from the top) as an EXIF
+// orientation (see jpeg_orientation) says, so that they can be shown as they are.
+// The result is `pixels` itself for orientation 1 (and anything that isn't 1 to
+// 8), and otherwise new memory from `allocator`.
+orient_rgba :: proc(
+	pixels: []u8,
+	w, h, orientation: int,
+	allocator := context.allocator,
+) -> (
+	out: []u8,
+	ow, oh: int,
+) {
+	if orientation <= 1 || orientation > 8 {
+		return pixels, w, h
+	}
+	ow, oh = w, h
+	if orientation >= 5 {
+		ow, oh = h, w
+	}
+	out = make([]u8, ow * oh * 4, allocator)
+	for y in 0 ..< h {
+		for x in 0 ..< w {
+			dx, dy: int
+			switch orientation {
+			case 2:
+				dx, dy = w - 1 - x, y
+			case 3:
+				dx, dy = w - 1 - x, h - 1 - y
+			case 4:
+				dx, dy = x, h - 1 - y
+			case 5:
+				dx, dy = y, x
+			case 6:
+				dx, dy = h - 1 - y, x
+			case 7:
+				dx, dy = h - 1 - y, w - 1 - x
+			case 8:
+				dx, dy = y, w - 1 - x
+			}
+			copy(out[(dy * ow + dx) * 4:][:4], pixels[(y * w + x) * 4:][:4])
+		}
+	}
+	return
+}

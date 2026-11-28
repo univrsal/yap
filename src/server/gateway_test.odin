@@ -4,6 +4,7 @@ import "core:crypto/ecdh"
 import "core:encoding/json"
 import "core:fmt"
 import "core:net"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
@@ -12,6 +13,7 @@ import "core:thread"
 import "core:time"
 
 import "common:proto"
+import "common:webp"
 import "lib:gateway"
 import "lib:http"
 import "lib:lite"
@@ -2680,4 +2682,136 @@ test_gateway_groups :: proc(t: ^testing.T) {
 
 	// Nor can a bot open one.
 	gt_run(t, &ts, &h, bot_token, {{"POST", "/api/v1/groups", both, 403}})
+}
+
+// GET /attachments/{id}?thumb=1 returns a picture's thumbnail as a WebP, and a
+// message lists it.
+@(test)
+test_gateway_thumbnails :: proc(t: ^testing.T) {
+	f: Files_Setup
+	files_open(t, &f)
+	defer files_close(&f)
+	ts := &f.ts
+	s := &ts.s
+	thumbnails_open(s, {thumbnails = true})
+	defer thumbnails_close(s)
+	// Owned by this thread: the temp allocator is emptied on every turn.
+	bmp := slice.clone(test_bmp(900, 600))
+	defer delete(bmp)
+	text := make([]u8, 3000)
+	defer delete(text)
+	home_messages := fmt.aprintf("/api/v1/convs/%d/messages", f.home)
+	defer delete(home_messages)
+
+	uploads := []Call {
+		{
+			method = "POST",
+			path = "/api/v1/uploads?name=photo.bmp",
+			token = f.token,
+			body = string(bmp),
+		},
+		{
+			method = "POST",
+			path = "/api/v1/uploads?name=notes.bin",
+			token = f.token,
+			body = string(text),
+		},
+	}
+	defer calls_destroy(uploads)
+	if !gt_calls(t, ts, &f.h, uploads) {
+		return
+	}
+	photo, notes: struct {
+		id: string,
+	}
+	if !gt_json(t, uploads[0].reply, &photo) || !gt_json(t, uploads[1].reply, &notes) {
+		return
+	}
+	body := strings.concatenate({`{"attachments": ["`, photo.id, `", "`, notes.id, `"]}`})
+	defer delete(body)
+	posting := []Call{{method = "POST", path = home_messages, token = f.token, body = body}}
+	defer calls_destroy(posting)
+	if !gt_calls(t, ts, &f.h, posting) {
+		return
+	}
+	testing.expectf(
+		t,
+		posting[0].status == 201,
+		"post: %d %s",
+		posting[0].status,
+		posting[0].reply,
+	)
+	testing.expect(t, gt_until(ts, proc(s: ^Server) -> bool {
+			return thumbnails_pending(s) == 0
+		}), "the thumbnail was never made")
+
+	// The message, read again, lists the thumbnail of the picture and none of
+	// the other file.
+	listing := []Call {
+		{method = "GET", path = fmt.aprintf("%s?limit=1", home_messages), token = f.token},
+	}
+	defer delete(listing[0].path)
+	defer calls_destroy(listing)
+	if !gt_calls(t, ts, &f.h, listing) {
+		return
+	}
+	Thumb :: struct {
+		size, width, height: int,
+	}
+	messages: []struct {
+		attachments: []struct {
+			id:        string,
+			thumbnail: Maybe(Thumb),
+		},
+	}
+	if !gt_json(t, listing[0].reply, &messages) ||
+	   !testing.expect_value(t, len(messages), 1) ||
+	   !testing.expect_value(t, len(messages[0].attachments), 2) {
+		return
+	}
+	pic := messages[0].attachments[0]
+	other := messages[0].attachments[1]
+	thumb, has := pic.thumbnail.?
+	testing.expect(t, has)
+	testing.expect_value(t, thumb.width, 512)
+	testing.expect_value(t, thumb.height, 341)
+	_, has = other.thumbnail.?
+	testing.expect(t, !has)
+
+	path := proc(id, query: string) -> string {
+		return fmt.aprintf("/api/v1/attachments/%s%s", id, query)
+	}
+	small := path(pic.id, "?thumb=1")
+	whole := path(pic.id, "")
+	bad := path(pic.id, "?thumb=2")
+	plain := path(other.id, "?thumb=1")
+	defer {
+		delete(small)
+		delete(whole)
+		delete(bad)
+		delete(plain)
+	}
+	fetching := []Call {
+		{method = "GET", path = small, token = f.token},
+		{method = "GET", path = whole, token = f.token},
+		{method = "GET", path = bad, token = f.token},
+		{method = "GET", path = plain, token = f.token},
+	}
+	defer calls_destroy(fetching)
+	if !gt_calls(t, ts, &f.h, fetching) {
+		return
+	}
+	testing.expect_value(t, fetching[0].status, 200)
+	testing.expect_value(t, fetching[0].type, "image/webp")
+	testing.expect_value(t, len(fetching[0].reply), thumb.size)
+	w, h, is_webp := webp.size(transmute([]u8)fetching[0].reply)
+	testing.expect(t, is_webp && w == 512 && h == 341)
+	testing.expect_value(t, fetching[1].status, 200)
+	testing.expect_value(t, fetching[1].type, "application/octet-stream")
+	testing.expect(t, fetching[1].reply == string(bmp))
+	testing.expect_value(t, fetching[2].status, 400)
+	// A file with no thumbnail is the file itself.
+	testing.expect_value(t, fetching[3].status, 200)
+	testing.expect_value(t, fetching[3].type, "application/octet-stream")
+	testing.expect(t, fetching[3].reply == string(text))
 }

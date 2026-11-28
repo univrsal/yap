@@ -413,6 +413,27 @@ test_attach_ids_and_answers :: proc(t: ^testing.T) {
 	}
 	_, _, ok = decode_attach_get_answer(append_byte(buf[:], 0))
 	testing.expect(t, !ok)
+
+	// A request names the variant, which is the original if it is left out.
+	get: [ATTACH_GET_SIZE]u8
+	blob: u64
+	variant: Attach_Variant
+	blob, variant, ok = decode_attach_get(encode_attach_get(&get, 77, .Thumbnail))
+	testing.expect(t, ok)
+	testing.expect_value(t, blob, u64(77))
+	testing.expect_value(t, variant, Attach_Variant.Thumbnail)
+	blob, variant, ok = decode_attach_get(get[:8])
+	testing.expect(t, ok)
+	testing.expect_value(t, variant, Attach_Variant.Original)
+	get[8] = u8(max(Attach_Variant)) + 1
+	_, _, ok = decode_attach_get(get[:])
+	testing.expect(t, !ok)
+	for n in 0 ..< 8 {
+		_, _, ok = decode_attach_get(get[:n])
+		testing.expect(t, !ok)
+	}
+	_, _, ok = decode_attach_get(append_byte(get[:], 0))
+	testing.expect(t, !ok)
 }
 
 // ---- activity ----

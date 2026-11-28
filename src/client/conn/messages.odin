@@ -87,11 +87,18 @@ Msg :: struct {
 // Msg_File is a file a message carries. It has a blob (0 once the file has been
 // removed because of the retention policy), its size, and its name. A picture
 // also has the width and height its header states, or 0 if it couldn't be read.
+// If the server made a thumbnail of it (see thumbnails.odin there), the
+// thumbnail's size in bytes and its own width and height are stated too. They
+// are 0 for none. The thumbnail's proportions can differ from the picture's
+// (a JPEG turned by its EXIF orientation is upright in the thumbnail).
 Msg_File :: struct {
 	blob:          proto.Blob_Id,
 	size:          u64,
 	name:          string,
 	width, height: int,
+	thumb_size:    u32,
+	thumb_width:   int,
+	thumb_height:  int,
 }
 
 msg_files_clone :: proc(files: []Msg_File) -> []Msg_File {
@@ -283,11 +290,14 @@ msg_of :: proc(m: proto.Message) -> Msg {
 			name_buf: [proto.MAX_FILE_NAME]u8
 			name := proto.sanitize_file_name(a.name, &name_buf)
 			out.files[i] = {
-				blob   = a.blob,
-				size   = a.size,
-				name   = strings.clone(name if name != "" else "file"),
-				width  = a.width,
-				height = a.height,
+				blob         = a.blob,
+				size         = a.size,
+				name         = strings.clone(name if name != "" else "file"),
+				width        = a.width,
+				height       = a.height,
+				thumb_size   = a.thumb_size,
+				thumb_width  = a.thumb_width,
+				thumb_height = a.thumb_height,
 			}
 		}
 	}

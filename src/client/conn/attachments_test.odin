@@ -656,7 +656,8 @@ test_saving_a_file :: proc(t: ^testing.T) {
 	attachments_step(c)
 	req, ok := tc_one(t, &r.tc, .Attach_Get)
 	testing.expect(t, ok)
-	blob, dec := proto.decode_attach_id(req.body)
+	blob, variant, dec := proto.decode_attach_get(req.body)
+	testing.expect_value(t, variant, proto.Attach_Variant.Original)
 	testing.expect(t, dec)
 	testing.expect_value(t, blob, u64(700))
 	buf: [proto.ATTACH_GET_ANSWER_SIZE]u8
@@ -1067,4 +1068,191 @@ test_preview_failures :: proc(t: ^testing.T) {
 	attach_preview(c, {msg = 40, index = 0})
 	attachments_step(c)
 	testing.expect_value(t, len(tc_sent(t, &r.tc)), 0)
+}
+
+// ---- previews of thumbnails ----
+
+@(private = "file")
+with_thumb :: proc(r: ^Rig, thumb: int) {
+	tc_message_with_files(
+		&r.tc,
+		3,
+		40,
+		{
+			{
+				blob = 700,
+				size = 20 * 1024 * 1024,
+				name = "photo.jpg",
+				width = 4000,
+				height = 3000,
+				thumb_size = u32(thumb),
+				thumb_width = 512,
+				thumb_height = 384,
+			},
+		},
+	)
+}
+
+// answer_preview answers the pending Attach_Get with `size` bytes under
+// download 88, and delivers `data` as its chunks.
+@(private = "file")
+answer_preview :: proc(t: ^testing.T, r: ^Rig, req: Test_Request, size: int, data: []u8) {
+	buf: [proto.ATTACH_GET_ANSWER_SIZE]u8
+	tc_answer(&r.tc, req.id, .Ok, proto.encode_attach_get_answer(&buf, u64(size), 88))
+	out: [proto.MAX_PAYLOAD_SIZE]u8
+	chunks := proto.file_chunk_count(u64(size))
+	for i in 0 ..< chunks {
+		s, e := proto.file_chunk_range(u64(size), i)
+		handle_download_chunk(
+			&r.tc.c,
+			proto.encode_transfer_chunk(out[:], .Download_Chunk, 88, i, data[s:e]),
+		)
+	}
+}
+
+@(test)
+test_preview_of_a_thumbnail :: proc(t: ^testing.T) {
+	r: Rig
+	_ = rig_open(t, &r)
+	defer rig_close(&r)
+	c := &r.tc.c
+	data := content(proto.FILE_CHUNK_DATA + 20)
+	// The picture is far over PREVIEW_MAX, but it has a thumbnail.
+	with_thumb(&r, len(data))
+	testing.expect(t, file_previewed(c.msgs.caches[{3, 0}].messages[0].files[0]))
+
+	attach_preview(c, {conv = 3, msg = 40, index = 0})
+	key := thumb_blob_id(700)
+	testing.expect(t, c.attach.previews[key] != nil)
+	testing.expect(t, 700 not_in c.attach.previews)
+	attachments_step(c)
+	attachments_step(c)
+	req, _ := tc_one(t, &r.tc, .Attach_Get)
+	blob, variant, ok := proto.decode_attach_get(req.body)
+	testing.expect(t, ok)
+	testing.expect_value(t, blob, u64(700)) // the picture's blob is what the server is asked about
+	testing.expect_value(t, variant, proto.Attach_Variant.Thumbnail)
+	// Asking again while it is on its way does nothing more.
+	attach_preview(c, {conv = 3, msg = 40, index = 0})
+	testing.expect_value(t, len(c.attach.previews), 1)
+
+	answer_preview(t, &r, req, len(data), data)
+	testing.expect_value(t, c.attach.previews[key].state, Save_State.Done)
+	fetch := c.blobs.cache[key]
+	testing.expect(t, fetch != nil && fetch.state == .Ready)
+	testing.expect(t, 700 not_in c.blobs.cache)
+	testing.expect_value(t, string(fetch.data), string(data))
+
+	// The viewer asks for the picture itself, which is kept under its own id.
+	attach_preview(c, {conv = 3, msg = 40, index = 0, original = true})
+	testing.expect(t, c.attach.previews[700] != nil)
+	attachments_step(c)
+	attachments_step(c)
+	req, _ = tc_one(t, &r.tc, .Attach_Get)
+	_, variant, _ = proto.decode_attach_get(req.body)
+	testing.expect_value(t, variant, proto.Attach_Variant.Original)
+}
+
+@(test)
+test_preview_of_a_thumbnail_the_server_lacks :: proc(t: ^testing.T) {
+	r: Rig
+	_ = rig_open(t, &r)
+	defer rig_close(&r)
+	c := &r.tc.c
+	// The message states a thumbnail of 1000 bytes, but the server answers with
+	// the picture, of another size: it is taken if it is small enough to show.
+	with_thumb(&r, 1000)
+	attach_preview(c, {conv = 3, msg = 40, index = 0})
+	attachments_step(c)
+	attachments_step(c)
+	req, _ := tc_one(t, &r.tc, .Attach_Get)
+	data := content(3000)
+	answer_preview(t, &r, req, len(data), data)
+	fetch := c.blobs.cache[thumb_blob_id(700)]
+	testing.expect(t, fetch != nil && fetch.state == .Ready)
+	testing.expect_value(t, len(fetch.data), 3000)
+
+	// One that is too large for a preview is given up on.
+	r2: Rig
+	_ = rig_open(t, &r2)
+	defer rig_close(&r2)
+	with_thumb(&r2, 1000)
+	attach_preview(&r2.tc.c, {conv = 3, msg = 40, index = 0})
+	attachments_step(&r2.tc.c)
+	attachments_step(&r2.tc.c)
+	req, _ = tc_one(t, &r2.tc, .Attach_Get)
+	buf: [proto.ATTACH_GET_ANSWER_SIZE]u8
+	tc_answer(&r2.tc, req.id, .Ok, proto.encode_attach_get_answer(&buf, PREVIEW_MAX + 1, 89))
+	testing.expect_value(t, r2.tc.c.attach.previews[thumb_blob_id(700)].state, Save_State.Failed)
+}
+
+@(test)
+test_preview_of_pictures_without_a_thumbnail :: proc(t: ^testing.T) {
+	r: Rig
+	_ = rig_open(t, &r)
+	defer rig_close(&r)
+	c := &r.tc.c
+	// As before: a small picture is fetched whole under its own id, a big one
+	// is not shown.
+	tc_message_with_files(
+		&r.tc,
+		3,
+		40,
+		{{blob = 700, size = 3000, name = "a.png"}, {blob = 701, size = 20 << 20, name = "b.png"}},
+	)
+	attach_preview(c, {conv = 3, msg = 40, index = 0})
+	attach_preview(c, {conv = 3, msg = 40, index = 1})
+	testing.expect_value(t, len(c.attach.previews), 1)
+	testing.expect(t, c.attach.previews[700] != nil)
+	testing.expect_value(t, c.attach.previews[700].variant, proto.Attach_Variant.Original)
+	// The viewer may fetch the big one, up to VIEWER_MAX, and not a larger one.
+	attach_preview(c, {conv = 3, msg = 40, index = 1, original = true})
+	testing.expect(t, c.attach.previews[701] != nil)
+	tc_message_with_files(&r.tc, 3, 41, {{blob = 702, size = VIEWER_MAX + 1, name = "c.png"}})
+	attach_preview(c, {conv = 3, msg = 41, index = 0, original = true})
+	testing.expect(t, 702 not_in c.attach.previews)
+}
+
+@(test)
+test_thumbnails_are_kept_in_the_image_cache :: proc(t: ^testing.T) {
+	r: Rig
+	_ = rig_open(t, &r)
+	defer rig_close(&r)
+	c := &r.tc.c
+	dir, err := os.make_directory_temp("", "yap-thumb-cache-*", context.temp_allocator)
+	testing.expect(t, err == nil)
+	defer os.remove_all(dir)
+	ic: Image_Cache
+	testing.expect(t, image_cache_open(&ic, dir, 1 << 20))
+	defer image_cache_destroy(&ic)
+	defer c.blobs.disk = nil
+	c.blobs.disk = &ic
+	c.server_key[0] = 9
+
+	data := content(proto.FILE_CHUNK_DATA + 20)
+	with_thumb(&r, len(data))
+	attach_preview(c, {conv = 3, msg = 40, index = 0})
+	attachments_step(c)
+	attachments_step(c)
+	req, _ := tc_one(t, &r.tc, .Attach_Get)
+	answer_preview(t, &r, req, len(data), data)
+	key := thumb_blob_id(700)
+	testing.expect_value(t, c.attach.previews[key].state, Save_State.Done)
+	stored, ok := image_cache_load(&ic, c.server_key, key)
+	testing.expect(t, ok)
+	testing.expect_value(t, string(stored), string(data))
+	delete(stored)
+
+	// Once it has left memory, the next preview comes from the cache, and the
+	// server is not asked.
+	blob_drop(c, key)
+	attach_preview(c, {conv = 3, msg = 40, index = 0})
+	attachments_step(c)
+	attachments_step(c)
+	for sent in tc_sent(t, &r.tc) {
+		testing.expect(t, sent.op != .Attach_Get)
+	}
+	again := c.blobs.cache[key]
+	testing.expect(t, again != nil && again.state == .Ready)
+	testing.expect_value(t, string(again.data), string(data))
 }
