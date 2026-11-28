@@ -39,7 +39,13 @@ import "common:proto"
 // decodes the next frame while the previous one is shown (see anims_advance),
 // only for pictures that are drawn, and only while the window has the focus.
 
-MAX_IMAGE_TEXTURES :: 96
+//
+// The count is only there to bound the bookkeeping: the bytes are what costs.
+// It used to be 96, which a member list's pictures, a channel's emoji and a few
+// screens of previews exceed together, so that going to another channel and
+// back threw away what the first one was showing and decoded it again (a
+// spinner for the previews, a letter for the pictures of people).
+MAX_IMAGE_TEXTURES :: 1024
 // How many decoded pictures' sizes are kept (UI_Images.sizes), a few bytes
 // each. Past that they are forgotten all at once.
 MAX_KNOWN_SIZES :: 4096
@@ -970,6 +976,7 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 		}
 		t := im.textures[oldest_id]
 		bytes -= t.bytes
+		log.debugf("texture %v dropped (%d textures, %d bytes)", oldest_id, len(im.textures), bytes)
 		texture_drop(im, gpu, oldest_id, &t)
 		delete_key(&im.textures, oldest_id)
 	}
