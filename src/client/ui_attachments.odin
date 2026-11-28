@@ -1,6 +1,7 @@
 package client
 
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -696,6 +697,20 @@ preview_size :: proc(
 	return i32(fw), i32(fh)
 }
 
+// preview_side is the longer side a message's picture is decoded at: what
+// its preview, at most PREVIEW_WIDTH by PREVIEW_HEIGHT, needs on this screen,
+// so that a photo is not kept as a texture many times larger than what is
+// shown. The viewer decodes it at its own size when it is clicked (see
+// image_fitted). A picture whose size isn't known gets the usual maximum.
+preview_side :: proc(ui: ^UI, f: conn.Msg_File) -> int {
+	if f.width <= 0 || f.height <= 0 {
+		return PREVIEW_MAX_SIDE
+	}
+	scale := int(clamp(math.ceil(ui.metrics.scale), 1, 3))
+	w, h := conn.fit_box(f.width, f.height, PREVIEW_WIDTH * scale, PREVIEW_HEIGHT * scale)
+	return clamp(max(w, h), 64, PREVIEW_MAX_SIDE)
+}
+
 // message_files_height is how far a message's files push the layout
 // down, in a message `width` wide. Call with the View locked.
 message_files_height :: proc(
@@ -791,6 +806,7 @@ file_preview :: proc(
 		area,
 		f.name,
 		cover = button,
+		max_side = preview_side(ui, f),
 	) {
 		// The viewer's Save: the file itself, under its name.
 		command(ui, save)

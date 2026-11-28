@@ -604,6 +604,7 @@ image_fitted :: proc(
 	name := "",
 	hovered := false,
 	cover := mu.Rect{}, // a control drawn over the picture: a press on it does not open the viewer
+	max_side := PREVIEW_MAX_SIDE, // the longer side its preview is decoded at (see preview_side)
 ) -> (
 	save: bool,
 ) {
@@ -611,7 +612,7 @@ image_fitted :: proc(
 	im := &ui.images
 	t, known := im.textures[key]
 	if !known && state == .Ready && len(data) > 0 {
-		enqueue_decode(im, key, data)
+		enqueue_decode(im, key, data, max_side)
 		t, known = im.textures[key]
 	}
 	if !known || t.state != .Ready {
