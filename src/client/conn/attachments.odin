@@ -25,11 +25,15 @@ import "common:proto"
 // The files of our own message come back in its Msg_New, together with the
 // blobs they were stored as. The answer to the post only has its id.
 //
-// Previews: a picture that a message carries and that is not too big
-// (PREVIEW_MAX) is fetched the same way when the UI shows it
-// (Attach_Preview_Command), into memory instead of a file. It is then handed to
-// the pictures that messages show (blob_have), which the UI decodes and draws
-// like those.
+// Previews: a picture that a message carries is fetched the same way when the
+// UI shows it (Attach_Preview_Command), into memory instead of a file. It is
+// then handed to the pictures that messages show (blob_have), which the UI
+// decodes and draws like those. A picture that the message states a thumbnail
+// of is shown as that (variant Thumbnail of Attach_Get, kept as
+// thumb_blob_id(blob)), whatever size the picture is. One that has none is
+// fetched whole if it is not too big (PREVIEW_MAX). The viewer asks for the
+// picture itself (Attach_Preview_Command.original) up to VIEWER_MAX, and shows
+// the thumbnail until it has arrived.
 //
 // Saving: a file is fetched (Attach_Get) and written to its destination as it
 // arrives. It goes into the downloads folder under the name it was sent with
@@ -42,6 +46,13 @@ import "common:proto"
 ATTACH_TRIES :: 3
 // The biggest picture a message can carry that is still fetched to be shown.
 PREVIEW_MAX :: 8 * 1024 * 1024
+// The biggest picture that is fetched for the viewer, which shows it at its own
+// size once it has arrived. A larger one is only shown as its thumbnail.
+VIEWER_MAX :: 32 * 1024 * 1024
+// A picture's thumbnail is kept with the pictures that messages show (blob_have)
+// under its blob's id with this bit set, so that it is told apart from the
+// picture itself, which the viewer fetches under its own id.
+THUMB_BLOB_BIT :: proto.Blob_Id(1) << 62
 // The tag of a get_answer for a preview, which is the blob's id with this bit
 // set.
 @(private = "file")
@@ -85,9 +96,17 @@ Attach_Save_Command :: struct {
 // Attach_Preview_Command fetches file `index` of message `msg` in `conv` so it
 // can be shown, which is only done for pictures (see preview_wanted).
 Attach_Preview_Command :: struct {
-	conv:  proto.Conv_Id,
-	msg:   proto.Msg_Id,
-	index: int,
+	conv:     proto.Conv_Id,
+	msg:      proto.Msg_Id,
+	index:    int,
+	// The picture itself, even if the message states a thumbnail of it.
+	original: bool,
+}
+
+// thumb_blob_id is the id that a picture's thumbnail is kept under with the
+// pictures that messages show.
+thumb_blob_id :: proc(blob: proto.Blob_Id) -> proto.Blob_Id {
+	return blob | THUMB_BLOB_BIT
 }
 
 attach_command_destroy :: proc(cmd: ^Attach_Send_Command) {
@@ -156,6 +175,18 @@ Attach_Save :: struct {
 	// A preview is received into `data` (owned) instead of a file.
 	memory:       bool,
 	data:         []u8,
+	// What is asked of the server: the blob and its variant. `blob` is this
+	// save's key, which is the blob's own id except for a thumbnail
+	// (thumb_blob_id).
+	source:       proto.Blob_Id,
+	variant:      proto.Attach_Variant,
+	// A thumbnail is kept in the image cache (image_cache.odin), which is looked
+	// at before the server is asked (`disk`, while that is pending) and added to
+	// when it has arrived. `cacheable` is cleared if what arrives isn't the
+	// thumbnail.
+	disk:         Cache_Request,
+	cache_tried:  bool,
+	cacheable:    bool,
 }
 
 Attach_Client :: struct {
@@ -670,6 +701,7 @@ attach_save :: proc(c: ^Server_Conn, cmd: Attach_Save_Command) {
 	sv = new(Attach_Save)
 	sv^ = {
 		blob       = f.blob,
+		source     = f.blob,
 		name       = strings.clone(f.name),
 		size       = f.size,
 		sink       = sink,
@@ -686,12 +718,38 @@ attach_save :: proc(c: ^Server_Conn, cmd: Attach_Save_Command) {
 save_turn :: proc(c: ^Server_Conn, sv: ^Attach_Save, now: time.Tick) {
 	switch sv.state {
 	case .Asking:
+		if sv.cacheable && !sv.cache_tried && c.blobs.disk != nil && c.server_key != {} {
+			sv.cache_tried = true
+			sv.disk = image_cache_request(c.blobs.disk, c.server_key, sv.blob)
+		}
+		if sv.disk != 0 {
+			data, state := image_cache_poll(c.blobs.disk, sv.disk)
+			if state == .Pending {
+				return
+			}
+			sv.disk = 0
+			if state == .Done && len(data) == int(sv.size) {
+				log.debugf("thumbnail %x from the image cache", sv.blob)
+				sv.state = .Done
+				delete(sv.data)
+				sv.data = nil
+				blob_have(c, sv.blob, data, 0, 0)
+				return
+			}
+			delete(data)
+		}
 		if !sv.asking {
 			sv.asking = true
 			sv.last_heard = now
-			buf: [8]u8
+			buf: [proto.ATTACH_GET_SIZE]u8
 			tag := u64(sv.blob) | (PREVIEW_TAG if sv.memory else 0)
-			request(c, .Attach_Get, proto.encode_attach_id(&buf, u64(sv.blob)), get_answer, tag)
+			request(
+				c,
+				.Attach_Get,
+				proto.encode_attach_get(&buf, u64(sv.source), sv.variant),
+				get_answer,
+				tag,
+			)
 		}
 	case .Receiving:
 		if time.tick_diff(sv.last_heard, now) > FILE_TIMEOUT {
@@ -749,6 +807,21 @@ get_answer :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) 
 		return
 	}
 	size, id, ok := proto.decode_attach_get_answer(body)
+	if ok && sv.memory && sv.variant == .Thumbnail && size != sv.size && size > 0 {
+		// The server answered with the picture itself, because it has no
+		// thumbnail of it after all. It is shown if it is small enough.
+		if size > PREVIEW_MAX {
+			log.warnf("[file] %q has no thumbnail and is too big to show", sv.name)
+			save_end(c, sv, .Failed)
+			return
+		}
+		proto.transfer_receiver_destroy(&sv.recv)
+		delete(sv.data)
+		sv.size = size
+		sv.cacheable = false
+		sv.data = make([]u8, size)
+		proto.transfer_receiver_init(&sv.recv, size)
+	}
 	if !ok || size != sv.size {
 		log.warnf("[file] %q does not have the size its message says", sv.name)
 		save_end(c, sv, .Failed)
@@ -800,6 +873,9 @@ handle_download_chunk :: proc(c: ^Server_Conn, pt: []u8) {
 		// This is a picture to show. It now goes to the pictures that messages show.
 		sv.state = .Done
 		send_save_ack(c, sv, now)
+		if sv.cacheable {
+			disk_store(c, sv.blob, sv.data)
+		}
 		blob_have(c, sv.blob, sv.data, 0, 0)
 		sv.data = nil
 		return
@@ -883,13 +959,9 @@ all_saves :: proc(c: ^Server_Conn) -> map[proto.Blob_Id]^Attach_Save {
 	return all
 }
 
-// preview_wanted reports whether a file with that name and size is shown as a
-// preview, which is the case for a picture that can be decoded and is not too
-// big to fetch.
-preview_wanted :: proc(name: string, size: u64) -> bool {
-	if size == 0 || size > PREVIEW_MAX {
-		return false
-	}
+// picture_name says whether a file's name is one of a kind of picture that can
+// be decoded.
+picture_name :: proc(name: string) -> bool {
 	dot := strings.last_index_byte(name, '.')
 	if dot < 0 {
 		return false
@@ -903,8 +975,23 @@ preview_wanted :: proc(name: string, size: u64) -> bool {
 	return false
 }
 
+// preview_wanted reports whether a file with that name and size is shown as a
+// preview, which is the case for a picture that can be decoded and is not too
+// big to fetch.
+preview_wanted :: proc(name: string, size: u64) -> bool {
+	return size != 0 && size <= PREVIEW_MAX && picture_name(name)
+}
+
+// file_previewed reports whether a message's file is shown as a picture: it has
+// a thumbnail, or is one that preview_wanted says is shown.
+file_previewed :: proc(f: Msg_File) -> bool {
+	return f.blob != 0 && (f.thumb_size > 0 || preview_wanted(f.name, f.size))
+}
+
 // attach_preview fetches a picture that a message carries so it can be shown,
-// unless it is already here or on its way.
+// unless it is already here or on its way. It is the thumbnail if the message
+// states one, otherwise the picture; with `original` it is the picture, which is
+// also fetched when it is too big for a preview, up to VIEWER_MAX.
 attach_preview :: proc(c: ^Server_Conn, cmd: Attach_Preview_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	m, found := msg_find(c, conv, cmd.msg)
@@ -912,32 +999,44 @@ attach_preview :: proc(c: ^Server_Conn, cmd: Attach_Preview_Command) {
 		return
 	}
 	f := m.files[cmd.index]
-	if f.blob == 0 || !preview_wanted(f.name, f.size) {
+	if f.blob == 0 {
 		return
 	}
-	if fetch := c.blobs.cache[f.blob] or_else nil; fetch != nil && fetch.state == .Ready {
-		publish_blob(c, f.blob) // it is already here
+	thumb := f.thumb_size > 0 && !cmd.original
+	key, size, variant := f.blob, f.size, proto.Attach_Variant.Original
+	if thumb {
+		key, size, variant = thumb_blob_id(f.blob), u64(f.thumb_size), .Thumbnail
+	} else if !preview_wanted(f.name, f.size) {
+		if !cmd.original || f.size == 0 || f.size > VIEWER_MAX || !picture_name(f.name) {
+			return
+		}
+	}
+	if fetch := c.blobs.cache[key] or_else nil; fetch != nil && fetch.state == .Ready {
+		publish_blob(c, key) // it is already here
 		return
 	}
-	if sv := c.attach.previews[f.blob] or_else nil; sv != nil {
+	if sv := c.attach.previews[key] or_else nil; sv != nil {
 		if sv.state == .Asking || sv.state == .Receiving || sv.state == .Failed {
 			return // it is already on its way, or it is not available
 		}
 		// It was fetched before and dropped from memory since, so fetch it again.
-		delete_key(&c.attach.previews, f.blob)
+		delete_key(&c.attach.previews, key)
 		save_free(sv)
 	}
 	sv := new(Attach_Save)
 	sv^ = {
-		blob       = f.blob,
+		blob       = key,
+		source     = f.blob,
+		variant    = variant,
 		name       = strings.clone(f.name),
-		size       = f.size,
+		size       = size,
 		memory     = true,
-		data       = make([]u8, f.size),
+		data       = make([]u8, size),
 		last_heard = time.tick_now(),
+		cacheable  = thumb,
 	}
-	proto.transfer_receiver_init(&sv.recv, f.size)
-	c.attach.previews[f.blob] = sv
+	proto.transfer_receiver_init(&sv.recv, size)
+	c.attach.previews[key] = sv
 }
 
 // What the UI is shown: the files of a message that is being sent

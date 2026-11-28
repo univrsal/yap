@@ -198,7 +198,6 @@ disk_poll :: proc(c: ^Server_Conn) {
 }
 
 // disk_store stores a picture on disk for next time.
-@(private = "file")
 disk_store :: proc(c: ^Server_Conn, id: proto.Blob_Id, data: []u8) {
 	if c.blobs.disk != nil && c.server_key != {} {
 		image_cache_store(c.blobs.disk, c.server_key, id, data)
@@ -399,13 +398,22 @@ trim_blobs :: proc(c: ^Server_Conn) {
 		if oldest == 0 {
 			return
 		}
-		f := bc.cache[oldest]
-		fetch_release(c, f)
-		delete_key(&bc.cache, oldest)
-		free(f)
-		publish_blob(c, oldest)
+		blob_drop(c, oldest)
 		log.debugf("picture %d dropped from the cache", oldest)
 	}
+}
+
+// blob_drop forgets a picture that is kept in memory. It is fetched again if
+// it is wanted later.
+blob_drop :: proc(c: ^Server_Conn, id: proto.Blob_Id) {
+	f := c.blobs.cache[id] or_else nil
+	if f == nil {
+		return
+	}
+	fetch_release(c, f)
+	delete_key(&c.blobs.cache, id)
+	free(f)
+	publish_blob(c, id)
 }
 
 // View_Image is a picture to show. It has the picture's info, how far along the

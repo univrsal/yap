@@ -421,6 +421,14 @@ MIGRATIONS := [?]string {
 	CREATE INDEX messages_persona_avatar ON messages(persona_avatar)
 		WHERE persona_avatar IS NOT NULL;
 	`,
+	// 35: thumbnails (thumbnails.odin). A picture's blob names its thumbnail,
+	// a blob of kind Thumbnail: 0 means it hasn't been looked at yet, -1 that
+	// it needs none or none could be made, anything else is the thumbnail's
+	// blob. The thumbnail lives as long as the picture does, so garbage
+	// collection leaves a blob alone while another blob names it.
+	`
+	ALTER TABLE blobs ADD COLUMN thumb INTEGER NOT NULL DEFAULT 0;
+	`,
 }
 
 // The version a database has once it has been through every step.

@@ -9,7 +9,7 @@ import "core:encoding/endian"
 // uploaded once instead and can be fetched by any member at any time.
 //
 // 	Attach_Put  [size u64][name str8]  ->  [upload u64]
-// 	Attach_Get  [blob u64]             ->  [size u64][download u64]
+// 	Attach_Get  [blob u64][variant u8] ->  [size u64][download u64]
 //
 // 	client -> server  Upload_Chunk, Download_Ack   (transfer.odin)
 // 	server -> client  Upload_Ack, Download_Chunk
@@ -28,6 +28,18 @@ import "core:encoding/endian"
 // server then sends the chunks (Download_Chunk) and the client acknowledges them
 // (Download_Ack).
 //
+// The variant says which form of the file is wanted: the file as it was
+// uploaded (Original, 0) or, for a picture, its thumbnail (Thumbnail, 1: a
+// small WebP made by the server, thumbnails.odin). A picture that has no
+// thumbnail (too small to need one, an animation, not made yet or not made at
+// all) is answered with the original, so a client asks for the thumbnail
+// whenever it wants to show the picture small and finds out from the size in
+// the answer what it gets. The variant is optional: a request of only the blob
+// is for the original. An unknown variant is Invalid. Whether a member may
+// fetch is decided by the original, which is the blob that messages name.
+// There is no flag in Server_Info for this: the hello version (hello.odin) is
+// how clients and servers that don't agree on the protocol are told apart.
+//
 // Either side can stop a transfer with Transfer_Cancel. A transfer that hears
 // nothing for ATTACH_IDLE is dropped. Each connection may have at most
 // MAX_ATTACH_TRANSFERS uploads and as many downloads at once (beyond that the
@@ -42,6 +54,13 @@ MAX_ATTACH_TRANSFERS :: 4
 ATTACH_PUT_MAX_SIZE :: 8 + 1 + MAX_FILE_NAME
 ATTACH_PUT_ANSWER_SIZE :: 8
 ATTACH_GET_ANSWER_SIZE :: 8 + 8
+ATTACH_GET_SIZE :: 8 + 1
+
+// The forms of an attachment that can be fetched (see above).
+Attach_Variant :: enum u8 {
+	Original  = 0,
+	Thumbnail = 1,
+}
 
 Attach_Put :: struct {
 	size: u64,
@@ -72,6 +91,30 @@ encode_attach_id :: proc(out: ^[8]u8, id: u64) -> []u8 {
 
 decode_attach_id :: proc(body: []u8) -> (id: u64, ok: bool) {
 	return id_get(u64, body)
+}
+
+// encode_attach_get is the body of an Attach_Get request.
+encode_attach_get :: proc(out: ^[ATTACH_GET_SIZE]u8, blob: u64, variant: Attach_Variant) -> []u8 {
+	endian.unchecked_put_u64le(out[0:], blob)
+	out[8] = u8(variant)
+	return out[:]
+}
+
+// decode_attach_get reads an Attach_Get request: the blob and the variant,
+// which is Original if the request leaves it out. `ok` is false for a request of
+// another size or with a variant that isn't known.
+decode_attach_get :: proc(body: []u8) -> (blob: u64, variant: Attach_Variant, ok: bool) {
+	if len(body) != 8 && len(body) != ATTACH_GET_SIZE {
+		return
+	}
+	blob = endian.unchecked_get_u64le(body[0:])
+	if len(body) == ATTACH_GET_SIZE {
+		if body[8] > u8(max(Attach_Variant)) {
+			return
+		}
+		variant = Attach_Variant(body[8])
+	}
+	return blob, variant, true
 }
 
 encode_attach_get_answer :: proc(

@@ -39,7 +39,13 @@ import "common:proto"
 // decodes the next frame while the previous one is shown (see anims_advance),
 // only for pictures that are drawn, and only while the window has the focus.
 
-MAX_IMAGE_TEXTURES :: 96
+//
+// The count is only there to bound the bookkeeping: the bytes are what costs.
+// It used to be 96, which a member list's pictures, a channel's emoji and a few
+// screens of previews exceed together, so that going to another channel and
+// back threw away what the first one was showing and decoded it again (a
+// spinner for the previews, a letter for the pictures of people).
+MAX_IMAGE_TEXTURES :: 1024
 // How many decoded pictures' sizes are kept (UI_Images.sizes), a few bytes
 // each. Past that they are forgotten all at once.
 MAX_KNOWN_SIZES :: 4096
@@ -598,6 +604,13 @@ image_fitted :: proc(
 	name := "",
 	hovered := false,
 	cover := mu.Rect{}, // a control drawn over the picture: a press on it does not open the viewer
+	max_side := PREVIEW_MAX_SIDE, // the longer side its preview is decoded at (see preview_side)
+	// For a preview that is only a thumbnail: the picture itself, once it has
+	// arrived. The viewer shows that at its own size, and the thumbnail until then.
+	original: []u8 = nil,
+	// The preview is a thumbnail, whose own size is all there is to show until the
+	// picture itself arrives (`original`).
+	thumbnail := false,
 ) -> (
 	save: bool,
 ) {
@@ -605,7 +618,7 @@ image_fitted :: proc(
 	im := &ui.images
 	t, known := im.textures[key]
 	if !known && state == .Ready && len(data) > 0 {
-		enqueue_decode(im, key, data)
+		enqueue_decode(im, key, data, max_side)
 		t, known = im.textures[key]
 	}
 	if !known || t.state != .Ready {
@@ -666,12 +679,20 @@ image_fitted :: proc(
 		// The viewer shows the picture at its own size, once that is decoded.
 		full := key
 		full.full = true
-		if t.tex_w < t.width && full not_in im.textures && len(data) > 0 {
+		if len(original) > 0 {
+			if full not_in im.textures {
+				enqueue_decode(im, full, original, max_side = 0)
+			}
+		} else if !thumbnail && t.tex_w < t.width && full not_in im.textures && len(data) > 0 {
 			enqueue_decode(im, full, data, max_side = 0)
 		}
+		own := t
+		if f, decoding := im.textures[full]; decoding && f.state == .Ready && len(original) > 0 {
+			own = f
+		}
 		im.shown = {
-			width  = u16(min(t.width, 65535)),
-			height = u16(min(t.height, 65535)),
+			width  = u16(min(own.width, 65535)),
+			height = u16(min(own.height, 65535)),
 		}
 		im.state = .Ready
 		if name != im.viewer_name {
@@ -970,6 +991,12 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 		}
 		t := im.textures[oldest_id]
 		bytes -= t.bytes
+		log.debugf(
+			"texture %v dropped (%d textures, %d bytes)",
+			oldest_id,
+			len(im.textures),
+			bytes,
+		)
 		texture_drop(im, gpu, oldest_id, &t)
 		delete_key(&im.textures, oldest_id)
 	}

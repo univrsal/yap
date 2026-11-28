@@ -502,7 +502,15 @@ ask_for_pictures :: proc(a: ^App, l: ^Timeline_Layout) {
 			continue
 		}
 		a.pictures.asked[w.blob] = time.tick_now()
-		push(a, conn.Attach_Preview_Command{conv = a.viewing, msg = w.msg, index = w.index})
+		push(
+			a,
+			conn.Attach_Preview_Command {
+				conv = a.viewing,
+				msg = w.msg,
+				index = w.index,
+				original = true,
+			},
+		)
 		asked += 1
 	}
 }

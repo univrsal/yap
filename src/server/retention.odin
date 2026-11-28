@@ -684,6 +684,7 @@ collect_chunk :: proc(bs: ^Blob_Store, step: ^Purge_Step, now_ms: i64) -> bool {
 	Unused :: struct {
 		id:   Blob_Id,
 		hash: [BLOB_HASH_SIZE]u8,
+		kind: Blob_Kind,
 	}
 	unused: [PURGE_CHUNK]Unused
 	n, seen := 0, 0
@@ -701,6 +702,7 @@ collect_chunk :: proc(bs: ^Blob_Store, step: ^Purge_Step, now_ms: i64) -> bool {
 		step.cursor = id
 		if db_col_int(q, 2) != 0 && db_col_into(q, 1, unused[n].hash[:]) {
 			unused[n].id = Blob_Id(id)
+			unused[n].kind = Blob_Kind(db_col_int(q, 3))
 			n += 1
 		}
 	}
@@ -718,7 +720,10 @@ collect_chunk :: proc(bs: ^Blob_Store, step: ^Purge_Step, now_ms: i64) -> bool {
 		if err := os.remove(path); err != nil && os.exists(path) {
 			log.warnf("could not remove %s: %v", path, err)
 		}
-		step.count += 1
+		// A thumbnail goes with its picture and isn't counted on top of it.
+		if b.kind != .Thumbnail {
+			step.count += 1
+		}
 	}
 	return seen < PURGE_CHUNK
 }

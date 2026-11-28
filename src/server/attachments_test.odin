@@ -1,11 +1,13 @@
 package server
 
+import "core:encoding/endian"
 import "core:os"
 import "core:slice"
 import "core:testing"
 import "core:time"
 
 import "common:proto"
+import "common:webp"
 
 // Tests of attachments, on the Test_Server of harness_test.odin.
 
@@ -155,13 +157,20 @@ fetch :: proc(
 	ts: ^Test_Server,
 	u: ^Conn,
 	blob: proto.Blob_Id,
+	variant := proto.Attach_Variant.Original,
 ) -> (
 	status: proto.Status,
 	data: []u8,
 ) {
-	id_buf: [8]u8
+	get_buf: [proto.ATTACH_GET_SIZE]u8
 	answer: []u8
-	status, answer = ts_ask(t, ts, u, .Attach_Get, proto.encode_attach_id(&id_buf, u64(blob)))
+	status, answer = ts_ask(
+		t,
+		ts,
+		u,
+		.Attach_Get,
+		proto.encode_attach_get(&get_buf, u64(blob), variant),
+	)
 	if status != .Ok {
 		return
 	}
@@ -711,4 +720,283 @@ test_attachments_search :: proc(t: ^testing.T) {
 	status, _ := ts_ask(t, &ts, alice, .Msg_Delete, proto.encode_msg_id(&id_buf, report))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, slice.equal(search(t, &ts, alice, "quarterly"), []proto.Msg_Id{words}))
+}
+
+// An uploaded picture gets a thumbnail, once the thread has made it.
+@(test)
+test_attachments_thumbnail :: proc(t: ^testing.T) {
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	config := Attach_Config {
+		max_megabytes = 4,
+		rate_kb       = 1024 * 1024,
+		thumbnails    = true,
+	}
+	attachments_open(s, config)
+	defer attachments_close(s)
+	thumbnails_open(s, config)
+	defer thumbnails_close(s)
+	s.attach.test_sent = record_sent
+	defer sent_reset()
+
+	ts_account(t, &ts, "alice", "a password")
+	ts_account(t, &ts, "bob", "a password")
+	alice := logged_in(t, &ts, "alice")
+	bob := logged_in(t, &ts, "bob")
+	gaming := conv_by_name(&s.convs, "Gaming")
+	testing.expect(t, conv_member_add(&s.convs, gaming, alice.account.id))
+
+	bmp := test_bmp(900, 600)
+	_, id := put(t, &ts, alice, len(bmp), "photo.bmp")
+	blob := send_file(t, &ts, alice, id, bmp)
+	testing.expect(t, blob != 0)
+	for _ in 0 ..< 1000 {
+		thumbnails_sync(s)
+		if thumbnails_pending(s) == 0 {
+			break
+		}
+		time.sleep(10 * time.Millisecond)
+	}
+	b, _ := blob_get(&s.blobs, blob)
+	testing.expect(t, b.thumb > 0)
+	thumb, _ := blob_get(&s.blobs, Blob_Id(b.thumb))
+	testing.expect_value(t, thumb.kind, Blob_Kind.Thumbnail)
+	testing.expect_value(t, thumb.width, 512)
+	testing.expect_value(t, thumb.height, 341)
+
+	// A file that isn't a picture is marked as needing none, right away.
+	text := test_file(3000, 9)
+	_, id2 := put(t, &ts, alice, len(text), "notes.bin")
+	blob2 := send_file(t, &ts, alice, id2, text)
+	b2, _ := blob_get(&s.blobs, blob2)
+	testing.expect_value(t, b2.thumb, i64(-1))
+
+	// A message states its pictures' thumbnails, and nothing for a file
+	// without one.
+	status, msg := post_files(t, &ts, alice, gaming.id, "", 1, id, id2)
+	testing.expect_value(t, status, proto.Status.Ok)
+	m, found := msg_by_id(s, msg)
+	testing.expect(t, found)
+	testing.expect_value(t, m.attachments[0].thumb_size, u32(thumb.size))
+	testing.expect_value(t, m.attachments[0].thumb_width, 512)
+	testing.expect_value(t, m.attachments[0].thumb_height, 341)
+	testing.expect_value(t, m.attachments[1].thumb_size, u32(0))
+
+	// A member fetches the thumbnail, a WebP of the stated size, or the
+	// original.
+	data: []u8
+	status, data = fetch(t, &ts, alice, blob, .Thumbnail)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, len(data), thumb.size)
+	tw, th, is_webp := webp.size(data)
+	testing.expect(t, is_webp && tw == 512 && th == 341)
+	status, data = fetch(t, &ts, alice, blob)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect(t, slice.equal(data, bmp))
+	// A file with no thumbnail is answered with the original.
+	status, data = fetch(t, &ts, alice, blob2, .Thumbnail)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect(t, slice.equal(data, text))
+	// Somebody who may not read the message may not have the thumbnail.
+	status, _ = fetch(t, &ts, bob, blob, .Thumbnail)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	// Another variant is invalid, and the thumbnail's own blob is not
+	// something to ask for.
+	bad := [9]u8{}
+	status, _ = ts_ask(t, &ts, alice, .Attach_Get, bad[:])
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	endian.unchecked_put_u64le(bad[:], u64(blob))
+	bad[8] = 7
+	status, _ = ts_ask(t, &ts, alice, .Attach_Get, bad[:])
+	testing.expect_value(t, status, proto.Status.Invalid)
+	status, _ = fetch(t, &ts, alice, thumb.id)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+
+	// A message posted before the thumbnail is made is sent again when it is.
+	bmp2 := test_bmp(800, 700)
+	_, id3 := put(t, &ts, alice, len(bmp2), "later.bmp")
+	blob3 := send_file(t, &ts, alice, id3, bmp2)
+	_, late := post_files(t, &ts, alice, gaming.id, "", 2, id3)
+	_ = ts_events(t, &ts, alice)
+	m, _ = msg_by_id(s, late)
+	testing.expect_value(t, m.attachments[0].thumb_size, u32(0))
+	for _ in 0 ..< 1000 {
+		thumbnails_sync(s)
+		if thumbnails_pending(s) == 0 {
+			break
+		}
+		time.sleep(10 * time.Millisecond)
+	}
+	changed, sent := has_event(ts_events(t, &ts, alice), .Msg_Changed)
+	testing.expect(t, sent)
+	resent, decoded := proto.decode_message(changed.body)
+	testing.expect(t, decoded)
+	testing.expect_value(t, resent.id, late)
+	testing.expect(t, resent.attachments[0].thumb_size > 0)
+	_ = blob3
+}
+
+// A JPEG that is turned by its EXIF orientation states the size it is shown at.
+@(test)
+test_attachments_turned_jpeg :: proc(t: ^testing.T) {
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	attachments_open(s, {max_megabytes = 4, rate_kb = 1024 * 1024})
+	defer attachments_close(s)
+	s.attach.test_sent = record_sent
+	defer sent_reset()
+	ts_account(t, &ts, "alice", "a password")
+	alice := logged_in(t, &ts, "alice")
+
+	jpeg := #load("../common/imagekind/testdata/turned.jpg")
+	_, id := put(t, &ts, alice, len(jpeg), "turned.jpg")
+	blob := send_file(t, &ts, alice, id, jpeg)
+	b, found := blob_get(&s.blobs, blob)
+	testing.expect(t, found)
+	testing.expect_value(t, b.width, 32)
+	testing.expect_value(t, b.height, 64)
+}
+
+// A picture uploaded before thumbnails get one when its message is read, and the
+// message is sent again.
+@(test)
+test_attachments_thumbnail_when_read :: proc(t: ^testing.T) {
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	attachments_open(s, {max_megabytes = 4, rate_kb = 1024 * 1024})
+	defer attachments_close(s)
+	s.attach.test_sent = record_sent
+	defer sent_reset()
+
+	ts_account(t, &ts, "alice", "a password")
+	alice := logged_in(t, &ts, "alice")
+	gaming := conv_by_name(&s.convs, "Gaming")
+	testing.expect(t, conv_member_add(&s.convs, gaming, alice.account.id))
+
+	// Posted while the server made no thumbnails.
+	bmp := test_bmp(900, 600)
+	_, id := put(t, &ts, alice, len(bmp), "old.bmp")
+	blob := send_file(t, &ts, alice, id, bmp)
+	_, msg := post_files(t, &ts, alice, gaming.id, "", 1, id)
+	old, _ := blob_get(&s.blobs, blob)
+	testing.expect_value(t, old.thumb, i64(0))
+
+	thumbnails_open(s, {thumbnails = true})
+	defer thumbnails_close(s)
+	s.thumbs.sweep_done = true // only the reading is looked at here
+	_ = ts_events(t, &ts, alice)
+	m, _ := msg_by_id(s, msg)
+	testing.expect_value(t, m.attachments[0].thumb_size, u32(0))
+	testing.expect_value(t, thumbnails_pending(s), 1)
+	// Reading it again doesn't queue it again.
+	_, _ = msg_by_id(s, msg)
+	testing.expect_value(t, thumbnails_pending(s), 1)
+	for _ in 0 ..< 1000 {
+		thumbnails_sync(s)
+		if thumbnails_pending(s) == 0 {
+			break
+		}
+		time.sleep(10 * time.Millisecond)
+	}
+	b, _ := blob_get(&s.blobs, blob)
+	testing.expect(t, b.thumb > 0)
+	changed, sent := has_event(ts_events(t, &ts, alice), .Msg_Changed)
+	testing.expect(t, sent)
+	resent, decoded := proto.decode_message(changed.body)
+	testing.expect(t, decoded)
+	testing.expect(t, resent.attachments[0].thumb_size > 0)
+}
+
+// A picture's thumbnail is removed with the picture, and not counted as a
+// stored file of its own.
+@(test)
+test_attachments_thumbnail_retention :: proc(t: ^testing.T) {
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	config := Attach_Config {
+		max_megabytes = 8,
+		rate_kb       = 1024 * 1024,
+		thumbnails    = true,
+	}
+	attachments_open(s, config)
+	defer attachments_close(s)
+	thumbnails_open(s, config)
+	defer thumbnails_close(s)
+	s.attach.test_sent = record_sent
+	defer sent_reset()
+
+	ts_account(t, &ts, "alice", "a password")
+	alice := logged_in(t, &ts, "alice")
+	bmp := test_bmp(900, 600)
+	_, upload := put(t, &ts, alice, len(bmp), "photo.bmp")
+	blob := send_file(t, &ts, alice, upload, bmp)
+	status, _ := post_files(t, &ts, alice, s.convs.home.id, "", 1, upload)
+	testing.expect_value(t, status, proto.Status.Ok)
+	for _ in 0 ..< 1000 {
+		thumbnails_sync(s)
+		if thumbnails_pending(s) == 0 {
+			break
+		}
+		time.sleep(10 * time.Millisecond)
+	}
+	b, _ := blob_get(&s.blobs, blob)
+	testing.expect(t, b.thumb > 0)
+	thumb_id := Blob_Id(b.thumb)
+	thumb, _ := blob_get(&s.blobs, thumb_id)
+	thumb_path := blob_path(&s.blobs, thumb.hash)
+	testing.expect(t, os.exists(thumb_path))
+
+	// While the picture is in a message, nothing is collected, even once the
+	// blobs are older than the grace period.
+	testing.expect(t, db_exec(&s.db, "UPDATE blobs SET created = 1"))
+	r := &s.retention
+	append(&r.steps, Purge_Step{kind = .Collect})
+	_, removed := retention_drain(r, &s.blobs, s)
+	testing.expect_value(t, removed, 0)
+	_, found := blob_get(&s.blobs, thumb_id)
+	testing.expect(t, found)
+
+	// Once its file is purged, picture and thumbnail go, and count as one.
+	time.sleep(2 * time.Millisecond)
+	testing.expect(
+		t,
+		retention_ask(
+			&s.retention,
+			&s.db,
+			{before = proto.Unix_Ms(unix_ms() + 1000), what = .Files},
+			unix_ms(),
+		),
+	)
+	total := 0
+	for _ in 0 ..< 3 {
+		_, removed = retention_drain(r, &s.blobs, s)
+		total += removed
+		append(&r.steps, Purge_Step{kind = .Collect})
+	}
+	_, found = blob_get(&s.blobs, blob)
+	testing.expect(t, !found)
+	_, found = blob_get(&s.blobs, thumb_id)
+	testing.expect(t, !found)
+	testing.expect(t, !os.exists(thumb_path))
+	testing.expect_value(t, total, 1)
 }

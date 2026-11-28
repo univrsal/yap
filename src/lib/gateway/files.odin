@@ -789,7 +789,24 @@ downloads_serve :: proc(
 		send(c, bad_id(blob), req.keep_alive)
 		return req.keep_alive
 	}
+	// ?thumb=1 asks for the picture's thumbnail (or the file, for one without).
+	variant := proto.Attach_Variant.Original
+	if value, has := http.query_value(req.query, "thumb"); has {
+		switch value {
+		case "1", "true":
+			variant = .Thumbnail
+		case "0", "false", "":
+		case:
+			send(
+				c,
+				error_reply(400, "invalid", "thumb is 1 for the thumbnail or 0 for the file."),
+				req.keep_alive,
+			)
+			return req.keep_alive
+		}
+	}
 	j.scratch[0] = id
+	j.scratch[1] = u64(variant)
 	r := submit(g, &j)
 	if r.status != 200 {
 		send(c, r, req.keep_alive)
@@ -797,8 +814,27 @@ downloads_serve :: proc(
 	}
 	ring := j.ring
 	defer ring_release(ring)
+	// A thumbnail is a picture, which is told from its first bytes. (When the
+	// server had none, it is the file as it was uploaded, whatever that is.)
+	content_type := "application/octet-stream"
+	if variant == .Thumbnail {
+		want := min(ring.size, 12)
+		sync.mutex_lock(&ring.mutex)
+		for !ring.failed && ring.in_ < want {
+			sync.cond_wait(&ring.cond, &ring.mutex)
+		}
+		failed := ring.failed
+		if !failed {
+			content_type = imagekind.content_type(imagekind.kind_of(ring.buf[:want]))
+		}
+		sync.mutex_unlock(&ring.mutex)
+		if failed {
+			return false
+		}
+	}
 	head := fmt.tprintf(
-		"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\nCache-Control: no-cache\r\nConnection: %s\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-cache\r\nConnection: %s\r\n\r\n",
+		content_type,
 		ring.size,
 		"keep-alive" if req.keep_alive else "close",
 	)
@@ -854,8 +890,13 @@ download_run :: proc(c: ^Conn, j: ^Job) {
 		j.ring = d.ring
 		reply(j, {status = 200})
 	}
-	buf: [8]u8
-	ask(c, j, .Attach_Get, proto.encode_attach_id(&buf, j.scratch[0]))
+	buf: [proto.ATTACH_GET_SIZE]u8
+	ask(
+		c,
+		j,
+		.Attach_Get,
+		proto.encode_attach_get(&buf, j.scratch[0], proto.Attach_Variant(j.scratch[1])),
+	)
 }
 
 // GET /blobs/{id}: a picture (an avatar, an emoji or the server's icon),

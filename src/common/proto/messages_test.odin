@@ -450,11 +450,14 @@ test_attachments_record :: proc(t: ^testing.T) {
 		name = "big.iso",
 	}
 	m.attachments[1] = {
-		blob   = 12,
-		size   = 7,
-		name   = "setup.exe",
-		width  = 1920,
-		height = 1080,
+		blob         = 12,
+		size         = 7,
+		name         = "setup.exe",
+		width        = 1920,
+		height       = 1080,
+		thumb_size   = 54321,
+		thumb_width  = 512,
+		thumb_height = 288,
 	}
 	buf: [MESSAGE_MAX_SIZE]u8
 	body := encode_message(buf[:], m)
@@ -467,6 +470,10 @@ test_attachments_record :: proc(t: ^testing.T) {
 	testing.expect_value(t, got.attachments[1].blob, Blob_Id(12))
 	testing.expect_value(t, got.attachments[1].width, 1920)
 	testing.expect_value(t, got.attachments[1].height, 1080)
+	testing.expect_value(t, got.attachments[1].thumb_size, u32(54321))
+	testing.expect_value(t, got.attachments[1].thumb_width, 512)
+	testing.expect_value(t, got.attachments[1].thumb_height, 288)
+	testing.expect_value(t, got.attachments[0].thumb_size, u32(0))
 	testing.expect_value(t, got.attachments[0].width, 0)
 
 	// The most a message can carry fits in MESSAGE_MAX_SIZE.
@@ -475,11 +482,14 @@ test_attachments_record :: proc(t: ^testing.T) {
 	m.attachment_count = MAX_ATTACHMENTS
 	for &a in m.attachments {
 		a = {
-			blob   = 1,
-			size   = 1,
-			name   = name,
-			width  = 65535,
-			height = 65535,
+			blob         = 1,
+			size         = 1,
+			name         = name,
+			width        = 65535,
+			height       = 65535,
+			thumb_size   = 0xffffffff,
+			thumb_width  = 65535,
+			thumb_height = 65535,
 		}
 	}
 	testing.expect(t, encode_message(buf[:], m) != nil)

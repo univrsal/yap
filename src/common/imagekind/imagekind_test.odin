@@ -254,3 +254,74 @@ test_stbi_readable :: proc(t: ^testing.T) {
 	testing.expect(t, !stbi_readable(transmute([]u8)string("BM")))
 	testing.expect(t, !stbi_readable(nil))
 }
+
+@(test)
+test_jpeg_orientation :: proc(t: ^testing.T) {
+	// SOI, APP1 with a TIFF whose first directory has one entry, the
+	// orientation, then a start of scan.
+	jpeg :: proc(order: string, value: u8) -> []u8 {
+		b := make([dynamic]u8, context.temp_allocator)
+		append(&b, 0xff, 0xd8, 0xff, 0xe1, 0, 34)
+		append(&b, 'E', 'x', 'i', 'f', 0, 0)
+		append(&b, order[0], order[1])
+		if order == "II" {
+			append(&b, 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, value, 0, 0, 0)
+		} else {
+			append(&b, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, value, 0, 0)
+		}
+		append(&b, 0, 0, 0, 0, 0xff, 0xda)
+		return b[:]
+	}
+	testing.expect_value(t, jpeg_orientation(jpeg("II", 6)), 6)
+	testing.expect_value(t, jpeg_orientation(jpeg("MM", 8)), 8)
+	testing.expect_value(t, jpeg_orientation(jpeg("II", 9)), 1)
+	testing.expect_value(t, jpeg_orientation(jpeg("MM", 0)), 1)
+	// Cut off inside the directory, not a JPEG, and no metadata at all.
+	testing.expect_value(t, jpeg_orientation(jpeg("II", 6)[:20]), 1)
+	testing.expect_value(t, jpeg_orientation(transmute([]u8)string("hello")), 1)
+	testing.expect_value(t, jpeg_orientation({0xff, 0xd8, 0xff, 0xda, 0, 2}), 1)
+}
+
+@(test)
+test_orient :: proc(t: ^testing.T) {
+	// 3 wide, 2 tall; each pixel's first byte says which it is.
+	pixels := make([]u8, 3 * 2 * 4, context.temp_allocator)
+	for i in 0 ..< 6 {
+		pixels[i * 4] = u8(i)
+	}
+	// Orientation 6 turns it a quarter clockwise: 2 wide, 3 tall, and what was
+	// the bottom-left pixel (3) is now the top-left.
+	out, w, h := orient_rgba(pixels, 3, 2, 6)
+	testing.expect_value(t, w, 2)
+	testing.expect_value(t, h, 3)
+	first := [6]u8{3, 0, 4, 1, 5, 2}
+	for want, i in first {
+		testing.expect_value(t, out[i * 4], want)
+	}
+	// 3 is upside down, 2 is mirrored, and 1 is left as it is.
+	delete(out)
+	out, w, h = orient_rgba(pixels, 3, 2, 3)
+	testing.expect_value(t, w, 3)
+	for want, i in ([6]u8{5, 4, 3, 2, 1, 0}) {
+		testing.expect_value(t, out[i * 4], want)
+	}
+	delete(out)
+	out, _, _ = orient_rgba(pixels, 3, 2, 2)
+	for want, i in ([6]u8{2, 1, 0, 5, 4, 3}) {
+		testing.expect_value(t, out[i * 4], want)
+	}
+	delete(out)
+	out, _, _ = orient_rgba(pixels, 3, 2, 1)
+	testing.expect(t, raw_data(out) == raw_data(pixels))
+}
+
+@(test)
+test_jpeg_orientation_of_a_file :: proc(t: ^testing.T) {
+	jpeg := #load("testdata/turned.jpg")
+	testing.expect_value(t, jpeg_orientation(jpeg), 6)
+	w, h, ok := dimensions(jpeg)
+	testing.expect(t, ok)
+	// The header states the size it is stored at.
+	testing.expect_value(t, w, 64)
+	testing.expect_value(t, h, 32)
+}

@@ -253,3 +253,22 @@ test_decode_other_formats_are_refused :: proc(t: ^testing.T) {
 	defer image_destroy(&img)
 	testing.expect_value(t, png_err, Error.None)
 }
+
+// A JPEG stored 64 wide and 32 tall, its left half red and its right half blue,
+// with the EXIF orientation 6 (a quarter turn clockwise) is decoded upright: 32
+// wide, 64 tall, red above blue.
+@(test)
+test_decode_jpeg_turned :: proc(t: ^testing.T) {
+	jpeg := #load("../../common/imagekind/testdata/turned.jpg")
+	img, err := decode(jpeg)
+	defer image_destroy(&img)
+	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, img.width, 32)
+	testing.expect_value(t, img.height, 64)
+	if err == .None {
+		top := img.pixels[(8 * 32 + 16) * 4:][:3]
+		bottom := img.pixels[(56 * 32 + 16) * 4:][:3]
+		testing.expect(t, top[0] > 150 && top[2] < 100, "the top is red")
+		testing.expect(t, bottom[2] > 150 && bottom[0] < 100, "the bottom is blue")
+	}
+}

@@ -57,6 +57,25 @@ under the sender's name.
 		if (typeof Module._web_drag === "function") Module._web_drag(over ? 1 : 0, dragX, dragY);
 	}
 
+	// The click that opens the file picker is never released as far as the page
+	// can tell: the native dialog takes the mouse-up. The client would go on
+	// believing that the button is held, which stops anything from being hovered
+	// (microui only hovers while no button is down) until the next click, and
+	// that click then only gets the hover going. A mouse move with no button down
+	// shows that the button is not held, which is told to the client.
+	let held = false;
+	window.addEventListener("mousedown", () => { held = true; }, true);
+	window.addEventListener("mouseup", () => { held = false; }, true);
+	window.addEventListener(
+		"mousemove",
+		(e) => {
+			if (!held || e.buttons !== 0) return;
+			held = false;
+			if (typeof Module._web_mouse_lost === "function") Module._web_mouse_lost();
+		},
+		true,
+	);
+
 	// Files dropped on the page are attached to the message being written
 	// (web_file_dropped). Without this the browser would open them.
 	window.addEventListener("dragover", (e) => {

@@ -388,6 +388,7 @@ upload_keep :: proc(s: ^Server, u: ^Conn, up: ^Attach_Upload) {
 		return
 	}
 	up.blob = blob
+	thumbnails_submit(s, blob)
 	up.kept_at = time.tick_now()
 	up.conn = nil
 	log.debugf("%s uploaded %q as blob %d", conn_label(u), up.name, blob)
@@ -396,7 +397,9 @@ upload_keep :: proc(s: ^Server, u: ^Conn, up: ^Attach_Upload) {
 
 // picture_size reads the size of a picture from the header of a complete
 // upload, as at most 65535 on each side so that a message can state it (the
-// shape is kept). It is 0 by 0 for anything else.
+// shape is kept). It is 0 by 0 for anything else. It is the size the picture is
+// shown at, which is not the size it is stored at for a JPEG that is turned
+// by its EXIF orientation (see imagekind.jpeg_orientation).
 @(private = "file")
 picture_size :: proc(up: ^Attach_Upload) -> (width, height: int) {
 	head := make([]u8, min(up.size, ATTACH_HEADER), context.temp_allocator)
@@ -404,6 +407,10 @@ picture_size :: proc(up: ^Attach_Upload) -> (width, height: int) {
 	w, h, ok := imagekind.dimensions(head[:max(n, 0)])
 	if !ok {
 		return 0, 0
+	}
+	// A JPEG turned by a quarter is shown with its sides the other way round.
+	if imagekind.is_jpeg(head) && imagekind.jpeg_orientation(head[:max(n, 0)]) >= 5 {
+		w, h = h, w
 	}
 	if side := max(w, h); side > 65535 {
 		w, h = max(w * 65535 / side, 1), max(h * 65535 / side, 1)
@@ -448,15 +455,23 @@ attach_upload_for :: proc(
 }
 
 attach_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
-	blob, ok := proto.decode_attach_id(body)
+	blob, variant, ok := proto.decode_attach_get(body)
 	if !ok {
 		respond(u, id, .Invalid)
 		return
 	}
-	b, found := blob_get(&s.blobs, Blob_Id(blob))
-	if !found || !attachment_visible(s, u.account.id, b.id) {
+	orig, found := blob_get(&s.blobs, Blob_Id(blob))
+	if !found || !attachment_visible(s, u.account.id, orig.id) {
 		respond(u, id, .Not_Found)
 		return
+	}
+	// What is sent is the original, or its thumbnail if that was asked for and
+	// there is one. Whether it may be fetched was decided by the original.
+	b := orig
+	if variant == .Thumbnail && orig.thumb > 0 {
+		if thumb, has := blob_get(&s.blobs, Blob_Id(orig.thumb)); has && thumb.kind == .Thumbnail {
+			b = thumb
+		}
 	}
 	answer: [proto.ATTACH_GET_ANSWER_SIZE]u8
 	busy := 0
@@ -698,21 +713,37 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 	}
 	q := db_query(&s.db, .Attach_Of_Msg, i64(m.id))
 	m.attachment_count = 0
+	unthumbed: [proto.MAX_ATTACHMENTS]Blob_Id
+	unthumbed_count := 0
 	for m.attachment_count < proto.MAX_ATTACHMENTS {
 		row, ok := db_step(&s.db, q)
 		if !ok || !row {
 			break
 		}
 		m.attachments[m.attachment_count] = {
-			blob   = proto.Blob_Id(db_col_int(q, 0)),
-			name   = db_col_text(q, 1),
-			size   = u64(db_col_int(q, 2)),
-			width  = int(db_col_int(q, 3)),
-			height = int(db_col_int(q, 4)),
+			blob         = proto.Blob_Id(db_col_int(q, 0)),
+			name         = db_col_text(q, 1),
+			size         = u64(db_col_int(q, 2)),
+			width        = int(db_col_int(q, 3)),
+			height       = int(db_col_int(q, 4)),
+			thumb_size   = u32(db_col_int(q, 5)),
+			thumb_width  = int(db_col_int(q, 6)),
+			thumb_height = int(db_col_int(q, 7)),
+		}
+		// A picture that nobody has made a thumbnail of yet (it was uploaded
+		// before there were any, or the server stopped first) gets one now that
+		// somebody is reading its message, and the message is sent again when it is
+		// made (thumbnails.odin).
+		if db_col_int(q, 8) == 0 && m.attachments[m.attachment_count].width > 0 {
+			unthumbed[unthumbed_count] = m.attachments[m.attachment_count].blob
+			unthumbed_count += 1
 		}
 		m.attachment_count += 1
 	}
 	sqlite.reset(q)
+	for blob in unthumbed[:unthumbed_count] {
+		thumbnails_submit(s, blob)
+	}
 	if m.attachment_count == 0 {
 		// There were no files after all, and a record can't claim to have
 		// files without listing any.

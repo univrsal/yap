@@ -52,6 +52,7 @@ Blob :: struct {
 	kind:          Blob_Kind,
 	width, height: int, // pixels, for a picture
 	created:       i64, // Unix milliseconds
+	thumb:         i64, // see Blob_Set_Thumb: 0 not looked at, -1 none, else its thumbnail's blob
 }
 
 Blob_Store :: struct {
@@ -326,6 +327,7 @@ blob_get :: proc(bs: ^Blob_Store, id: Blob_Id) -> (b: Blob, found: bool) {
 	b.width = int(db_col_int(q, 3))
 	b.height = int(db_col_int(q, 4))
 	b.created = db_col_int(q, 5)
+	b.thumb = db_col_int(q, 6)
 	return b, true
 }
 

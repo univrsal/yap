@@ -51,7 +51,8 @@ import "webpush"
 //		"attachments": {
 //			"max_megabytes": 100,
 //			"rate_kb": 2048,
-//			"daily_megabytes": 4096
+//			"daily_megabytes": 4096,
+//			"thumbnails": true
 //		},
 //		"email": {
 //			"address": "",
@@ -161,6 +162,15 @@ import "webpush"
 //            `daily_megabytes`: how much one account may upload in 24 hours,
 //            so that one account can't fill the disk. 0 means no limit. If
 //            left out, they are 100, 2048 and 4096.
+//            `thumbnails` (default true): the server makes a small copy of
+//            each picture that is uploaded (see thumbnails.odin). They are
+//            WebPs of at most `thumb_side` (512) pixels on the longer side
+//            at `thumb_quality` (65). Pictures under `thumb_min_kb` (64) that
+//            are no larger than that on screen get none, and neither do those
+//            over `thumb_megapixels` (64), which would take too much memory
+//            to decode. Pictures that were uploaded before are given thumbnails
+//            too: when somebody reads their message, and by a slow pass
+//            after each start, newest first.
 // email      The server's own email account (see mail/mail.odin). Without an
 //            `address`, the server has no email.
 //            `imap` and `smtp` are the URLs of the mail servers: use imaps://
@@ -291,9 +301,14 @@ Registration_Config :: struct {
 }
 
 Attach_Config :: struct {
-	max_megabytes:   int,
-	rate_kb:         int,
-	daily_megabytes: int, // 0 for no limit
+	max_megabytes:    int,
+	rate_kb:          int,
+	daily_megabytes:  int, // 0 for no limit
+	thumbnails:       bool, // make thumbnails of pictures (thumbnails.odin)
+	thumb_side:       int, // the longer side of a thumbnail, 0 for THUMB_SIDE
+	thumb_quality:    int, // WebP quality, 0 for THUMB_QUALITY
+	thumb_min_kb:     int, // smaller pictures get none, 0 for THUMB_MIN_KB
+	thumb_megapixels: int, // larger pictures get none, 0 for THUMB_MEGAPIXELS
 }
 
 Relay_Config :: struct {
@@ -375,7 +390,12 @@ default_config :: proc() -> Config {
 		memory_log_minutes = 60,
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
 		api = {max_connections = 64, rate = 10, burst = 30},
-		attachments = {max_megabytes = 100, rate_kb = 2048, daily_megabytes = 4096},
+		attachments = {
+			max_megabytes = 100,
+			rate_kb = 2048,
+			daily_megabytes = 4096,
+			thumbnails = true,
+		},
 		email = {check_auth_results = true},
 		video = {enabled = true, max_kbit = 20000, max_cameras = 9, camera_max_kbit = 4000},
 		push = {enabled = true},
@@ -576,6 +596,14 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	}
 	if attach.rate_kb == 0 {
 		attach.rate_kb = 2048
+	}
+	if attach.thumb_side < 0 ||
+	   attach.thumb_quality < 0 ||
+	   attach.thumb_quality > 100 ||
+	   attach.thumb_min_kb < 0 ||
+	   attach.thumb_megapixels < 0 {
+		log.errorf("%s: a thumbnail setting is out of range", path)
+		return
 	}
 
 	email := check_email(path, cfg.email) or_return
